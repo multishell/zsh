@@ -7,7 +7,7 @@
 local args defs
 
 defs=(
-  'commands:external command:compadd - ${(@k)commands}'
+  'commands:external command:compadd -k commands'
   'executables:executable file or directory:_path_files -/g \*\(-\*\)'
 )
 
@@ -17,10 +17,10 @@ else
   [[ "$1" = - ]] && shift
 
   defs=( "$defs[@]"
-    'builtins:builtin command:compadd - ${(@k)builtins}'
-    'functions:shell function:compadd - ${(@k)functions}'
-    'aliases:alias:compadd - ${(@k)aliases}'
-    'reserved-words:reserved word:compadd - ${(@k)reswords}'
+    'builtins:builtin command:compadd -k builtins'
+    'functions:shell function:compadd -k functions'
+    'aliases:alias:compadd -k aliases'
+    'reserved-words:reserved word:compadd -k reswords'
     'jobs:: _jobs -t'
     'parameters:: _parameters -qS= -r "\n\t\- =["'
   )

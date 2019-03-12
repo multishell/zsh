@@ -6,5 +6,5 @@ if [[ CURRENT -ge 3 ]]; then
 else
   local expl
 
-  _wanted commands expl 'external command' compadd "$@" - "${(k@)commands}"
+  _wanted commands expl 'external command' compadd "$@" -k commands
 fi

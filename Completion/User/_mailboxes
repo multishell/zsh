@@ -157,7 +157,7 @@ _mua_mailboxes() {
   esac
 
   (( $#mbox_names )) && _multi_parts "$@" / mbox_names && ret=0
-  (( $#mbox_short )) && compadd "$@" - "$mbox_short[@]" && ret=0
+  (( $#mbox_short )) && compadd "$@" -a mbox_short && ret=0
   return ret
 }
 

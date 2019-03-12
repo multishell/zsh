@@ -291,7 +291,7 @@ parse_cmatcher(char *name, char *s)
 	if (err)
 	    return pcm_err;
 
-	n = (Cmatcher) zcalloc(sizeof(*ret));
+	n = (Cmatcher) hcalloc(sizeof(*ret));
 	n->next = NULL;
 	n->flags = fl;
 	n->line = line;
@@ -568,9 +568,11 @@ bin_compadd(char *name, char **argv, char *ops, int func)
 		    return 1;
 		}
 		if (dm) {
-		    if (mstr)
-			mstr = tricat(mstr, " ", m);
-		    else
+		    if (mstr) {
+			char *tmp = tricat(mstr, " ", m);
+			zsfree(mstr);
+			mstr = tmp;
+		    } else
 			mstr = ztrdup(m);
 		    m = NULL;
 		}
@@ -1033,8 +1035,8 @@ set_compstate(Param pm, HashTable ht)
 	    for (cp = compkparams,
 		 pp = compkpms; cp->name; cp++, pp++)
 		if (!strcmp(hn->nam, cp->name)) {
-		    v.isarr = v.inv = v.a = 0;
-		    v.b = -1;
+		    v.isarr = v.inv = v.start = 0;
+		    v.end = -1;
 		    v.arr = NULL;
 		    v.pm = (Param) hn;
 		    if (cp->type == PM_INTEGER)

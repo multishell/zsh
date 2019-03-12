@@ -1,4 +1,4 @@
-.TH "ZSHCOMPWID" "1" "May 29, 2000" "zsh 3\&.1\&.7"
+.TH "ZSHCOMPWID" "1" "June 5, 2000" "zsh 3\&.1\&.8"
 .SH "NAME"
 zshcompwid \- zsh completion widgets
 .\" Yodl file: Zsh/compwid.yo
@@ -240,9 +240,12 @@ group, this group will show the \fBLIST_PACKED\fP behavior\&. The same is
 done for the \fBLIST_ROWS_FIRST\fP option with the substring \fBrows\fP\&.
 .PP
 Finally, if the value contains the string \fBexplanations\fP, only the
-explanation strings, if any, will be listed\&.  It will be set
-appropriately on entry to a completion widget and may be changed
-there\&.
+explanation strings, if any, will be listed and if it contains
+\fBmessages\fP, only the messages (added with the \fB\-x\fP option of
+\fBcompadd\fP) will be listed\&.  If it contains both \fBexplanations\fP and 
+\fBmessages\fP both kinds of explanation strings will be listed\&.  It
+will be set appropriately on entry to a completion widget and may be
+changed there\&.
 .RE
 .TP
 \fBlist_max\fP

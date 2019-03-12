@@ -92,7 +92,7 @@ _arguments -C -s \
   '(-e)--erase:*:uninstall:->uninstall' \
   '-b+[build mode (spec file)]:build stage:((p\:execute\ \%prep\ stage l\:do\ a\ list\ check c\:execute\ build\ stage i\:execute\ install\ stage b\:build\ a\ binary\ package a\:build\ binary\ and\ source\ packages)):*:build:->build_b' \
   '(-b)-t+[build mode (tar file)]:build stage:((p\:execute\ \%prep\ stage l\:do\ a\ list\ check c\:execute\ build\ stage i\:execute\ install\ stage b\:build\ a\ binary\ package a\:build\ binary\ and\ source\ packages)):*:build:->build_t' \
-  --{resign,addsign}':*:RPM package:->package' \
+  --{resign,addsign}':*:RPM package:->package_file' \
   '--rmsource:*:spec file:->spec_file' \
   --{rebuild,recompile}':*:Src RPM files:->package_src' \
   '(--checksig)-K+[signature check mode]:*:sigcheck:->sigcheck' \
@@ -211,12 +211,12 @@ while [[ -n "$state" ]]; do
         _files -g \*.spec && ret=0
     ;;
   package_file)
-    if compset -P ftp://; then
+    if compset -P '(f|ht)tp://'; then
       _hosts -S/ && ret=0
     else
       _alternative \
           'files:RPM package file:_files -g \*.\(\#i\)rpm' \
-          'prefixes:ftp URL prefix:compadd ftp://' && ret=0
+          'prefixes:URL prefix:compadd ftp:// http://' && ret=0
     fi
     ;;
   package_src)

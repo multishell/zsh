@@ -4,7 +4,7 @@ local expl
 
 if [[ "$words[2]" = -N && CURRENT -eq 3 ]]; then
   _wanted -C -N functions expl 'widget shell function' \
-      compadd "$@" - "${(k@)functions}"
+      compadd "$@" -k functions
 else
-  _wanted widgets expl widget compadd - "${(@k)widgets}"
+  _wanted widgets expl widget compadd -k widgets
 fi

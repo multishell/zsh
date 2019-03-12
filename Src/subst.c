@@ -1138,7 +1138,7 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 	    v = (Value) hcalloc(sizeof *v);
 	    v->isarr = isarr;
 	    v->pm = pm;
-	    v->b = -1;
+	    v->end = -1;
 	    if (getindex(&s, v) || s == os)
 		break;
 	}
@@ -1154,9 +1154,9 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 	    if (v->pm->flags & PM_ARRAY) {
 		int tmplen = arrlen(v->pm->gets.afn(v->pm));
 
-		if (v->a < 0)
-		    v->a += tmplen + v->inv;
-		if (!v->inv && (v->a >= tmplen || v->a < 0))
+		if (v->start < 0)
+		    v->start += tmplen + v->inv;
+		if (!v->inv && (v->start >= tmplen || v->start < 0))
 		    vunset = 1;
 	    }
 	    if (!vunset) {
@@ -1661,18 +1661,24 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 		aval = arrdup(aval), copied = 1;
 	    ap = aval;
 	    for (; *ap; ap++) {
+		char *tmps;
 		unmetafy(*ap, &len);
 		untokenize(*ap);
-		*ap = unmetafy(promptexpand(metafy(*ap, len, META_NOALLOC),
-					    0, NULL, NULL), &len);
+		tmps = unmetafy(promptexpand(metafy(*ap, len, META_NOALLOC),
+					     0, NULL, NULL), &len);
+		*ap = dupstring(tmps);
+		free(tmps);
 	    }
 	} else {
+	    char *tmps;
 	    if (!copied)
 		val = dupstring(val), copied = 1;
 	    unmetafy(val, &len);
 	    untokenize(val);
-	    val = unmetafy(promptexpand(metafy(val, len, META_NOALLOC),
+	    tmps = unmetafy(promptexpand(metafy(val, len, META_NOALLOC),
 					0, NULL, NULL), &len);
+	    val = dupstring(tmps);
+	    free(tmps);
 	}
 	opts[PROMPTSUBST] = ops;
 	opts[PROMPTBANG] = opb;

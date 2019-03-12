@@ -3,5 +3,5 @@
 local expl
 
 _alternative \
-  'aliases:regular alias:compadd - ${(@k)aliases}' \
-  'global-aliases:global alias:compadd - ${(@k)galiases}'
+  'aliases:regular alias:compadd -k aliases' \
+  'global-aliases:global alias:compadd -k galiases'

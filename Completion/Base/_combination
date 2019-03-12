@@ -88,7 +88,7 @@ if zstyle -a ":completion:${curcontext}:$tag" "$style" tmp; then
   fi
   tmp=( ${tmp%%${~sep}*} )
 
-  compadd "$@" - $tmp || { (( $+functions[_$key] )) && "_$key" "$@" }
+  compadd "$@" -a tmp || { (( $+functions[_$key] )) && "_$key" "$@" }
 else
   (( $+functions[_$key] )) && "_$key" "$@"
 fi
