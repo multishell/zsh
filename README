@@ -5,11 +5,12 @@ THE Z SHELL (ZSH)
 Version
 -------
 
-This is version 5.4.2 of the shell.  This is a stable release.  There
-are some significant bug fixes over 5.4.1 and a few visible improvements
-since 5.3.1, the previous widely released version, as well as many
-bug fixes.  Note in particular the changs highlighted under
-"Incompatibilites since 5.3.1" below.  See NEWS for more information.
+This is version 5.5 of the shell.  This is a stable release.  There
+are some significant bug fixes and a few user visible additions since
+5.4.2.  All zsh installations are encouraged to upgrade.
+
+Note in particular the changes highlighted under "Incompatibilities since
+5.4.2" below.  See NEWS for more information.
 
 Installing Zsh
 --------------
@@ -30,8 +31,44 @@ Zsh is a shell with lots of features.  For a list of some of these, see the
 file FEATURES, and for the latest changes see NEWS.  For more
 details, see the documentation.
 
-Incompatibilities since 5.3.1
+Incompatibilities since 5.4.2
 -----------------------------
+
+1) The default build-time maximum nested function depth has been
+decreased from 1000 to 500 based on user experience.  However,
+it can now be changed at run time via the variable FUNCNEST.
+If you previously configured the shell to set a different value,
+or to remove the check, this is now reflected in the default
+value of the variable.
+
+2) The syntax
+
+foo=([key]=value)
+
+can be used to set elements of arrays and associative arrays.  In the
+unlikely event that you need to set an array by matching files using a
+pattern that starts with a character range followed by '=', you need to
+quote the '=', e.g.:
+
+foo=([aeiou]\=vowel)
+
+This is only required for array values contained within parentheses;
+command line expansion for normal arguments has not changed.
+
+3) The syntax
+
+[[ -o foo ]]
+
+where foo is not the name of a shell option (with optional underscores
+and optional "no" prefix) used to be treated as a syntax error, i.e.,
+the enclosing command line or file were aborted.  It now emits a warning
+and returns a non-zero exit code.  For further details, see the
+documentation of the -o switch in the chapter "Conditional Expressions"
+in the zshmisc(1) manual.
+
+
+Incompatibilities between 5.3.1 and 5.4.2
+-----------------------------------------
 
 1) The default behaviour of code like the following has changed:
 
@@ -251,6 +288,17 @@ interface, exposing the builtin interface:
 This is also necessary in the unusual eventuality that the builtins are
 to be overridden by shell functions, since reserved words take
 precedence over functions.
+
+10) For compatilibity with other shells, the syntax
+
+array=([index]=value)
+
+can be used with both assoiative arrays and normal arrays.  In the
+unlikely event that you wish to create an array with an entry
+matching a file whose name consists of one of a range of characters
+matched as a [...] expression, followed by an equal sign, followed
+by arbitrary other charaters, it is now necessary to quote the equals
+sign.
 
 Incompatibilites between 5.0.7 and 5.0.8
 ----------------------------------------

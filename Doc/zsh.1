@@ -1,4 +1,4 @@
-.TH "ZSH" "1" "August 27, 2017" "zsh 5\&.4\&.2"
+.TH "ZSH" "1" "April 8, 2018" "zsh 5\&.5"
 .SH "NAME"
 zsh \- the Z shell
 .\" Yodl file: Zsh/intro.yo
@@ -199,6 +199,19 @@ the remaining arguments are assigned to the positional parameters\&.
 For further options, which are common to invocation and the \fBset\fP
 builtin, see
 \fIzshoptions\fP(1)\&.
+.PP
+The long option `\fB\-\fP\fB\-emulate\fP\&' followed (in a separate word) by an
+emulation mode may be passed to the shell\&.
+The emulation modes are those described for the \fBemulate\fP builtin,
+see
+\fIzshbuiltins\fP(1)\&.
+The `\fB\-\fP\fB\-emulate\fP\&' option must precede any other options (which might
+otherwise be overridden), but following options are honoured, so
+may be used to modify the requested emulation mode\&.  Note that certain
+extra steps are taken to ensure a smooth emulation when this option
+is used compared with the \fBemulate\fP command within the shell: for
+example, variables that conflict with POSIX usage such as \fBpath\fP are
+not defined within the shell\&.
 .PP
 Options may be specified by name using the \fB\-o\fP option\&.  \fB\-o\fP acts like
 a single\-letter option, but takes a following string as the option name\&.

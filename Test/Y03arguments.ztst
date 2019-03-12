@@ -184,6 +184,12 @@
 0:sticky option argument
 >line: {tst -x }{}
 
+ tst_arguments '-x:arg' -y -z
+ comptest $'tst -x -\t'
+0:option argument with prefix that passes option prefix-needed test
+>line: {tst -x -}{}
+>DESCRIPTION:{arg}
+
  tst_arguments '-x[desc]'
  comptest $'tst -x\t'
 0:end of option sequence
@@ -236,6 +242,27 @@
 >DESCRIPTION:{option}
 >NO:{-a}
 >NO:{-b}
+
+ tst_arguments '*'{-x+,--xxx=}':optarg:(1)' '*:operand:(a)'
+ comptest $'tst \t'
+ comptest $'tst -x \t'
+ comptest $'tst -x\t'
+ comptest $'tst --xxx=\t'
+ comptest $'tst --xxx \t'
+ comptest $'tst a -x\t'
+ comptest $'tst a -x \t'
+ comptest $'tst a --xxx=\t'
+ comptest $'tst a --xxx \t'
+0:optarg completion following rest operand on line (workers/42141)
+>line: {tst a }{}
+>line: {tst -x 1 }{}
+>line: {tst -x1 }{}
+>line: {tst --xxx=1 }{}
+>line: {tst --xxx 1 }{}
+>line: {tst a -x1 }{}
+>line: {tst a -x 1 }{}
+>line: {tst a --xxx=1 }{}
+>line: {tst a --xxx 1 }{}
 
  tst_arguments '-a' '*::rest:{compadd - -b}'
  comptest $'tst arg -\t'
@@ -333,6 +360,12 @@
 0:option after a word
 >line: {tst word -x }{}
 
+ tst_arguments -A '-*' -x --extra ::first
+ comptest $'tst word -\t'
+0:long option after word that doesn't match -A pattern
+>line: {tst word -}{}
+>MESSAGE:{no more arguments}
+
  tst_arguments -A'-*' -x :word
  comptest $'tst word -\t'
 0:option after word that doesn't match -A pattern, no space before pattern
@@ -357,6 +390,14 @@
  comptest $'tst -v -\t'
 0:repeatable options
 >line: {tst -v -v }{}
+
+ tst_arguments - set1 '--label=:arg:(a b)' - set2 ':rest:(rest args --label=not)'
+ comptest $'tst --label=\t'
+0:rest arguments from another set not completed after option from first set
+>line: {tst --label=}{}
+>DESCRIPTION:{arg}
+>NO:{a}
+>NO:{b}
 
  tst_arguments -A '-*' - help -h -V - other -a '*: :(-x more)'
  comptest $'tst -a -x m\t'
@@ -471,11 +512,17 @@
 >NO:{-c}
 >NO:{-g}
 
- tst_arguments '(-)-h' -a -b -c
+ tst_arguments '(-)-h' -a -b -c --long +p
  comptest $'tst -h -\t'
 0:exclude all other options
 >line: {tst -h -}{}
 >MESSAGE:{no arguments}
+
+ tst_arguments --args -b -c +p '(-)1:normal'
+ comptest $'tst arg -\t'
+0:exclude all options from a normal argument
+>line: {tst arg -}{}
+>MESSAGE:{no more arguments}
 
  tst_arguments -a '(-a)-b'
  comptest $'tst - -b\C-b\C-b\C-b\t'
@@ -679,6 +726,15 @@ F:shouldn't offer -t in the first case (with stacked options)
 0:partial completion of option with an argument
 >line: {tst --prefix=one }{}
 >line: {tst --prefix=one --prop=}{}
+
+ tst_arguments -s -W -a+:arg -b
+ comptest $'tst -a\t'
+0:with -W options mixed with arguments
+>line: {tst -a}{}
+>DESCRIPTION:{arg}
+>DESCRIPTION:{option}
+>NO:{-b}
+
 
 %clean
 

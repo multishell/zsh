@@ -1,4 +1,4 @@
-.TH "ZSHOPTIONS" "1" "August 27, 2017" "zsh 5\&.4\&.2"
+.TH "ZSHOPTIONS" "1" "April 8, 2018" "zsh 5\&.5"
 .SH "NAME"
 zshoptions \- zsh options
 .\" Yodl file: Zsh/options.yo
@@ -525,7 +525,7 @@ zsh sessions will all have the new entries from their history lists
 added to the history file, in the order that they exit\&.
 The file will still be periodically re\-written to trim it when the
 number of lines grows 20% beyond the value specified by
-\fB$SAVEHIST\fP (see also the HIST_SAVE_BY_COPY option)\&.
+\fB$SAVEHIST\fP (see also the \fBHIST_SAVE_BY_COPY\fP option)\&.
 .TP
 \fBBANG_HIST\fP (\fB+K\fP) <C> <Z>
 Perform textual history expansion, \fBcsh\fP\-style,
@@ -644,7 +644,7 @@ don\&'t execute the line directly; instead, perform
 history expansion and reload the line into the editing buffer\&.
 .TP
 \fBINC_APPEND_HISTORY\fP
-This options works like \fBAPPEND_HISTORY\fP except that new history lines
+This option works like \fBAPPEND_HISTORY\fP except that new history lines
 are added to the \fB$HISTFILE\fP incrementally (as soon as they are
 entered), rather than waiting until the shell exits\&.
 The file will still be periodically re\-written to trim it when the
@@ -909,12 +909,21 @@ the section SPECIAL FUNCTIONS in \fIzshmisc\fP(1)
 is not counted for this purpose\&.
 .RE
 .TP
+\fBCHECK_RUNNING_JOBS\fP <Z>
+Check for both running and suspended jobs when \fBCHECK_JOBS\fP is enabled\&.
+When this option is disabled, zsh checks only for suspended jobs, which
+matches the default behavior of bash\&.
+.RS
+.PP
+This option has no effect unless \fBCHECK_JOBS\fP is set\&.
+.RE
+.TP
 \fBHUP\fP <Z>
 Send the \fBHUP\fP signal to running jobs when the
 shell exits\&.
 .TP
 \fBLONG_LIST_JOBS\fP (\fB\-R\fP)
-List jobs in the long format by default\&.
+Print job notifications in the long format by default\&.
 .TP
 \fBMONITOR\fP (\fB\-m\fP, ksh: \fB\-m\fP)
 Allow job control\&.  Set by default in interactive shells\&.
@@ -1443,6 +1452,9 @@ command found in the path\&.
 Furthermore, the \fBgetopts\fP builtin behaves in a POSIX\-compatible
 fashion in that the associated variable \fBOPTIND\fP is not made
 local to functions\&.
+.PP
+Moreover, the warning and special exit code from
+\fB[[ \-o \fP\fInon_existent_option\fP\fB ]]\fP are suppressed\&.
 .RE
 .TP
 \fBPOSIX_IDENTIFIERS\fP <K> <S>

@@ -223,9 +223,16 @@ struct mathfunc {
  * tokens here.
  */
 /*
- * Marker used in paramsubst for rc_expand_param.
- * Also used in pattern character arrays as guaranteed not to
- * mark a character in a string.
+ * Marker is used in the following special circumstances:
+ * - In paramsubst for rc_expand_param.
+ * - In pattern character arrays as guaranteed not to mark a character in
+ *   a string.
+ * - In assignments with the ASSPM_KEY_VALUE flag set in order to
+ *   mark that there is a key / value pair following.  If this
+ *   comes from [key]=value the Marker is followed by a null;
+ *   if from [key]+=value the Marker is followed by a '+' then a null.
+ * All the above are local uses --- any case where the Marker has
+ * escaped beyond the context in question is an error.
  */
 #define Marker		((char) 0xa2)
 
@@ -1217,17 +1224,25 @@ struct alias {
 struct asgment {
     struct linknode node;
     char *name;
-    int is_array;
+    int flags;
     union {
 	char *scalar;
 	LinkList array;
     } value;
 };
 
+/* Flags for flags element of asgment */
+enum {
+    /* Array value */
+    ASG_ARRAY = 1,
+    /* Key / value array pair */
+    ASG_KEY_VALUE = 2
+};
+
 /*
  * Assignment is array?
  */
-#define ASG_ARRAYP(asg) ((asg)->is_array)
+#define ASG_ARRAYP(asg) ((asg)->flags & ASG_ARRAY)
 
 /*
  * Assignment has value?
@@ -1360,6 +1375,14 @@ struct options {
     char **args;
     int argscount, argsalloc;
 };
+
+/* Flags to parseargs() */
+
+enum {
+    PARSEARGS_TOPLEVEL = 0x1,	/* Call to initialise shell */
+    PARSEARGS_LOGIN    = 0x2	/* Shell is login shell */
+};
+
 
 /*
  * Handler arguments are: builtin name, null-terminated argument
@@ -1852,6 +1875,7 @@ struct tieddata {
 #define PM_DONTIMPORT_SUID (1<<19) /* do not import if running setuid */
 #define PM_LOADDIR      (1<<19) /* (function) filename gives load directory */
 #define PM_SINGLE       (1<<20) /* special can only have a single instance  */
+#define PM_ANONYMOUS    (1<<20) /* (function) anonymous function            */
 #define PM_LOCAL	(1<<21) /* this parameter will be made local        */
 #define PM_SPECIAL	(1<<22) /* special builtin parameter                */
 #define PM_DONTIMPORT	(1<<23)	/* do not import this variable              */
@@ -1890,6 +1914,7 @@ struct tieddata {
 				  * necessarily want to match multiple
 				  * elements
 				  */
+#define SCANPM_CHECKING   (1<<10) /* Check if set, no need to create */
 /* "$foo[@]"-style substitution
  * Only sign bit is significant
  */
@@ -1953,7 +1978,14 @@ enum {
     /* SHWORDSPLIT forced off in nested subst */
     PREFORK_NOSHWORDSPLIT = 0x20,
     /* Prefork is part of a parameter subexpression */
-    PREFORK_SUBEXP        = 0x40
+    PREFORK_SUBEXP        = 0x40,
+    /* Prefork detected an assignment list with [key]=value syntax,
+     * Only used on return from prefork, not meaningful passed down.
+     * Also used as flag to globlist.
+     */
+    PREFORK_KEY_VALUE     = 0x80,
+    /* No untokenise: used only as flag to globlist */
+    PREFORK_NO_UNTOK      = 0x100
 };
 
 /*
@@ -2052,6 +2084,11 @@ enum {
     ASSPM_WARN = (ASSPM_WARN_CREATE|ASSPM_WARN_NESTED),
     /* Import from environment, so exercise care evaluating value */
     ASSPM_ENV_IMPORT = 1 << 3,
+    /* Array is key / value pairs.
+     * This is normal for associative arrays but variant behaviour for
+     * normal arrays.
+     */
+    ASSPM_KEY_VALUE = 1 << 4
 };
 
 /* node for named directory hash table (nameddirtab) */
@@ -2092,13 +2129,14 @@ typedef groupset *Groupset;
 #define PRINT_KV_PAIR		(1<<3)
 #define PRINT_INCLUDEVALUE	(1<<4)
 #define PRINT_TYPESET		(1<<5)
+#define PRINT_LINE	        (1<<6)
 
 /* flags for printing for the whence builtin */
-#define PRINT_WHENCE_CSH	(1<<6)
-#define PRINT_WHENCE_VERBOSE	(1<<7)
-#define PRINT_WHENCE_SIMPLE	(1<<8)
-#define PRINT_WHENCE_FUNCDEF	(1<<9)
-#define PRINT_WHENCE_WORD	(1<<10)
+#define PRINT_WHENCE_CSH	(1<<7)
+#define PRINT_WHENCE_VERBOSE	(1<<8)
+#define PRINT_WHENCE_SIMPLE	(1<<9)
+#define PRINT_WHENCE_FUNCDEF	(1<<10)
+#define PRINT_WHENCE_WORD	(1<<11)
 
 /* Return values from loop() */
 
@@ -2301,6 +2339,7 @@ enum {
     CHASEDOTS,
     CHASELINKS,
     CHECKJOBS,
+    CHECKRUNNINGJOBS,
     CLOBBER,
     APPENDCREATE,
     COMBININGCHARS,
@@ -2953,10 +2992,12 @@ struct hist_stack {
     void (*hungetc) _((int));
     void (*hwaddc) _((int));
     void (*hwbegin) _((int));
+    void (*hwabort) _((void));
     void (*hwend) _((void));
     void (*addtoline) _((int));
     unsigned char *cstack;
     int csp;
+    int hist_keep_comment;
 };
 
 /*

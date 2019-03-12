@@ -315,7 +315,7 @@ putpromptchar(int doprint, int endchar, unsigned int *txtchangep)
 		case '/':
 		case 'C':
 		    /* `/' gives 0, `/any' gives 1, etc. */
-		    if (*ss++ == '/' && *ss)
+		    if (*ss && *ss++ == '/' && *ss)
 			arg--;
 		    for (; *ss; ss++)
 			if (*ss == '/')
@@ -1087,7 +1087,7 @@ countprompt(char *str, int *wp, int *hp, int overf)
 #endif
 
     for (; *str; str++) {
-	if (w >= zterm_columns && overf >= 0) {
+	if (w > zterm_columns && overf >= 0) {
 	    w = 0;
 	    h++;
 	}

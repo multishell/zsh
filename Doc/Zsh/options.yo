@@ -817,7 +817,7 @@ zsh sessions will all have the new entries from their history lists
 added to the history file, in the order that they exit.
 The file will still be periodically re-written to trim it when the
 number of lines grows 20% beyond the value specified by
-tt($SAVEHIST) (see also the HIST_SAVE_BY_COPY option).
+tt($SAVEHIST) (see also the tt(HIST_SAVE_BY_COPY) option).
 )
 pindex(BANG_HIST)
 pindex(NO_BANG_HIST)
@@ -1016,7 +1016,7 @@ pindex(INCAPPENDHISTORY)
 pindex(NOINCAPPENDHISTORY)
 cindex(history, incremental appending to a file)
 item(tt(INC_APPEND_HISTORY))(
-This options works like tt(APPEND_HISTORY) except that new history lines
+This option works like tt(APPEND_HISTORY) except that new history lines
 are added to the tt($HISTFILE) incrementally (as soon as they are
 entered), rather than waiting until the shell exits.
 The file will still be periodically re-written to trim it when the
@@ -1429,6 +1429,19 @@ ifnzman(the section Special Functions in noderef(Functions))\
 ifzman(the section SPECIAL FUNCTIONS in zmanref(zshmisc))
 is not counted for this purpose.
 )
+pindex(CHECK_RUNNING_JOBS)
+pindex(NO_CHECK_RUNNING_JOBS)
+pindex(CHECKRUNNINGJOBS)
+pindex(NOCHECKRUNNINGJOBS)
+cindex(exiting, checking running jobs when)
+cindex(logging out, checking running jobs when)
+item(tt(CHECK_RUNNING_JOBS) <Z>)(
+Check for both running and suspended jobs when tt(CHECK_JOBS) is enabled.
+When this option is disabled, zsh checks only for suspended jobs, which
+matches the default behavior of bash.
+
+This option has no effect unless tt(CHECK_JOBS) is set.
+)
 pindex(HUP)
 pindex(NO_HUP)
 pindex(NOHUP)
@@ -1443,7 +1456,7 @@ pindex(LONGLISTJOBS)
 pindex(NOLONGLISTJOBS)
 cindex(jobs, list format)
 item(tt(LONG_LIST_JOBS) (tt(-R)))(
-List jobs in the long format by default.
+Print job notifications in the long format by default.
 )
 pindex(MONITOR)
 pindex(NO_MONITOR)
@@ -2169,6 +2182,9 @@ command found in the path.
 Furthermore, the tt(getopts) builtin behaves in a POSIX-compatible
 fashion in that the associated variable tt(OPTIND) is not made
 local to functions.
+
+Moreover, the warning and special exit code from
+tt([[ -o )var(non_existent_option)tt( ]]) are suppressed.
 )
 pindex(POSIX_IDENTIFIERS)
 pindex(NO_POSIX_IDENTIFIERS)

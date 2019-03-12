@@ -46,6 +46,9 @@ void (*hwaddc) _((int));
 void (*hwbegin) _((int));
 
 /**/
+void (*hwabort) _((void));
+
+/**/
 void (*hwend) _((void));
 
 /**/
@@ -201,6 +204,13 @@ int hlinesz;
  
 static zlong defev;
 
+/*
+ * Flag that we stopped reading line when we got to a comment,
+ * but we want to keep it in the histofy even if there were no words
+ * (i.e. the comment was the entire line).
+ */
+static int hist_keep_comment;
+
 /* Remember the last line in the history file so we can find it again. */
 static struct histfile_stats {
     char *text;
@@ -250,10 +260,12 @@ hist_context_save(struct hist_stack *hs, int toplevel)
     hs->hungetc = hungetc;
     hs->hwaddc = hwaddc;
     hs->hwbegin = hwbegin;
+    hs->hwabort = hwabort;
     hs->hwend = hwend;
     hs->addtoline = addtoline;
     hs->hlinesz = hlinesz;
     hs->defev = defev;
+    hs->hist_keep_comment = hist_keep_comment;
     /*
      * We save and restore the command stack with history
      * as it's visible to the user interactively, so if
@@ -294,10 +306,12 @@ hist_context_restore(const struct hist_stack *hs, int toplevel)
     hungetc = hs->hungetc;
     hwaddc = hs->hwaddc;
     hwbegin = hs->hwbegin;
+    hwabort = hs->hwabort;
     hwend = hs->hwend;
     addtoline = hs->addtoline;
     hlinesz = hs->hlinesz;
     defev = hs->defev;
+    hist_keep_comment = hs->hist_keep_comment;
     if (cmdstack)
 	zfree(cmdstack, CMDSTACKSZ);
     cmdstack = hs->cstack;
@@ -451,8 +465,26 @@ herrflush(void)
 {
     inpopalias();
 
-    while (!lexstop && inbufct && !strin)
-	hwaddc(ingetc());
+    if (lexstop)
+	return;
+    /*
+     * The lex_add_raw test is needed if we are parsing a command
+     * substitution when expanding history for ZLE: strin is set but we
+     * need to finish off the input because the string we are reading is
+     * going to be used directly in the line that goes to ZLE.
+     *
+     * Note that this is a side effect --- this is not the usual reason
+     * for testing lex_add_raw which is to add the text to a different
+     * buffer used when we are actually parsing the command substituion
+     * (nothing to do with ZLE).  Sorry.
+     */
+    while (inbufct && (!strin || lex_add_raw)) {
+	int c = ingetc();
+	if (!lexstop) {
+	    hwaddc(c);
+	    addtoline(c);
+	}
+    }
 }
 
 /*
@@ -986,6 +1018,11 @@ nohw(UNUSED(int c))
 }
 
 static void
+nohwabort(void)
+{
+}
+
+static void
 nohwe(void)
 {
 }
@@ -1057,6 +1094,7 @@ hbegin(int dohist)
 	hungetc = inungetc;
 	hwaddc = nohw;
 	hwbegin = nohw;
+	hwabort = nohwabort;
 	hwend = nohwe;
 	addtoline = nohw;
     } else {
@@ -1066,6 +1104,7 @@ hbegin(int dohist)
 	hungetc = ihungetc;
 	hwaddc = ihwaddc;
 	hwbegin = ihwbegin;
+	hwabort = ihwabort;
 	hwend = ihwend;
 	addtoline = iaddtoline;
 	if (!isset(BANGHIST))
@@ -1083,7 +1122,6 @@ hbegin(int dohist)
     } else
 	histactive = HA_ACTIVE | HA_NOINC;
 
-    hf = getsparam("HISTFILE");
     /*
      * For INCAPPENDHISTORYTIME, when interactive, save the history here
      * as it gives a better estimate of the times of commands.
@@ -1104,8 +1142,10 @@ hbegin(int dohist)
      */
     if (isset(INCAPPENDHISTORYTIME) && !isset(SHAREHISTORY) &&
 	!isset(INCAPPENDHISTORY) &&
-	!(histactive & HA_NOINC) && !strin && histsave_stack_pos == 0)
+	!(histactive & HA_NOINC) && !strin && histsave_stack_pos == 0) {
+	hf = getsparam("HISTFILE");
 	savehistfile(hf, 0, HFILE_USE_OPTIONS | HFILE_FAST);
+    }
 }
 
 /**/
@@ -1449,7 +1489,7 @@ hend(Eprog prog)
 	    } else
 		save = 0;
 	}
-	if (chwordpos <= 2)
+	if (chwordpos <= 2 && !hist_keep_comment)
 	    save = 0;
 	else if (should_ignore_line(prog))
 	    save = -1;
@@ -1552,6 +1592,7 @@ hend(Eprog prog)
      */
     while (histsave_stack_pos > stack_pos)
 	pophiststack();
+    hist_keep_comment = 0;
     unqueue_signals();
     return !(flag & HISTFLAG_NOEXEC || errflag);
 }
@@ -1568,6 +1609,17 @@ ihwbegin(int offset)
     if (chwordpos%2)
 	chwordpos--;	/* make sure we're on a word start, not end */
     chwords[chwordpos++] = hptr - chline + offset;
+}
+
+/* Abort current history word, not needed */
+
+/**/
+void
+ihwabort(void)
+{
+    if (chwordpos%2)
+	chwordpos--;
+    hist_keep_comment = 1;
 }
 
 /* add a word to the history List */

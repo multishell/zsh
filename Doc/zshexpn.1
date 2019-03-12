@@ -1,4 +1,4 @@
-.TH "ZSHEXPN" "1" "August 27, 2017" "zsh 5\&.4\&.2"
+.TH "ZSHEXPN" "1" "April 8, 2018" "zsh 5\&.5"
 .SH "NAME"
 zshexpn \- zsh expansion and substitution
 .\" Yodl file: Zsh/expn.yo
@@ -65,10 +65,10 @@ EXPANSION OF PROMPT SEQUENCES in \fIzshmisc\fP(1)) is the number that is to be a
 .SS "Overview"
 A history expansion begins with the first character of the \fBhistchars\fP
 parameter, which is `\fB!\fP\&' by default, and may occur anywhere on the
-command line; history expansions do not nest\&.  The `\fB!\fP\&' can be escaped
-with `\fB\e\fP\&' or can be enclosed between a pair of single quotes (\fB''\fP)
-to suppress its special meaning\&.  Double quotes will \fInot\fP work for
-this\&.  Following this history character is an optional event designator
+command line, including inside double quotes (but not inside single quotes
+\fB\&'\&.\&.\&.'\fP or C\-style quotes \fB$'\&.\&.\&.'\fP nor when escaped with a backslash)\&.  
+.PP
+The first character is followed by an optional event designator
 (see the section `Event Designators\&') and then an optional word
 designator (the section `Word Designators\&'); if neither of these designators is
 present, no history expansion occurs\&.
@@ -77,6 +77,8 @@ Input lines containing history expansions are echoed after being expanded,
 but before any other expansions take place and before the command is
 executed\&.  It is this expanded form that is recorded as the history event
 for later references\&.
+.PP
+History expansions do not nest\&.
 .PP
 By default, a history reference with no event designator refers to the
 same event as any preceding history reference on that command line; if it
@@ -1104,9 +1106,10 @@ argument\&.  This is the reverse of `\fB~\fP\&' substitution:  see
 the section FILENAME EXPANSION below\&.
 .TP
 \fBe\fP
-Perform \fIparameter expansion\fP, \fIcommand substitution\fP and
-\fIarithmetic expansion\fP on the result\&. Such expansions can be
-nested but too deep recursion may have unpredictable effects\&.
+Perform single word shell expansions, namely \fIparameter expansion\fP,
+\fIcommand substitution\fP and \fIarithmetic expansion\fP, on the
+result\&. Such expansions can be nested but too deep recursion may have
+unpredictable effects\&.
 .TP
 \fBf\fP
 Split the result of the expansion at newlines\&. This is a shorthand

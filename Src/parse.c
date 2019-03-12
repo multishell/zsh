@@ -808,8 +808,13 @@ par_sublist(int *cmplx)
 				 WC_SUBLIST_END),
 			     f, (e - 1 - p), c);
 	    cmdpop();
-	} else
+	} else {
+	    if (tok == AMPER || tok == AMPERBANG) {
+		c = 1;
+		*cmplx |= c;
+	    }		
 	    set_sublist_code(p, WC_SUBLIST_END, f, (e - 1 - p), c);
+	}
 	return 1;
     } else {
 	ecused--;
@@ -1843,6 +1848,10 @@ par_simple(int *cmplx, int nr)
 	    incmdpos = oldcmdpos;
 	    isnull = 0;
 	    assignments = 1;
+	} else if (IS_REDIROP(tok)) {
+	    *cmplx = c = 1;
+	    nr += par_redir(&r, NULL);
+	    continue;
 	} else
 	    break;
 	zshlex();
@@ -2737,7 +2746,8 @@ freeeprog(Eprog p)
 	DPUTS(p->nref < 0 && !(p->flags & EF_HEAP), "Real EPROG has nref < 0");
 	DPUTS(p->nref < -1, "Uninitialised EPROG nref");
 #ifdef MAX_FUNCTION_DEPTH
-	DPUTS(p->nref > MAX_FUNCTION_DEPTH + 10, "Overlarge EPROG nref");
+	DPUTS(zsh_funcnest >=0 && p->nref > zsh_funcnest + 10,
+	      "Overlarge EPROG nref");
 #endif
 	if (p->nref > 0 && !--p->nref) {
 	    for (i = p->npats, pp = p->pats; i--; pp++)
@@ -3667,15 +3677,15 @@ try_dump_file(char *path, char *name, char *file, int *ksh, int test_only)
      * function. */
     queue_signals();
     if (!rd &&
-	(rc || std.st_mtime > stc.st_mtime) &&
-	(rn || std.st_mtime > stn.st_mtime) &&
+	(rc || std.st_mtime >= stc.st_mtime) &&
+	(rn || std.st_mtime >= stn.st_mtime) &&
 	(prog = check_dump_file(dig, &std, name, ksh, test_only))) {
 	unqueue_signals();
 	return prog;
     }
     /* No digest file. Now look for the per-function compiled file. */
     if (!rc &&
-	(rn || stc.st_mtime > stn.st_mtime) &&
+	(rn || stc.st_mtime >= stn.st_mtime) &&
 	(prog = check_dump_file(wc, &stc, name, ksh, test_only))) {
 	unqueue_signals();
 	return prog;
@@ -3714,7 +3724,7 @@ try_source_file(char *file)
     rn = stat(file, &stn);
 
     queue_signals();
-    if (!rc && (rn || stc.st_mtime > stn.st_mtime) &&
+    if (!rc && (rn || stc.st_mtime >= stn.st_mtime) &&
 	(prog = check_dump_file(wc, &stc, tail, NULL, 0))) {
 	unqueue_signals();
 	return prog;

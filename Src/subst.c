@@ -35,6 +35,50 @@
 /**/
 char nulstring[] = {Nularg, '\0'};
 
+/* Check for array assignent with entries like [key]=val.
+ *
+ * Insert Marker node, convert following nodes to list to alternate key
+ * / val form, perform appropriate substitution, and return last
+ * inserted (value) node if found.
+ *
+ * Caller to check errflag.
+ */
+
+/**/
+static LinkNode
+keyvalpairelement(LinkList list, LinkNode node)
+{
+    char *start, *end, *dat;
+
+    if ((start = (char *)getdata(node)) &&
+	start[0] == Inbrack &&
+	(end = strchr(start+1, Outbrack)) &&
+	/* ..]=value or ]+=Value */
+	(end[1] == Equals ||
+	 (end[1] == '+' && end[2] == Equals))) {
+	static char marker[2] = { Marker, '\0' };
+	static char marker_plus[3] = { Marker, '+', '\0' };
+	*end = '\0';
+
+	dat = start + 1;
+	singsub(&dat);
+	untokenize(dat);
+	if (end[1] == '+') {
+	    setdata(node, marker_plus);
+	    node = insertlinknode(list, node, dat);
+	    dat = end + 3;
+	} else {
+	    setdata(node, marker);
+	    node = insertlinknode(list, node, dat);
+	    dat = end + 2;
+	}
+	singsub(&dat);
+	untokenize(dat);
+	return insertlinknode(list, node, dat);
+    }
+    return NULL;
+}
+
 /* Do substitutions before fork. These are:
  *  - Process substitution: <(...), >(...), =(...)
  *  - Parameter substitution
@@ -46,24 +90,35 @@ char nulstring[] = {Nularg, '\0'};
  *
  * "flag"s contains PREFORK_* flags, defined in zsh.h.
  *
- * "ret_flags" is used to return values from nested parameter
- * substitions.  It may be NULL in which case PREFORK_SUBEXP
- * must not appear in flags; any return value from below
- * will be discarded.
+ * "ret_flags" is used to return PREFORK_* values from nested parameter
+ * substitions.  It may be NULL in which case PREFORK_SUBEXP must not
+ * appear in flags; any return value from below will be discarded.
  */
 
 /**/
 mod_export void
 prefork(LinkList list, int flags, int *ret_flags)
 {
-    LinkNode node, stop = 0;
+    LinkNode node, insnode, stop = 0;
     int keep = 0, asssub = (flags & PREFORK_TYPESET) && isset(KSHTYPESET);
     int ret_flags_local = 0;
     if (!ret_flags)
 	ret_flags = &ret_flags_local; /* will be discarded */
 
     queue_signals();
-    for (node = firstnode(list); node; incnode(node)) {
+    node = firstnode(list);
+    while (node) {
+	if ((flags & (PREFORK_SINGLE|PREFORK_ASSIGN)) == PREFORK_ASSIGN &&
+	    (insnode = keyvalpairelement(list, node))) {
+	    node = insnode;
+	    incnode(node);
+	    *ret_flags |= PREFORK_KEY_VALUE;
+	    continue;
+	}
+	if (errflag) {
+	    unqueue_signals();
+	    return;
+	}
 	if (isset(SHFILEEXPANSION)) {
 	    /*
 	     * Here and below we avoid taking the address
@@ -82,11 +137,29 @@ prefork(LinkList list, int flags, int *ret_flags)
 	     */
 	    setdata(node, cptr);
 	}
-	if (!(node = stringsubst(list, node,
-				 flags & ~(PREFORK_TYPESET|PREFORK_ASSIGN),
-				 ret_flags, asssub))) {
-	    unqueue_signals();
-	    return;
+	else
+	{
+	    if (!(node = stringsubst(list, node,
+				     flags & ~(PREFORK_TYPESET|PREFORK_ASSIGN),
+				     ret_flags, asssub))) {
+		unqueue_signals();
+		return;
+	    }
+	}
+	incnode(node);
+    }
+    if (isset(SHFILEEXPANSION)) {
+	/*
+	 * stringsubst() may insert new nodes, so doesn't work
+	 * well in the same loop as file expansion.
+	 */
+	for (node = firstnode(list); node; incnode(node)) {
+	    if (!(node = stringsubst(list, node,
+				     flags & ~(PREFORK_TYPESET|PREFORK_ASSIGN),
+				     ret_flags, asssub))) {
+		unqueue_signals();
+		return;
+	    }
 	}
     }
     for (node = firstnode(list); node; incnode(node)) {
@@ -107,7 +180,9 @@ prefork(LinkList list, int flags, int *ret_flags)
 		filesub(&cptr, flags & (PREFORK_TYPESET|PREFORK_ASSIGN));
 		setdata(node, cptr);
 	    }
-	} else if (!(flags & PREFORK_SINGLE) && !keep)
+	} else if (!(flags & PREFORK_SINGLE) &&
+		   !(*ret_flags & PREFORK_KEY_VALUE) &&
+		   !keep)
 	    uremnode(list, node);
 	if (errflag) {
 	    unqueue_signals();
@@ -400,16 +475,31 @@ quotesubst(char *str)
     return str;
 }
 
+/* Glob entries of a linked list.
+ *
+ * flags are from PREFORK_*, but only two are handled:
+ * - PREFORK_NO_UNTOK: pass into zglob() a flag saying do not untokenise.
+ * - PREFORK_KEY_VALUE: look out for Marker / Key / Value list triads
+ *   and don't glob them.  The key and value should already have
+ *   been untokenised as they are not subject to further expansion.
+ */
+
 /**/
 mod_export void
-globlist(LinkList list, int nountok)
+globlist(LinkList list, int flags)
 {
     LinkNode node, next;
 
     badcshglob = 0;
     for (node = firstnode(list); !errflag && node; node = next) {
 	next = nextnode(node);
-	zglob(list, node, nountok);
+	if ((flags & PREFORK_KEY_VALUE) &&
+	    *(char *)getdata(node) == Marker) {
+	    /* Skip key / value pair */
+	    next = nextnode(nextnode(next));
+	} else {
+	    zglob(list, node, (flags & PREFORK_NO_UNTOK) != 0);
+	}
     }
     if (noerrs)
 	badcshglob = 0;
@@ -2340,7 +2430,7 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int pf_flags,
 		val = aval[0];
 		isarr = 0;
 	    }
-	    s = dyncat(val, s);
+	    s = val ? dyncat(val, s) : dupstring(s);
 	    /* Now behave po-faced as if it was always like that... */
 	    subexp = 0;
 	    /*
@@ -2389,7 +2479,13 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int pf_flags,
      */
     if (!subexp || aspar) {
 	char *ov = val;
-
+	int scanflags = hkeys | hvals;
+	if (arrasg)
+	    scanflags |= SCANPM_ASSIGNING;
+	if (qt)
+	    scanflags |= SCANPM_DQUOTED;
+	if (chkset)
+	    scanflags |= SCANPM_CHECKING;
 	/*
 	 * Second argument: decide whether to use the subexpression or
 	 *   the string next on the line as the parameter name.
@@ -2418,9 +2514,7 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int pf_flags,
 	if (!(v = fetchvalue(&vbuf, (subexp ? &ov : &s),
 			     (wantt ? -1 :
 			      ((unset(KSHARRAYS) || inbrace) ? 1 : -1)),
-			     hkeys|hvals|
-			     (arrasg ? SCANPM_ASSIGNING : 0)|
-			     (qt ? SCANPM_DQUOTED : 0))) ||
+			     scanflags)) ||
 	    (v->pm && (v->pm->node.flags & PM_UNSET)) ||
 	    (v->flags & VALFLAG_EMPTY))
 	    vunset = 1;
@@ -3747,11 +3841,15 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int pf_flags,
 
 	if (isarr) {
 	    char **ap;
-	    for (ap = aval; *ap; ap++)
+	    for (ap = aval; *ap; ap++) {
+		untokenize(*ap);
 		list = bufferwords(list, *ap, NULL, shsplit);
+	    }
 	    isarr = 0;
-	} else
+	} else {
+	    untokenize(val);
 	    list = bufferwords(NULL, val, NULL, shsplit);
+	}
 
 	if (!list || !firstnode(list))
 	    val = dupstring("");

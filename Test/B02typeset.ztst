@@ -721,3 +721,101 @@
 # 'date' did not run.
 >Status is printed, 1
 *?*: failed to change user ID: *
+
+ typeset -A keyvalhash=([one]=eins [two]=zwei)
+ keyvalhash+=([three]=drei)
+ for key in ${(ok)keyvalhash}; do
+   print $key $keyvalhash[$key]
+ done
+0:[key]=val for hashes
+>one eins
+>three drei
+>two zwei
+
+  local keyvalarray=([1]=one [3]=three)
+  print -l "${keyvalarray[@]}"
+  keyvalarray+=([2]=two)
+  print -l "${keyvalarray[@]}"
+  local keyvalarray=([1]=one [3]=three)
+  print -l "${keyvalarray[@]}"
+0:[key]=val for normal arrays
+>one
+>
+>three
+>one
+>two
+>three
+>one
+>
+>three
+
+ touch foo Xnot_globbedX
+ inkey="another key" val="another value"
+ typeset -A keyvalhash=([$(echo the key)]=$(echo the value)
+                        [$inkey]=$val
+	                [*]=?not_globbed?)
+ for key in ${(ok)keyvalhash}; do
+   print -l $key $keyvalhash[$key]
+ done
+ typeset -A keyvalhash=([$(echo the key)]=$(echo the value)
+                        [$inkey]=$val
+	                [*]=?not_globbed?)
+ for key in ${(ok)keyvalhash}; do
+   print -l $key $keyvalhash[$key]
+ done
+ typeset -p keyvalhash
+0:Substitution in [key]=val syntax
+>*
+>?not_globbed?
+>another key
+>another value
+>the key
+>the value
+>*
+>?not_globbed?
+>another key
+>another value
+>the key
+>the value
+>typeset -A keyvalhash=( ['*']='?not_globbed?' ['another key']='another value' ['the key']='the value' )
+
+  local keyvalarray=(first [2]=second third [6]=sixth seventh [5]=fifth new_sixth)
+  print -l "${keyvalarray[@]}"
+0:mixed syntax [key]=val with normal arrays
+>first
+>second
+>third
+>
+>fifth
+>new_sixth
+>seventh
+
+  local -A keyvalhash=(1 one [2]=two 3 three)
+1:Mixed syntax with [key]=val not allowed for hash.
+?(eval):1: bad [key]=value syntax for associative array
+
+  local -a myarray
+  typeset -p1 myarray
+  myarray=("&" sand '""' "" plugh)
+  typeset -p1 myarray
+0:typeset -p1 output for array
+>typeset -a myarray=()
+>typeset -a myarray=(
+>  '&'
+>  sand
+>  '""'
+>  ''
+>  plugh
+>)
+
+  local -A myhash
+  typeset -p1 myhash
+  myhash=([one]=two [three]= [four]="[]")
+  typeset -p1 myhash
+0:typeset -p1 output for associative array
+>typeset -A myhash=()
+>typeset -A myhash=(
+>  [four]='[]'
+>  [one]=two
+>  [three]=''
+>)

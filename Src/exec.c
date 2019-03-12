@@ -41,6 +41,20 @@ enum {
     ADDVAR_RESTORE =  1 << 2
 };
 
+/* Structure in which to save values around shell function call */
+
+struct funcsave {
+    char opts[OPT_SIZE];
+    char *argv0;
+    int zoptind, lastval, optcind, numpipestats;
+    int *pipestats;
+    char *scriptname;
+    int breaks, contflag, loops, emulation, noerrexit, oflags, restore_sticky;
+    Emulation_options sticky;
+    struct funcstack fstack;
+};
+typedef struct funcsave *Funcsave;
+
 /*
  * used to suppress ERREXIT and trapping of SIGZERR, SIGEXIT.
  * Bits from noerrexit_bits.
@@ -920,7 +934,7 @@ hashcmd(char *arg0, char **pp)
     for (; *pp; pp++)
 	if (**pp == '/') {
 	    s = buf;
-	    strucpy(&s, *pp);
+	    struncpy(&s, *pp, PATH_MAX);
 	    *s++ = '/';
 	    if ((s - buf) + strlen(arg0) >= PATH_MAX)
 		continue;
@@ -1305,7 +1319,9 @@ execlist(Estate state, int dont_change_job, int exiting)
 	    noerrexit = NOERREXIT_EXIT | NOERREXIT_RETURN;
 	    if (ltype & Z_SIMPLE) /* skip the line number */
 		pc2++;
-	    pm = setsparam("ZSH_DEBUG_CMD", getpermtext(state->prog, pc2, 0));
+	    pm = assignsparam("ZSH_DEBUG_CMD",
+			      getpermtext(state->prog, pc2, 0),
+			      0);
 
 	    exiting = donetrap;
 	    ret = lastval;
@@ -2325,16 +2341,19 @@ addfd(int forked, int *save, struct multio **mfds, int fd1, int fd2, int rflag,
 		     * fd1 may already be closed here, so
 		     * ignore bad file descriptor error
 		     */
-		    if (fdN < 0 && errno != EBADF) {
-			zerr("cannot duplicate fd %d: %e", fd1, errno);
-			mfds[fd1] = NULL;
-			closemnodes(mfds);
-			return;
+		    if (fdN < 0) {
+			if (errno != EBADF) {
+			    zerr("cannot duplicate fd %d: %e", fd1, errno);
+			    mfds[fd1] = NULL;
+			    closemnodes(mfds);
+			    return;
+			}
+		    } else {
+			DPUTS(fdtable[fdN] != FDT_INTERNAL,
+			      "Saved file descriptor not marked as internal");
+			fdtable[fdN] |= FDT_SAVED_MASK;
 		    }
 		    save[fd1] = fdN;
-		    DPUTS(fdtable[fdN] != FDT_INTERNAL,
-			  "Saved file descriptor not marked as internal");
-		    fdtable[fdN] |= FDT_SAVED_MASK;
 		}
 	    }
 	}
@@ -2428,29 +2447,37 @@ addvars(Estate state, Wordcode pc, int addflags)
 	if ((isstr = (WC_ASSIGN_TYPE(ac) == WC_ASSIGN_SCALAR))) {
 	    init_list1(svl, ecgetstr(state, EC_DUPTOK, &htok));
 	    vl = &svl;
-	} else
+	} else {
 	    vl = ecgetlist(state, WC_ASSIGN_NUM(ac), EC_DUPTOK, &htok);
-
-	if (vl && htok) {
-	    prefork(vl, (isstr ? (PREFORK_SINGLE|PREFORK_ASSIGN) :
-			 PREFORK_ASSIGN), NULL);
 	    if (errflag) {
 		state->pc = opc;
 		return;
 	    }
+	}
+
+	if (vl && htok) {
+	    int prefork_ret = 0;
+	    prefork(vl, (isstr ? (PREFORK_SINGLE|PREFORK_ASSIGN) :
+			 PREFORK_ASSIGN), &prefork_ret);
+	    if (errflag) {
+		state->pc = opc;
+		return;
+	    }
+	    if (prefork_ret & PREFORK_KEY_VALUE)
+		myflags |= ASSPM_KEY_VALUE;
 	    if (!isstr || (isset(GLOBASSIGN) && isstr &&
 			   haswilds((char *)getdata(firstnode(vl))))) {
-		globlist(vl, 0);
+		globlist(vl, prefork_ret);
 		/* Unset the parameter to force it to be recreated
 		 * as either scalar or array depending on how many
 		 * matches were found for the glob.
 		 */
 		if (isset(GLOBASSIGN) && isstr)
-		    unsetparam(name);
-	    }
-	    if (errflag) {
-		state->pc = opc;
-		return;
+			unsetparam(name);
+		if (errflag) {
+		    state->pc = opc;
+		    return;
+		}
 	    }
 	}
 	if (isstr && (empty(vl) || !nextnode(firstnode(vl)))) {
@@ -3007,6 +3034,9 @@ execcmd_exec(Estate state, Execcmd_params eparams,
 		}
 		if (exec_argv0) {
 		    char *str, *s;
+		    exec_argv0 = dupstring(exec_argv0);
+		    remnulargs(exec_argv0);
+		    untokenize(exec_argv0);
 		    size_t sz = strlen(exec_argv0);
 		    str = s = zalloc(5 + 1 + sz + 1);
 		    strcpy(s, "ARGV0=");
@@ -3025,7 +3055,7 @@ execcmd_exec(Estate state, Execcmd_params eparams,
 	preargs = NULL;
 
     /* if we get this far, it is OK to pay attention to lastval again */
-    if ((noerrexit & NOERREXIT_UNTIL_EXEC) && !is_shfunc)
+    if (noerrexit & NOERREXIT_UNTIL_EXEC)
 	noerrexit = 0;
 
     /* Do prefork substitutions.
@@ -3188,7 +3218,8 @@ execcmd_exec(Estate state, Execcmd_params eparams,
     }
 
     if (errflag) {
-	lastval = 1;
+	if (!lastval)
+	    lastval = 1;
 	if (oautocont >= 0)
 	    opts[AUTOCONTINUE] = oautocont;
 	return;
@@ -3222,19 +3253,24 @@ execcmd_exec(Estate state, Execcmd_params eparams,
 
 	    next = nextnode(node);
 	    if (s[0] == Star && !s[1]) {
-		if (!checkrmall(pwd))
-		    uremnode(args, node);
+		if (!checkrmall(pwd)) {
+		    errflag |= ERRFLAG_ERROR;
+		    break;
+		}
 	    } else if (l >= 2 && s[l - 2] == '/' && s[l - 1] == Star) {
 		char t = s[l - 2];
+		int rmall;
 
 		s[l - 2] = 0;
-		if (!checkrmall(*s ? s : "/"))
-		    uremnode(args, node);
+		rmall = checkrmall(s);
 		s[l - 2] = t;
+
+		if (!rmall) {
+		    errflag |= ERRFLAG_ERROR;
+		    break;
+		}
 	    }
 	}
-	if (!nextnode(firstnode(args)))
-	    errflag |= ERRFLAG_ERROR;
     }
 
     if (type == WC_FUNCDEF) {
@@ -3911,7 +3947,7 @@ execcmd_exec(Estate state, Execcmd_params eparams,
 				while ((data = ugetnode(&svl))) {
 				    char *ptr;
 				    asg = (Asgment)zhalloc(sizeof(struct asgment));
-				    asg->is_array = 0;
+				    asg->flags = 0;
 				    if ((ptr = strchr(data, '='))) {
 					*ptr++ = '\0';
 					asg->name = data;
@@ -3933,7 +3969,7 @@ execcmd_exec(Estate state, Execcmd_params eparams,
 			asg->name = name;
 			if (WC_ASSIGN_TYPE(ac) == WC_ASSIGN_SCALAR) {
 			    char *val = ecgetstr(state, EC_DUPTOK, &htok);
-			    asg->is_array = 0;
+			    asg->flags = 0;
 			    if (WC_ASSIGN_TYPE2(ac) == WC_ASSIGN_INC) {
 				/* Fake assignment, no value */
 				asg->value.scalar = NULL;
@@ -3958,18 +3994,24 @@ execcmd_exec(Estate state, Execcmd_params eparams,
 				asg->value.scalar = val;
 			    }
 			} else {
-			    asg->is_array = 1;
+			    asg->flags = ASG_ARRAY;
 			    asg->value.array =
 				ecgetlist(state, WC_ASSIGN_NUM(ac),
 					  EC_DUPTOK, &htok);
 			    if (asg->value.array)
 			    {
-				prefork(asg->value.array, PREFORK_ASSIGN, NULL);
-				if (errflag) {
-				    state->pc = opc;
-				    break;
+				if (!errflag) {
+				    int prefork_ret = 0;
+				    prefork(asg->value.array, PREFORK_ASSIGN,
+					    &prefork_ret);
+				    if (errflag) {
+					state->pc = opc;
+					break;
+				    }
+				    if (prefork_ret & PREFORK_KEY_VALUE)
+					asg->flags |= ASG_KEY_VALUE;
+				    globlist(asg->value.array, prefork_ret);
 				}
-				globlist(asg->value.array, 0);
 				if (errflag) {
 				    state->pc = opc;
 				    break;
@@ -3982,8 +4024,15 @@ execcmd_exec(Estate state, Execcmd_params eparams,
 		    state->pc = opc;
 		}
 		dont_queue_signals();
-		if (!errflag)
-		    lastval = execbuiltin(args, assigns, (Builtin) hn);
+		if (!errflag) {
+		    int ret = execbuiltin(args, assigns, (Builtin) hn);
+		    /*
+		     * In case of interruption assume builtin status
+		     * is less useful than what interrupt set.
+		     */
+		    if (!(errflag & ERRFLAG_INT))
+			lastval = ret;
+		}
 		if (do_save & BINF_COMMAND)
 		    errflag &= ~ERRFLAG_ERROR;
 		restore_queue_signals(q);
@@ -4338,8 +4387,17 @@ gethere(char **strp, int typ)
 		bptr = buf + bsiz;
 		bsiz *= 2;
 	    }
-	    if (lexstop || c == '\n')
+	    if (lexstop)
 		break;
+	    if (c == '\n') {
+		if (!qt && bptr > t && *(bptr - 1) == '\\') {
+		    /* line continuation */
+		    bptr--;
+		    c = hgetc();
+		    continue;
+		} else
+		    break;
+	    }
 	    *bptr++ = c;
 	    c = hgetc();
 	}
@@ -4438,12 +4496,19 @@ getoutput(char *cmd, int qt)
     pid_t pid;
     char *s;
 
-    if (!(prog = parse_string(cmd, 0)))
+    int onc = nocomments;
+    nocomments = (interact && unset(INTERACTIVECOMMENTS));
+    prog = parse_string(cmd, 0);
+    nocomments = onc;
+
+    if (!prog)
 	return NULL;
 
     if ((s = simple_redir_name(prog, REDIR_READ))) {
 	/* $(< word) */
 	int stream;
+	LinkList retval;
+	int readerror;
 
 	singsub(&s);
 	if (errflag)
@@ -4451,9 +4516,15 @@ getoutput(char *cmd, int qt)
 	untokenize(s);
 	if ((stream = open(unmeta(s), O_RDONLY | O_NOCTTY)) == -1) {
 	    zwarn("%e: %s", errno, s);
+	    lastval = cmdoutval = 1;
 	    return newlinklist();
 	}
-	return readoutput(stream, qt);
+	retval = readoutput(stream, qt, &readerror);
+	if (readerror) {
+	  zwarn("error when reading %s: %e", s, readerror);
+	  lastval = cmdoutval = 1;
+	}
+	return retval;
     }
     if (mpipe(pipes) < 0) {
 	errflag |= ERRFLAG_ERROR;
@@ -4474,7 +4545,7 @@ getoutput(char *cmd, int qt)
 	LinkList retval;
 
 	zclose(pipes[1]);
-	retval = readoutput(pipes[0], qt);
+	retval = readoutput(pipes[0], qt, NULL);
 	fdtable[pipes[0]] = FDT_UNUSED;
 	waitforpid(pid, 0);		/* unblocks */
 	lastval = cmdoutval;
@@ -4499,7 +4570,7 @@ getoutput(char *cmd, int qt)
 
 /**/
 mod_export LinkList
-readoutput(int in, int qt)
+readoutput(int in, int qt, int *readerror)
 {
     LinkList ret;
     char *buf, *ptr;
@@ -4528,6 +4599,8 @@ readoutput(int in, int qt)
 	}
 	*ptr++ = c;
     }
+    if (readerror)
+	*readerror = ferror(fin) ? errno : 0;
     fclose(fin);
     while (cnt && ptr[-1] == '\n')
 	ptr--, cnt--;
@@ -5037,7 +5110,11 @@ execfuncdef(Estate state, Eprog redir_prog)
 	shf->node.flags = 0;
 	/* No dircache here, not a directory */
 	shf->filename = ztrdup(scriptfilename);
-	shf->lineno = lineno;
+	shf->lineno =
+	    (funcstack && (funcstack->tp == FS_FUNC ||
+			   funcstack->tp == FS_EVAL)) ?
+	    funcstack->flineno + lineno :
+	    lineno;
 	/*
 	 * redir_prog is permanently allocated --- but if
 	 * this function has multiple names we need an additional
@@ -5057,6 +5134,7 @@ execfuncdef(Estate state, Eprog redir_prog)
 	    LinkList args;
 
 	    anon_func = 1;
+	    shf->node.flags |= PM_ANONYMOUS;
 
 	    state->pc = end;
 	    end += *state->pc++;
@@ -5462,36 +5540,36 @@ int sticky_emulation_differs(Emulation_options sticky2)
 mod_export int
 doshfunc(Shfunc shfunc, LinkList doshargs, int noreturnval)
 {
-    char **pptab, **x, *oargv0;
-    int oldzoptind, oldlastval, oldoptcind, oldnumpipestats, ret;
-    int *oldpipestats = NULL;
-    char saveopts[OPT_SIZE], *oldscriptname = scriptname;
+    char **pptab, **x;
+    int ret;
     char *name = shfunc->node.nam;
-    int flags = shfunc->node.flags, ooflags;
-    int savnoerrexit;
+    int flags = shfunc->node.flags;
     char *fname = dupstring(name);
-    int obreaks, ocontflag, oloops, saveemulation, restore_sticky;
     Eprog prog;
-    struct funcstack fstack;
     static int oflags;
-    Emulation_options save_sticky = NULL;
-#ifdef MAX_FUNCTION_DEPTH
     static int funcdepth;
-#endif
     Heap funcheap;
 
     queue_signals();	/* Lots of memory and global state changes coming */
 
     NEWHEAPS(funcheap) {
-	oargv0 = NULL;
-	obreaks = breaks;
-	ocontflag = contflag;
-	oloops = loops;
+	/*
+	 * Save data in heap rather than on stack to keep recursive
+	 * function cost down --- use of heap memory should be efficient
+	 * at this point.  Saving is not actually massive.
+	 */
+	Funcsave funcsave = zhalloc(sizeof(struct funcsave));
+	funcsave->scriptname = scriptname;
+	funcsave->argv0 = NULL;
+	funcsave->breaks = breaks;
+	funcsave->contflag = contflag;
+	funcsave->loops = loops;
+	funcsave->lastval = lastval;
+	funcsave->pipestats = NULL;
+	funcsave->numpipestats = numpipestats;
+	funcsave->noerrexit = noerrexit;
 	if (trap_state == TRAP_STATE_PRIMED)
 	    trap_return--;
-	oldlastval = lastval;
-	oldnumpipestats = numpipestats;
-	savnoerrexit = noerrexit;
 	/*
 	 * Suppression of ERR_RETURN is turned off in function scope.
 	 */
@@ -5502,8 +5580,8 @@ doshfunc(Shfunc shfunc, LinkList doshargs, int noreturnval)
 	     * immediately by a pushheap/popheap pair.
 	     */
 	    size_t bytes = sizeof(int)*numpipestats;
-	    oldpipestats = (int *)zhalloc(bytes);
-	    memcpy(oldpipestats, pipestats, bytes);
+	    funcsave->pipestats = (int *)zhalloc(bytes);
+	    memcpy(funcsave->pipestats, pipestats, bytes);
 	}
 
 	starttrapscope();
@@ -5512,8 +5590,8 @@ doshfunc(Shfunc shfunc, LinkList doshargs, int noreturnval)
 	pptab = pparams;
 	if (!(flags & PM_UNDEFINED))
 	    scriptname = dupstring(name);
-	oldzoptind = zoptind;
-	oldoptcind = optcind;
+	funcsave->zoptind = zoptind;
+	funcsave->optcind = optcind;
 	if (!isset(POSIXBUILTINS)) {
 	    zoptind = 1;
 	    optcind = 0;
@@ -5522,9 +5600,9 @@ doshfunc(Shfunc shfunc, LinkList doshargs, int noreturnval)
 	/* We need to save the current options even if LOCALOPTIONS is *
 	 * not currently set.  That's because if it gets set in the    *
 	 * function we need to restore the original options on exit.   */
-	memcpy(saveopts, opts, sizeof(opts));
-	saveemulation = emulation;
-	save_sticky = sticky;
+	memcpy(funcsave->opts, opts, sizeof(opts));
+	funcsave->emulation = emulation;
+	funcsave->sticky = sticky;
 
 	if (sticky_emulation_differs(shfunc->sticky)) {
 	    /*
@@ -5541,7 +5619,7 @@ doshfunc(Shfunc shfunc, LinkList doshargs, int noreturnval)
 	     */
 	    sticky = sticky_emulation_dup(shfunc->sticky, 1);
 	    emulation = sticky->emulation;
-	    restore_sticky = 1;
+	    funcsave->restore_sticky = 1;
 	    installemulation(emulation, opts);
 	    if (sticky->n_on_opts) {
 		OptIndex *onptr;
@@ -5560,7 +5638,7 @@ doshfunc(Shfunc shfunc, LinkList doshargs, int noreturnval)
 	    /* All emulations start with pattern disables clear */
 	    clearpatterndisables();
 	} else
-	    restore_sticky = 0;
+	    funcsave->restore_sticky = 0;
 
 	if (flags & (PM_TAGGED|PM_TAGGED_LOCAL))
 	    opts[XTRACE] = 1;
@@ -5578,11 +5656,11 @@ doshfunc(Shfunc shfunc, LinkList doshargs, int noreturnval)
 	    else
 		opts[WARNNESTEDVAR] = 0;
 	}
-	ooflags = oflags;
+	funcsave->oflags = oflags;
 	/*
 	 * oflags is static, because we compare it on the next recursive
-	 * call.  Hence also we maintain ooflags for restoring the previous
-	 * value of oflags after the call.
+	 * call.  Hence also we maintain a saved version for restoring
+	 * the previous value of oflags after the call.
 	 */
 	oflags = flags;
 	opts[PRINTEXITVALUE] = 0;
@@ -5593,7 +5671,7 @@ doshfunc(Shfunc shfunc, LinkList doshargs, int noreturnval)
 	    pparams = x = (char **) zshcalloc(((sizeof *x) *
 					       (1 + countlinknodes(doshargs))));
 	    if (isset(FUNCTIONARGZERO)) {
-		oargv0 = argzero;
+		funcsave->argv0 = argzero;
 		argzero = ztrdup(getdata(node));
 	    }
 	    /* first node contains name regardless of option */
@@ -5603,32 +5681,31 @@ doshfunc(Shfunc shfunc, LinkList doshargs, int noreturnval)
 	} else {
 	    pparams = (char **) zshcalloc(sizeof *pparams);
 	    if (isset(FUNCTIONARGZERO)) {
-		oargv0 = argzero;
+		funcsave->argv0 = argzero;
 		argzero = ztrdup(argzero);
 	    }
 	}
-#ifdef MAX_FUNCTION_DEPTH
-	if(++funcdepth > MAX_FUNCTION_DEPTH)
-	    {
-		zerr("maximum nested function level reached");
-		goto undoshfunc;
-	    }
-#endif
-	fstack.name = dupstring(name);
+	++funcdepth;
+	if (zsh_funcnest >= 0 && funcdepth > zsh_funcnest) {
+	    zerr("maximum nested function level reached; increase FUNCNEST?");
+	    lastval = 1;
+	    goto undoshfunc;
+	}
+	funcsave->fstack.name = dupstring(name);
 	/*
 	 * The caller is whatever is immediately before on the stack,
 	 * unless we're at the top, in which case it's the script
 	 * or interactive shell name.
 	 */
-	fstack.caller = funcstack ? funcstack->name :
-	    dupstring(oargv0 ? oargv0 : argzero);
-	fstack.lineno = lineno;
-	fstack.prev = funcstack;
-	fstack.tp = FS_FUNC;
-	funcstack = &fstack;
+	funcsave->fstack.caller = funcstack ? funcstack->name :
+	    dupstring(funcsave->argv0 ? funcsave->argv0 : argzero);
+	funcsave->fstack.lineno = lineno;
+	funcsave->fstack.prev = funcstack;
+	funcsave->fstack.tp = FS_FUNC;
+	funcstack = &funcsave->fstack;
 
-	fstack.flineno = shfunc->lineno;
-	fstack.filename = getshfuncfile(shfunc);
+	funcsave->fstack.flineno = shfunc->lineno;
+	funcsave->fstack.filename = getshfuncfile(shfunc);
 
 	prog = shfunc->funcdef;
 	if (prog->flags & EF_RUN) {
@@ -5636,7 +5713,7 @@ doshfunc(Shfunc shfunc, LinkList doshargs, int noreturnval)
 
 	    prog->flags &= ~EF_RUN;
 
-	    runshfunc(prog, NULL, fstack.name);
+	    runshfunc(prog, NULL, funcsave->fstack.name);
 
 	    if (!(shf = (Shfunc) shfunctab->getnode(shfunctab,
 						    (name = fname)))) {
@@ -5649,54 +5726,52 @@ doshfunc(Shfunc shfunc, LinkList doshargs, int noreturnval)
 	    }
 	    prog = shf->funcdef;
 	}
-	runshfunc(prog, wrappers, fstack.name);
+	runshfunc(prog, wrappers, funcsave->fstack.name);
     doneshfunc:
-	funcstack = fstack.prev;
-#ifdef MAX_FUNCTION_DEPTH
+	funcstack = funcsave->fstack.prev;
     undoshfunc:
 	--funcdepth;
-#endif
 	if (retflag) {
 	    retflag = 0;
-	    breaks = obreaks;
+	    breaks = funcsave->breaks;
 	}
 	freearray(pparams);
-	if (oargv0) {
+	if (funcsave->argv0) {
 	    zsfree(argzero);
-	    argzero = oargv0;
+	    argzero = funcsave->argv0;
 	}
 	pparams = pptab;
 	if (!isset(POSIXBUILTINS)) {
-	    zoptind = oldzoptind;
-	    optcind = oldoptcind;
+	    zoptind = funcsave->zoptind;
+	    optcind = funcsave->optcind;
 	}
-	scriptname = oldscriptname;
-	oflags = ooflags;
+	scriptname = funcsave->scriptname;
+	oflags = funcsave->oflags;
 
 	endpatternscope();	/* before restoring old LOCALPATTERNS */
 
-	if (restore_sticky) {
+	if (funcsave->restore_sticky) {
 	    /*
 	     * If we switched to an emulation environment just for
 	     * this function, we interpret the option and emulation
 	     * switch as being a firewall between environments.
 	     */
-	    memcpy(opts, saveopts, sizeof(opts));
-	    emulation = saveemulation;
-	    sticky = save_sticky;
+	    memcpy(opts, funcsave->opts, sizeof(opts));
+	    emulation = funcsave->emulation;
+	    sticky = funcsave->sticky;
 	} else if (isset(LOCALOPTIONS)) {
 	    /* restore all shell options except PRIVILEGED and RESTRICTED */
-	    saveopts[PRIVILEGED] = opts[PRIVILEGED];
-	    saveopts[RESTRICTED] = opts[RESTRICTED];
-	    memcpy(opts, saveopts, sizeof(opts));
-	    emulation = saveemulation;
+	    funcsave->opts[PRIVILEGED] = opts[PRIVILEGED];
+	    funcsave->opts[RESTRICTED] = opts[RESTRICTED];
+	    memcpy(opts, funcsave->opts, sizeof(opts));
+	    emulation = funcsave->emulation;
 	} else {
 	    /* just restore a couple. */
-	    opts[XTRACE] = saveopts[XTRACE];
-	    opts[PRINTEXITVALUE] = saveopts[PRINTEXITVALUE];
-	    opts[LOCALOPTIONS] = saveopts[LOCALOPTIONS];
-	    opts[LOCALLOOPS] = saveopts[LOCALLOOPS];
-	    opts[WARNNESTEDVAR] = saveopts[WARNNESTEDVAR];
+	    opts[XTRACE] = funcsave->opts[XTRACE];
+	    opts[PRINTEXITVALUE] = funcsave->opts[PRINTEXITVALUE];
+	    opts[LOCALOPTIONS] = funcsave->opts[LOCALOPTIONS];
+	    opts[LOCALLOOPS] = funcsave->opts[LOCALLOOPS];
+	    opts[WARNNESTEDVAR] = funcsave->opts[WARNNESTEDVAR];
 	}
 
 	if (opts[LOCALLOOPS]) {
@@ -5704,9 +5779,9 @@ doshfunc(Shfunc shfunc, LinkList doshargs, int noreturnval)
 		zwarn("`continue' active at end of function scope");
 	    if (breaks)
 		zwarn("`break' active at end of function scope");
-	    breaks = obreaks;
-	    contflag = ocontflag;
-	    loops = oloops;
+	    breaks = funcsave->breaks;
+	    contflag = funcsave->contflag;
+	    loops = funcsave->loops;
 	}
 
 	endtrapscope();
@@ -5714,11 +5789,11 @@ doshfunc(Shfunc shfunc, LinkList doshargs, int noreturnval)
 	if (trap_state == TRAP_STATE_PRIMED)
 	    trap_return++;
 	ret = lastval;
-	noerrexit = savnoerrexit;
+	noerrexit = funcsave->noerrexit;
 	if (noreturnval) {
-	    lastval = oldlastval;
-	    numpipestats = oldnumpipestats;
-	    memcpy(pipestats, oldpipestats, sizeof(int)*numpipestats);
+	    lastval = funcsave->lastval;
+	    numpipestats = funcsave->numpipestats;
+	    memcpy(pipestats, funcsave->pipestats, sizeof(int)*numpipestats);
 	}
     } OLDHEAPS;
 
@@ -5888,6 +5963,7 @@ stripkshdef(Eprog prog, char *name)
 {
     Wordcode pc;
     wordcode code;
+    char *ptr1, *ptr2;
 
     if (!prog)
 	return NULL;
@@ -5898,8 +5974,25 @@ stripkshdef(Eprog prog, char *name)
 	return prog;
     pc++;
     code = *pc++;
-    if (wc_code(code) != WC_FUNCDEF ||
-	*pc != 1 || strcmp(name, ecrawstr(prog, pc + 1, NULL)))
+    if (wc_code(code) != WC_FUNCDEF ||	*pc != 1)
+	return prog;
+
+    /*
+     * See if name of function requested (name) is same as
+     * name of function in word code.  name may still have "-"
+     * tokenised.  The word code shouldn't, as function names should be
+     * untokenised, but reports say it sometimes does.
+     */
+    ptr1 = name;
+    ptr2 = ecrawstr(prog, pc + 1, NULL);
+    while (*ptr1 && *ptr2) {
+	if (*ptr1 != *ptr2 && *ptr1 != Dash && *ptr1 != '-' &&
+	    *ptr2 != Dash && *ptr2 != '-')
+	    break;
+	ptr1++;
+	ptr2++;
+    }
+    if (*ptr1 || *ptr2)
 	return prog;
 
     {

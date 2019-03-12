@@ -7,19 +7,22 @@ case $OSTYPE in
     args+=(
       '-c+[specify configuration file]:file:_files'
       '-l+[specify leases file]:file:_files'
-      '-u[reject leases with unknown options]'
     )
   ;|
   freebsd*)
     args+=(
       '(-d)-b[immediately move to the background]'
       '-p+[specify PID file]:file:_files'
+      '-u[reject leases with unknown options]'
+      '-q[quiet]'
     )
   ;;
   openbsd*)
     args+=(
       '-i+[ignore values provided by leases for specified options]:options'
       '-L+[specify file to write option data too]:file:_files'
+      "-n[don't configure any interfaces]"
+      '-v[verbose log messages]'
     )
   ;;
   *) # ISC implementation, used on Linux and NetBSD
@@ -33,6 +36,7 @@ case $OSTYPE in
       "-w[don't exit if there are no interfaces found to configure]"
       "-n[don't configure any interfaces]"
       '-e[specify env vars to pass to child processes]:env var key value pairs'
+      '-q[quiet]'
       '(-x)-r[release the current lease]'
       '(-r)-x[stop the running DHCP client without releaseing current lease]'
       '-p[specify port to transmit to / listen on]:port:_ports'
@@ -60,11 +64,11 @@ case $OSTYPE in
       '-V[specify vendor-class-identifier option]:option'
       '--request-options[specify list of options the client is to request from the server]:options'
       '--timeout[specify time after which dhclient will decide that no DHCP servers can be contacted]:timeout'
+      '--dad-wait-time[specify maximum time to wait for duplicate address detection]:time (seconds)'
     )
   ;;
 esac
 
 _arguments -s -S -A "-*" $args \
-  '-q[quiet]' \
   '(-b -nw)-d[remain as a foreground process]' \
   ':interface:_net_interfaces'

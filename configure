@@ -1454,7 +1454,7 @@ Optional Features:
   --enable-maildir-support
                           enable maildir support in MAIL and MAILPATH
   --enable-max-function-depth=MAX
-                          limit function depth to MAX, default 1000
+                          limit function depth to MAX, default 500
   --enable-readnullcmd=PAGER
                           pager used when READNULLCMD is not set
   --enable-pcre           enable the search for the pcre library (may create
@@ -2987,7 +2987,7 @@ fi
 # Check whether --enable-max-function-depth was given.
 if test "${enable_max_function_depth+set}" = set; then :
   enableval=$enable_max_function_depth; if test x$enableval = xyes; then
-  $as_echo "#define MAX_FUNCTION_DEPTH 1000" >>confdefs.h
+  $as_echo "#define MAX_FUNCTION_DEPTH 500" >>confdefs.h
 
 elif test x$enableval != xno; then
   cat >>confdefs.h <<_ACEOF
@@ -2996,7 +2996,7 @@ _ACEOF
 
 fi
 else
-  $as_echo "#define MAX_FUNCTION_DEPTH 1000" >>confdefs.h
+  $as_echo "#define MAX_FUNCTION_DEPTH 500" >>confdefs.h
 
 
 fi

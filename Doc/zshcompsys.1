@@ -1,4 +1,4 @@
-.TH "ZSHCOMPSYS" "1" "August 27, 2017" "zsh 5\&.4\&.2"
+.TH "ZSHCOMPSYS" "1" "April 8, 2018" "zsh 5\&.5"
 .SH "NAME"
 zshcompsys \- zsh completion system
 .\" Yodl file: Zsh/compsys.yo
@@ -3664,8 +3664,11 @@ different name for the argument context field\&.
 .PD 0
 \fB           \fP[ \fB:\fP ] \fIspec\fP \&.\&.\&.
 .TP
+.PD 0
+\fB_arguments \fP[ \fIopt\fP \&.\&.\&. ] \fB\-\fP\fB\-\fP [ \fB\-l\fP ] [ \fB\-i\fP \fIpats\fP ] [ \fB\-s\fP \fIpair\fP ]
+.TP
 .PD
-\fB_arguments\fP [ \fIopt\fP \&.\&.\&. ] \fB\-\fP\fB\-\fP [ \fB\-i\fP \fIpats\fP ] [ \fB\-s\fP \fIpair\fP ] [ \fIhelpspec\fP \&.\&.\&. ]
+\fB           \fP[ \fIhelpspec\fP \&.\&.\&.]
 This function can be used to give a complete specification for completion
 for a command whose arguments follow standard UNIX option and argument
 conventions\&.
@@ -4300,6 +4303,12 @@ pattern and the \fIaction\fP will be used only directly after the
 `\fB=\fP\&', not in the next word\&.  This is the behaviour of a normal
 specification defined with the form `\fB=\-\fP\&'\&.
 .PP
+By default, the command (with the option `\fB\-\-help\fP\&') is run after
+resetting all the locale categories (except for \fBLC_CTYPE\fP) to `\fBC\fP\&'\&.
+If the localized help output is known to work, the option `\fB\-l\fP\&' can
+be specified after the `\fB_arguments \-\fP\fB\-\fP\&' so that the command is
+run in the current locale\&.
+.PP
 The `\fB_arguments \-\fP\fB\-\fP\&' can be followed by the option `\fB\-i\fP
 \fIpatterns\fP\&' to give patterns for options which are not to be
 completed\&.  The patterns can be given as the name of an array parameter
@@ -4409,7 +4418,7 @@ The return status of \fB_call_function\fP itself is zero if the function
 \fIname\fP exists and was called and non\-zero otherwise\&.
 .RE
 .TP
-\fB_call_program\fP [ \fB\-p\fP ] \fItag\fP \fIstring\fP \&.\&.\&.
+\fB_call_program\fP [ \fB\-l\fP ] [ \fB\-p\fP ] \fItag\fP \fIstring\fP \&.\&.\&.
 This function provides a mechanism for the user to override the use of an
 external command\&.  It looks up the \fBcommand\fP style with the supplied
 \fItag\fP\&.  If the style is set, its value is used as the command to
@@ -4418,6 +4427,11 @@ style if set, are concatenated with spaces between them and the resulting
 string is evaluated\&.  The return status is the return status of the command
 called\&.
 .RS
+.PP
+By default, the command is run in an environment where all the locale
+categories (except for \fBLC_CTYPE\fP) are reset to `\fBC\fP\&' by calling the
+utility function \fB_comp_locale\fP (see below)\&. If the option `\fB\-l\fP\&' is
+given, the command is run with the current locale\&.
 .PP
 If the option `\fB\-p\fP\&' is supplied it indicates that the command
 output is influenced by the permissions it is run with\&. If the
@@ -4479,6 +4493,19 @@ the functions for the fields if they are called\&.
 This function completes words that are valid at command position: names of
 aliases, builtins, hashed commands, functions, and so on\&.  With the \fB\-e\fP
 flag, only hashed commands are completed\&.  The \fB\-\fP flag is ignored\&.
+.TP
+\fB_comp_locale\fP
+This function resets all the locale categories other than \fBLC_CTYPE\fP to
+`\fBC\fP\&' so that the output from external commands can be easily analyzed by
+the completion system\&. \fBLC_CTYPE\fP retains the current value (taking
+\fBLC_ALL\fP and \fBLANG\fP into account), ensuring that non\-ASCII characters
+in file names are still handled properly\&.
+.RS
+.PP
+This function should normally be run only in a subshell, because the new
+locale is exported to the environment\&. Typical usage would be
+`\fB$(_comp_locale; \fP\fIcommand\fP \&.\&.\&.\fB)\fP\&'\&.
+.RE
 .TP
 \fB_completers\fP [ \fB\-p\fP ]
 This function completes names of completers\&.

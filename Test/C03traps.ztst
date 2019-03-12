@@ -465,6 +465,41 @@
    )
 1:ERREXIT in loop with simple commands
 
+  (set -e
+  f()
+  {
+    false && false
+  }
+  if false; then
+    :
+  else
+    # ERR_EXIT should trigger on return from function, not in function.
+    f
+    echo Fail 1
+    echo Fail 2
+    f
+    echo Fail 3
+  fi)
+1:ERREXIT with false from inside && within function
+
+  (set -e
+  f()
+  {
+  }
+  if false; then
+    :
+  else
+    f
+    echo Succeed 1
+    echo Succeed 2
+    f
+    echo Succeed 3
+  fi)
+0:ERREXIT not triggered on empty function after false in if.
+>Succeed 1
+>Succeed 2
+>Succeed 3
+
   fn() {
     emulate -L zsh
     setopt errreturn
@@ -625,6 +660,40 @@ F:Must be tested with a top-level script rather than source or function
 1:ERR_RETURN triggered on RHS of "&&" in function
 >before-out
 >before-in
+
+  mkdir -p zdotdir
+  print >zdotdir/.zshenv '
+  setopt norcs errreturn
+  fn() {
+    if false; then
+      print Bad
+    else
+      print Good
+    fi
+    print Better
+  }
+  fn
+  print In .zshenv'
+  ZDOTDIR=$PWD/zdotdir $ZTST_testdir/../Src/zsh -c 'true'
+0:ERR_RETURN within initialisation code with special flags
+>Good
+>Better
+>In .zshenv
+
+  fn2() {
+    if false; then
+      print Bad
+    else
+      print Good
+    fi
+  }
+  fn() {
+    setopt err_return
+    fn2 || true
+  }
+  fn
+0:ERR_RETURN in "else" branch in nested function
+>Good
 
   (setopt err_exit
   for x in y; do

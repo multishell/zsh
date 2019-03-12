@@ -1653,7 +1653,7 @@ checkmailpath(char **s)
 	    LinkList l;
 	    DIR *lock = opendir(unmeta(*s));
 	    char buf[PATH_MAX * 2 + 1], **arr, **ap;
-	    int ct = 1;
+	    int buflen, ct = 1;
 
 	    if (lock) {
 		char *fn;
@@ -1662,9 +1662,11 @@ checkmailpath(char **s)
 		l = newlinklist();
 		while ((fn = zreaddir(lock, 1)) && !errflag) {
 		    if (u)
-			sprintf(buf, "%s/%s?%s", *s, fn, u);
+			buflen = snprintf(buf, sizeof(buf), "%s/%s?%s", *s, fn, u);
 		    else
-			sprintf(buf, "%s/%s", *s, fn);
+			buflen = snprintf(buf, sizeof(buf), "%s/%s", *s, fn);
+		    if (buflen < 0 || buflen >= (int)sizeof(buf))
+			continue;
 		    addlinknode(l, dupstring(buf));
 		    ct++;
 		}
@@ -1832,7 +1834,7 @@ adjustlines(int signalled)
     else
 	shttyinfo.winsize.ws_row = zterm_lines;
 #endif /* TIOCGWINSZ */
-    if (zterm_lines <= 0) {
+    if (zterm_lines < 0) {
 	DPUTS(signalled, "BUG: Impossible TIOCGWINSZ rows");
 	zterm_lines = tclines > 0 ? tclines : 24;
     }
@@ -1856,7 +1858,7 @@ adjustcolumns(int signalled)
     else
 	shttyinfo.winsize.ws_col = zterm_columns;
 #endif /* TIOCGWINSZ */
-    if (zterm_columns <= 0) {
+    if (zterm_columns < 0) {
 	DPUTS(signalled, "BUG: Impossible TIOCGWINSZ cols");
 	zterm_columns = tccolumns > 0 ? tccolumns : 80;
     }
@@ -2177,10 +2179,12 @@ gettempfile(const char *prefix, int use_heap, char **tempname)
 {
     char *fn;
     int fd;
+    mode_t old_umask;
 #if HAVE_MKSTEMP
     char *suffix = prefix ? ".XXXXXX" : "XXXXXX";
 
     queue_signals();
+    old_umask = umask(0177);
     if (!prefix && !(prefix = getsparam("TMPPREFIX")))
 	prefix = DEFAULT_TMPPREFIX;
     if (use_heap)
@@ -2198,6 +2202,7 @@ gettempfile(const char *prefix, int use_heap, char **tempname)
     int failures = 0;
 
     queue_signals();
+    old_umask = umask(0177);
     do {
 	if (!(fn = gettempname(prefix, use_heap))) {
 	    fd = -1;
@@ -2212,6 +2217,7 @@ gettempfile(const char *prefix, int use_heap, char **tempname)
 #endif
     *tempname = fn;
 
+    umask(old_umask);
     unqueue_signals();
     return fd;
 }
@@ -2283,10 +2289,11 @@ struncpy(char **s, char *t, int n)
 {
     char *u = *s;
 
-    while (n--)
-	*u++ = *t++;
+    while (n-- && (*u = *t++))
+	u++;
     *s = u;
-    *u = '\0';
+    if (n > 0) /* just one null-byte will do, unlike strncpy(3) */
+	*u = '\0';
 }
 
 /* Return the number of elements in an array of pointers. *
@@ -2453,6 +2460,65 @@ zstrtol_underscore(const char *s, char **t, int base, int underscore)
     if (t)
 	*t = (char *)s;
     return neg ? -(zlong)calc : (zlong)calc;
+}
+
+/*
+ * If s represents a complete unsigned integer (and nothing else)
+ * return 1 and set retval to the value.  Otherwise return 0.
+ *
+ * Underscores are always allowed.
+ *
+ * Sensitive to OCTAL_ZEROES.
+ */
+
+/**/
+mod_export int
+zstrtoul_underscore(const char *s, zulong *retval)
+{
+    zulong calc = 0, newcalc = 0, base;
+
+    if (*s == '+')
+	s++;
+
+    if (*s != '0')
+	base = 10;
+    else if (*++s == 'x' || *s == 'X')
+	base = 16, s++;
+    else if (*s == 'b' || *s == 'B')
+	base = 2, s++;
+    else
+	base = isset(OCTALZEROES) ? 8 : 10;
+    if (base <= 10) {
+	for (; (*s >= '0' && *s < ('0' + base)) ||
+		 *s == '_'; s++) {
+	    if (*s == '_')
+		continue;
+	    newcalc = calc * base + *s - '0';
+	    if (newcalc < calc)
+	    {
+		return 0;
+	    }
+	    calc = newcalc;
+	}
+    } else {
+	for (; idigit(*s) || (*s >= 'a' && *s < ('a' + base - 10))
+	     || (*s >= 'A' && *s < ('A' + base - 10))
+	     || *s == '_'; s++) {
+	    if (*s == '_')
+		continue;
+	    newcalc = calc*base + (idigit(*s) ? (*s - '0') : (*s & 0x1f) + 9);
+	    if (newcalc < calc)
+	    {
+		return 0;
+	    }
+	    calc = newcalc;
+	}
+    }
+
+    if (*s)
+	return 0;
+    *retval = calc;
+    return 1;
 }
 
 /**/
@@ -2709,6 +2775,9 @@ checkrmall(char *s)
     const int max_count = 100;
     if ((rmd = opendir(unmeta(s)))) {
 	int ignoredots = !isset(GLOBDOTS);
+	/* ### TODO: Passing ignoredots here is wrong.  See workers/41672
+	   aka <https://bugs.debian.org/875460>.
+	 */
 	while (zreaddir(rmd, ignoredots)) {
 	    count++;
 	    if (count > max_count)
@@ -2724,8 +2793,10 @@ checkrmall(char *s)
     else if (count > 0)
 	fprintf(shout, "zsh: sure you want to delete all %d files in ",
 		count);
-    else
+    else {
+	/* We don't know how many files the glob will expand to; see 41707. */
 	fprintf(shout, "zsh: sure you want to delete all the files in ");
+    }
     nicezputs(s, shout);
     if(isset(RMSTARWAIT)) {
 	fputs("? (waiting ten seconds)", shout);
@@ -4325,7 +4396,7 @@ spname(char *oldname)
      * Rationale for this, if there ever was any, has been forgotten.    */
     for (;;) {
 	while (*old == '/') {
-	    if ((new - newname) >= (sizeof(newname)-1))
+            if (new >= newname + sizeof(newname) - 1)
 		return NULL;
 	    *new++ = *old++;
 	}
@@ -4354,17 +4425,20 @@ spname(char *oldname)
 	     * odd to the human reader, and we may make use of the total  *
 	     * distance for all corrections at some point in the future.  */
 	    if (bestdist < maxthresh) {
-		strcpy(new, spnameguess);
-		strcat(new, old);
-		return newname;
+		struncpy(&new, spnameguess, sizeof(newname) - (new - newname));
+		struncpy(&new, old, sizeof(newname) - (new - newname));
+		return (new >= newname + sizeof(newname) -1) ? NULL : newname;
 	    } else
 	    	return NULL;
 	} else {
 	    maxthresh = bestdist + thresh;
 	    bestdist += thisdist;
 	}
-	for (p = spnamebest; (*new = *p++);)
+	for (p = spnamebest; (*new = *p++);) {
+	    if (new >= newname + sizeof(newname) - 1)
+		return NULL;
 	    new++;
+	}
     }
 }
 
@@ -4947,6 +5021,16 @@ ztrsub(char const *t, char const *s)
     return l;
 }
 
+/*
+ * Wrapper for readdir().
+ *
+ * If ignoredots is true, skip the "." and ".." entries.
+ *
+ * When __APPLE__ is defined, recode dirent names from UTF-8-MAC to UTF-8.
+ *
+ * Return the dirent's name, metafied.
+ */
+
 /**/
 mod_export char *
 zreaddir(DIR *dir, int ignoredots)
@@ -5420,7 +5504,7 @@ mb_metastrlenend(char *ptr, int width, char *eptr)
     wchar_t wc;
     int num, num_in_char, complete;
 
-    if (!isset(MULTIBYTE))
+    if (!isset(MULTIBYTE) || MB_CUR_MAX == 1)
 	return eptr ? (int)(eptr - ptr) : ztrlen(ptr);
 
     laststart = ptr;
