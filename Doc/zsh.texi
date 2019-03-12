@@ -30,8 +30,8 @@
 @end iftex
 @titlepage
 @title The Z Shell Manual
-@subtitle Version 4.0.1
-@subtitle Updated June 1, 2001
+@subtitle Version 4.0.1-dev-0
+@subtitle Updated June 4, 2001
 @author Original documentation by Paul Falstad
 @page
 This is a texinfo version of the documentation for the Z Shell, originally by 
@@ -61,7 +61,7 @@ This Info file documents Zsh, a freely available UNIX command interpreter
 (ksh), although it is not completely compatible.
 
 @noindent
-Version 4.0.1, last updated June 1, 2001.
+Version 4.0.1-dev-0, last updated June 4, 2001.
 @end ifinfo
 
 @noindent
@@ -2547,7 +2547,12 @@ without any preceding space if the day is a single digit, and
 (24/12 hour clock) in the same way.
 
 @item @t{%l}
-The line (tty) the user is logged in on.
+The line (tty) the user is logged in on without @t{/dev/} prefix.
+If name starts with @t{/dev/tty} this is stripped.
+
+@item @t{%y}
+The line (tty) the user is logged in on without @t{/dev/} prefix.
+It does not treat @t{/dev/tty*} specially.
 
 @item @t{%?}
 The return code of the last command executed just before the prompt.
@@ -6623,6 +6628,16 @@ Alters the way options settings are printed: instead of separate lists of
 set and unset options, all options are shown, marked `on' if
 they are in the non-default state, `off' otherwise.
 
+@pindex KSH_TYPESET
+@cindex argument splitting, in typeset etc.
+@cindex ksh, argument splitting in typeset
+@item @t{KSH_TYPESET} <K>
+Alters the way arguments to the @t{typeset} family of commands, including
+@t{declare}, @t{export}, @t{float}, @t{integer}, @t{local} and
+@t{readonly}, are processed.  Without this option, zsh will perform normal
+word splitting after command and parameter expansion in arguments of an
+assignment; with it, word splitting does not take place in those cases.
+
 @pindex LIST_AMBIGUOUS
 @cindex ambiguous completion
 @cindex completion, ambiguous
@@ -6717,6 +6732,11 @@ argument, and not used as an actual parameter assignment.  For example, in
 @t{echo foo=~/bar:~/rod}, both occurrences of @t{~} would be replaced.
 Note that this happens anyway with @t{typeset} and similar statements.
 
+@noindent
+This option respects the setting of the @t{KSH_TYPESET} option.  In other
+words, if both options are in effect, arguments looking like
+assignments will not undergo wordsplitting.
+
 @pindex MAIL_WARNING
 @cindex mail, warning of reading
 @item @t{MAIL_WARNING} (@t{-U})
@@ -6797,12 +6817,18 @@ Start up the line editor in overstrike mode.
 @cindex path search, extended
 @item @t{PATH_DIRS} (@t{-Q})
 Perform a path search even on command names with slashes in them.
-Thus if `@t{/usr/local/bin}' is in the user's path, and he types
+Thus if `@t{/usr/local/bin}' is in the user's path, and he or she types
 `@t{X11/xinit}', the command `@t{/usr/local/bin/X11/xinit}' will be executed
 (assuming it exists).
 Commands explicitly beginning with `@t{/}', `@t{./}' or `@t{../}'
 are not subject to the path search.
 This also applies to the @t{.} builtin.
+
+@noindent
+Note that subdirectories of the current directory are always searched for
+executables specified in this form.  This takes place before any search
+indicated by this option, and regardless of whether `@t{.}' or the current
+directory appear in the command search path.
 
 @pindex POSIX_BUILTINS
 @item @t{POSIX_BUILTINS} <K> <S>
@@ -8213,8 +8239,8 @@ Same as @t{fc -e -}.
 
 @findex read
 @vindex IFS, use of
-@item @t{read} [ @t{-rzpqAclneEt} ] [ @t{-k} [ @var{num} ] ]
-@itemx [ @t{-u}@var{n} ] [ @var{name}[@t{?}@var{prompt}] ] [ @var{name} ...  ]
+
+@item @t{read} [ @t{-rzpqAclneEt} ] [ @t{-k} [ @var{num} ] ] [ @t{-u}@var{n} ] [ @var{name}[@t{?}@var{prompt}] ] [ @var{name} ...  ]
 @vindex REPLY, use of
 @vindex reply, use of
 Read one line and break it into fields using the characters
@@ -16382,6 +16408,10 @@ while _tags; do
 done
 @end example
 
+@noindent
+Note that this means that the @var{command} has to accept the options
+that have to be passed down to @t{compadd}.
+
 @findex _retrieve_cache
 @item @t{_retrieve_cache} @var{cache_identifier}
 This function retrieves completion information from the file given by
@@ -16617,6 +16647,10 @@ Unlike @t{_requested}, however, @t{_wanted} cannot be called without
 the @var{command}.  This is because @t{_wanted} also implements the loop
 over the tags, not just the one for the labels; conversely, it should not
 be called in the middle of a @t{_tags} loop.
+
+@noindent
+Note that, as for @t{_requested}, the @var{command} has to accept the options
+that have to be passed down to @t{compadd}.
 
 @noindent
 Like @t{_tags} this function supports the @t{-C} option to give a
@@ -20735,7 +20769,7 @@ distribution in your home directory, you would use the commands:
 mkdir ~/zsh_help
 cd ~/zsh_help
 man zshall | colcrt - | \ 
-perl ~/zsh-4.0.1/Util/helpfiles
+perl ~/zsh-4.0.1-dev-0/Util/helpfiles
 @end example
 
 @noindent
@@ -20891,7 +20925,7 @@ Run @t{zkbd} either as an autoloaded function, or as a shell script:
 
 @noindent
 @example
-zsh -f ~/zsh-4.0.1/Functions/Misc/zkbd
+zsh -f ~/zsh-4.0.1-dev-0/Functions/Misc/zkbd
 @end example
 
 @noindent
@@ -20956,7 +20990,7 @@ command and redirect the output into a file:
 
 @noindent
 @example
-. ~/zsh-4.0.1/Util/reporter > zsh.report
+. ~/zsh-4.0.1-dev-0/Util/reporter > zsh.report
 @end example
 
 @noindent

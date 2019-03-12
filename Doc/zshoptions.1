@@ -1,4 +1,4 @@
-.TH "ZSHOPTIONS" "1" "June 1, 2001" "zsh 4\&.0\&.1"
+.TH "ZSHOPTIONS" "1" "June 25, 2001" "zsh 4\&.0\&.2"
 .SH "NAME"
 zshoptions \- zsh options
 .\" Yodl file: Zsh/options.yo
@@ -501,6 +501,13 @@ Alters the way options settings are printed: instead of separate lists of
 set and unset options, all options are shown, marked `on' if
 they are in the non\-default state, `off' otherwise\&.
 .TP
+\fBKSH_TYPESET\fP <K>
+Alters the way arguments to the \fBtypeset\fP family of commands, including
+\fBdeclare\fP, \fBexport\fP, \fBfloat\fP, \fBinteger\fP, \fBlocal\fP and
+\fBreadonly\fP, are processed\&.  Without this option, zsh will perform normal
+word splitting after command and parameter expansion in arguments of an
+assignment; with it, word splitting does not take place in those cases\&.
+.TP
 \fBLIST_AMBIGUOUS\fP <D>
 This option works when \fBAUTO_LIST\fP or \fBBASH_AUTO_LIST\fP is also
 set\&.  If there is an unambiguous prefix to insert on the command line,
@@ -577,6 +584,12 @@ not otherwise treated specially; it is passed to the command as a single
 argument, and not used as an actual parameter assignment\&.  For example, in
 \fBecho foo=~/bar:~/rod\fP, both occurrences of \fB~\fP would be replaced\&.
 Note that this happens anyway with \fBtypeset\fP and similar statements\&.
+.RS
+.PP
+This option respects the setting of the \fBKSH_TYPESET\fP option\&.  In other
+words, if both options are in effect, arguments looking like
+assignments will not undergo wordsplitting\&.
+.RE
 .TP
 \fBMAIL_WARNING\fP (\fB\-U\fP)
 Print a warning message if a mail file has been
@@ -632,12 +645,19 @@ Start up the line editor in overstrike mode\&.
 .TP
 \fBPATH_DIRS\fP (\fB\-Q\fP)
 Perform a path search even on command names with slashes in them\&.
-Thus if `\fB/usr/local/bin\fP' is in the user's path, and he types
+Thus if `\fB/usr/local/bin\fP' is in the user's path, and he or she types
 `\fBX11/xinit\fP', the command `\fB/usr/local/bin/X11/xinit\fP' will be executed
 (assuming it exists)\&.
 Commands explicitly beginning with `\fB/\fP', `\fB\&./\fP' or `\fB\&.\&./\fP'
 are not subject to the path search\&.
 This also applies to the \fB\&.\fP builtin\&.
+.RS
+.PP
+Note that subdirectories of the current directory are always searched for
+executables specified in this form\&.  This takes place before any search
+indicated by this option, and regardless of whether `\fB\&.\fP' or the current
+directory appear in the command search path\&.
+.RE
 .TP
 \fBPOSIX_BUILTINS\fP <K> <S>
 When this option is set the \fBcommand\fP builtin can be used to execute

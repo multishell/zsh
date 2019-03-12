@@ -668,6 +668,16 @@ Alters the way options settings are printed: instead of separate lists of
 set and unset options, all options are shown, marked `on' if
 they are in the non-default state, `off' otherwise.
 )
+pindex(KSH_TYPESET)
+cindex(argument splitting, in typeset etc.)
+cindex(ksh, argument splitting in typeset)
+item(tt(KSH_TYPESET) <K>)(
+Alters the way arguments to the tt(typeset) family of commands, including
+tt(declare), tt(export), tt(float), tt(integer), tt(local) and
+tt(readonly), are processed.  Without this option, zsh will perform normal
+word splitting after command and parameter expansion in arguments of an
+assignment; with it, word splitting does not take place in those cases.
+)
 pindex(LIST_AMBIGUOUS)
 cindex(ambiguous completion)
 cindex(completion, ambiguous)
@@ -757,6 +767,10 @@ not otherwise treated specially; it is passed to the command as a single
 argument, and not used as an actual parameter assignment.  For example, in
 tt(echo foo=~/bar:~/rod), both occurrences of tt(~) would be replaced.
 Note that this happens anyway with tt(typeset) and similar statements.
+
+This option respects the setting of the tt(KSH_TYPESET) option.  In other
+words, if both options are in effect, arguments looking like
+assignments will not undergo wordsplitting.
 )
 pindex(MAIL_WARNING)
 cindex(mail, warning of reading)
@@ -838,12 +852,17 @@ pindex(PATH_DIRS)
 cindex(path search, extended)
 item(tt(PATH_DIRS) (tt(-Q)))(
 Perform a path search even on command names with slashes in them.
-Thus if `tt(/usr/local/bin)' is in the user's path, and he types
+Thus if `tt(/usr/local/bin)' is in the user's path, and he or she types
 `tt(X11/xinit)', the command `tt(/usr/local/bin/X11/xinit)' will be executed
 (assuming it exists).
 Commands explicitly beginning with `tt(/)', `tt(./)' or `tt(../)'
 are not subject to the path search.
 This also applies to the tt(.) builtin.
+
+Note that subdirectories of the current directory are always searched for
+executables specified in this form.  This takes place before any search
+indicated by this option, and regardless of whether `tt(.)' or the current
+directory appear in the command search path.
 )
 pindex(POSIX_BUILTINS)
 item(tt(POSIX_BUILTINS) <K> <S>)(

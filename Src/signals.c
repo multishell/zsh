@@ -93,7 +93,7 @@ install_handler(int sig)
 #ifdef POSIX_SIGNALS
     struct sigaction act;
  
-    act.sa_handler = (SIGNAL_HANDTYPE) handler;
+    act.sa_handler = (SIGNAL_HANDTYPE) zhandler;
     sigemptyset(&act.sa_mask);        /* only block sig while in handler */
     act.sa_flags = 0;
 # ifdef SA_INTERRUPT                  /* SunOS 4.x */
@@ -105,7 +105,7 @@ install_handler(int sig)
 # ifdef BSD_SIGNALS
     struct sigvec vec;
  
-    vec.sv_handler = (SIGNAL_HANDTYPE) handler;
+    vec.sv_handler = (SIGNAL_HANDTYPE) zhandler;
     vec.sv_mask = sigmask(sig);    /* mask out this signal while in handler    */
 #  ifdef SV_INTERRUPT
     vec.sv_flags = SV_INTERRUPT;   /* make sure system calls are not restarted */
@@ -115,9 +115,9 @@ install_handler(int sig)
 #  ifdef SYSV_SIGNALS
     /* we want sigset rather than signal because it will   *
      * block sig while in handler.  signal usually doesn't */
-    sigset(sig, handler);
+    sigset(sig, zhandler);
 #  else  /* NO_SIGNAL_BLOCKING (bummer) */
-    signal(sig, handler);
+    signal(sig, zhandler);
 
 #  endif /* SYSV_SIGNALS  */
 # endif  /* BSD_SIGNALS   */
@@ -400,8 +400,8 @@ signal_suspend(int sig, int sig2)
 /* the signal handler */
  
 /**/
-RETSIGTYPE
-handler(int sig)
+mod_export RETSIGTYPE
+zhandler(int sig)
 {
     sigset_t newmask, oldmask;
 

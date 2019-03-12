@@ -1,4 +1,4 @@
-.TH "ZSHMISC" "1" "June 1, 2001" "zsh 4\&.0\&.1"
+.TH "ZSHMISC" "1" "June 25, 2001" "zsh 4\&.0\&.2"
 .SH "NAME"
 zshmisc \- everything and then some
 .\" Yodl file: Zsh/grammar.yo
@@ -1524,7 +1524,12 @@ without any preceding space if the day is a single digit, and
 (24/12 hour clock) in the same way\&.
 .TP
 \fB%l\fP
-The line (tty) the user is logged in on\&.
+The line (tty) the user is logged in on without \fB/dev/\fP prefix\&.
+If name starts with \fB/dev/tty\fP this is stripped\&.
+.TP
+\fB%y\fP
+The line (tty) the user is logged in on without \fB/dev/\fP prefix\&.
+It does not treat \fB/dev/tty*\fP specially\&.
 .TP
 \fB%?\fP
 The return code of the last command executed just before the prompt\&.

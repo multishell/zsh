@@ -1433,7 +1433,7 @@ ca_parse_line(Cadef d, int multi, int first)
 	    }
 	} else if (state.opt == 2 && d->single &&
 		   ((state.curopt = ca_get_sopt(d, line, &pe, &sopts)) ||
-		    (sopts && nonempty(sopts)))) {
+		    (cur != compcurrent && sopts && nonempty(sopts)))) {
 	    /* Or maybe it's a single-letter option? */
 
 	    char *p;
@@ -1782,6 +1782,9 @@ bin_comparguments(char *nam, char **args, char *ops, int func)
     }
     switch (args[0][1]) {
     case 'i':
+        /* This initialises the internal data structures. Arguments are the
+         * auto-description string, the optional -s, -S, -A and -M options
+         * given to _arguments and the specs. */
 	if (compcurrent > 1 && compwords[0]) {
 	    Cadef def;
 	    int cap = ca_parsed, multi, first = 1, use, ret = 0;
@@ -1843,6 +1846,11 @@ bin_comparguments(char *nam, char **args, char *ops, int func)
 	return 1;
 
     case 'D':
+        /* This returns the descriptions, actions and sub-contexts for the
+         * things _arguments has to execute at this place on the line (the
+         * sub-contexts are used as tags).
+         * The return value is particularly important here, it says if 
+         * there are arguments to completely at all. */
 	{
 	    LinkList descr, act, subc;
 	    Caarg arg;
@@ -1874,6 +1882,10 @@ bin_comparguments(char *nam, char **args, char *ops, int func)
 	    return ret;
 	}
     case 'O':
+        /* This returns the descriptions for the options in the arrays whose
+         * names are given as arguments.  The descriptions are strings in a
+         * form usable by _describe.  The return value says if there are any
+         * options to be completed. */
 	{
 	    LinkList next = newlinklist();
 	    LinkList direct = newlinklist();
@@ -1929,6 +1941,12 @@ bin_comparguments(char *nam, char **args, char *ops, int func)
 	    return (ca_laststate.singles ? 2 : 1);
 	}
     case 'L':
+        /* This tests if the beginning of the current word matches an option.
+         * It is for cases like `./configure --pre=/<TAB>' which should
+         * complete to `--prefix=/...'.  The options name isn't fully typed
+         * and _arguments finds out that there is no option `--pre' and that
+         * it should complete some argument to an option.  It then uses -L
+         * to find the option the argument is for. */
 	{
 	    LinkList descr, act, subc;
 	    Caopt opt;
@@ -1955,6 +1973,11 @@ bin_comparguments(char *nam, char **args, char *ops, int func)
 	    return ret;
 	}
     case 's':
+        /* This returns zero if we are completing single letter options.
+         * It also uses its argument as the name of a parameter and sets
+         * that to a string describing the argument behaviour of the last
+         * option in the current word so that we can get the auto-suffix
+         * right. */
 	for (; lstate; lstate = lstate->snext)
 	    if (lstate->d->single && lstate->singles &&
 		lstate->actopts
@@ -1974,14 +1997,25 @@ bin_comparguments(char *nam, char **args, char *ops, int func)
 	    }
 	return 1;
     case 'M':
+        /* This returns the match specs defined for the set of specs we are
+         * using.  Returned, as usual in a parameter whose name is given as
+         * the argument. */
 	setsparam(args[1], ztrdup(ca_laststate.d->match));
 	return 0;
     case 'a':
+        /* This just sets the return value.  To zero if there would be or
+         * were any normal arguments to be completed.  Used to decide if
+         * _arguments should say `no arguments' or `no more arguments'. */
 	for (; lstate; lstate = lstate->snext)
 	    if (lstate->d->args || lstate->d->rest)
 		return 0;
 	return 1;
     case 'W':
+        /* This gets two parameter names as arguments.  The first is set to
+         * the current word sans any option prefixes handled by comparguments.
+         * The second parameter is set to an array containing the options on
+         * the line and their arguments.  I.e. the stuff _arguments returns
+         * to its caller in the `line' and `opt_args' parameters. */
 	{
 	    Castate s;
 	    char **ret, **p;
@@ -2103,10 +2137,7 @@ parse_cvdef(char *nam, char **args)
 
     while (args[0][0] == '-' && (args[0][1] == 's' || args[0][1] == 'S') &&
            !args[0][2]) {
-	if (!args[1][0] || (args[1][0] && args[1][1])) {
-	    zwarnnam(nam, "invalid separator: %s", args[1], 0);
-	    return NULL;
-	}
+
         if (args[0][1] == 's') {
             hassep = 1;
             sep = args[1][0];
@@ -2314,20 +2345,122 @@ struct cvstate {
 static struct cvstate cv_laststate;
 static int cv_parsed = 0, cv_alloced = 0;
 
+/* Get the next value in the string.  Return it's definition and update the
+ * sp pointer to point to the end of the value (plus argument, if any).
+ * If there is no next value, the string pointer is set to null.  In any
+ * case ap will point to the beginning of the argument or will be a null
+ * pointer if there is no argument.
+ */
+
+static Cvval
+cv_next(Cvdef d, char **sp, char **ap)
+{
+    Cvval r = NULL;
+    char *s = *sp;
+
+    if (!*s) {
+        *sp = *ap = NULL;
+
+        return NULL;
+    }
+    if ((d->hassep && !d->sep) || !d->argsep) {
+        char sav, ec, *v = s, *os;
+
+        ec = ((d->hassep && d->sep) ? d->sep : d->argsep);
+
+        do {
+            sav = *++s;
+            *s = '\0';
+            if ((r = cv_get_val(d, v))) {
+                *s = sav;
+
+                break;
+            }
+            *s = sav;
+        } while (*s && *s != ec);
+
+        os = s;
+
+        if (d->hassep && d->sep) {
+            if ((s = strchr(s, d->sep)))
+                *sp = s + 1;
+            else
+                *sp = NULL;
+        } else
+            *sp = s;
+        if (d->argsep && *os == d->argsep) {
+            *ap = os + 1;
+            *sp = NULL;
+        } else if (r && r->type != CVV_NOARG)
+            *ap = os;
+        else
+            *ap = NULL;
+
+        return r;
+
+    } else if (d->hassep) {
+        char *ns = strchr(s, d->sep), *as = 0, *sap, sav = 0;
+        int skip = 0;
+
+        if (d->argsep && (as = strchr(s, d->argsep)) && (!ns || as <= ns)) {
+            *ap = as + 1;
+            ns = strchr(as + 1, d->sep);
+            skip = 1;
+            sap = as;
+        } else {
+            *ap = NULL;
+            sap = ns;
+        }
+        if (sap) {
+            sav = *sap;
+            *sap = '\0';
+        }
+        if ((!(r = cv_get_val(d, s)) || r->type == CVV_NOARG) && skip)
+            ns = as;
+
+        if (sap)
+            *sap = sav;
+
+        *sp = ((!ns || (ns == as && r && r->type != CVV_NOARG)) ? NULL : ns + 1);
+
+        return r;
+    } else {
+        char *as = strchr(s, d->argsep), *sap, sav = 0;
+
+        *sp = NULL;
+
+        if (as) {
+            *ap = as + 1;
+            sap = as;
+            sav = *as;
+            *sap = '\0';
+        } else
+            *ap = sap = NULL;
+
+        r = cv_get_val(d, s);
+
+        if (sap)
+            *sap = sav;
+
+        return r;
+    }
+}
+
 /* Parse the current word. */
 
 static void
 cv_parse_word(Cvdef d)
 {
-    Cvval ptr;
+    Cvval val;
     struct cvstate state;
-    char *str, *eq;
+    char *str, *arg = NULL, *pign = compprefix;
+    int nosfx = 0;
 
     if (cv_alloced)
 	freelinklist(cv_laststate.vals, freestr);
 
-    for (ptr = d->vals; ptr; ptr = ptr->next)
-	ptr->active = 1;
+    for (val = d->vals; val; val = val->next)
+	val->active = 1;
 
     state.d = d;
     state.def = NULL;
@@ -2336,103 +2469,90 @@ cv_parse_word(Cvdef d)
 
     cv_alloced = 1;
 
-    if (d->hassep) {
-	if (d->sep) {
-	    char *end;
-	    int heq;
+    for (str = compprefix; str && *str; ) {
+        if ((val = cv_next(d, &str, &arg))) {
+            zaddlinknode(state.vals, ztrdup(val->name));
+            if (arg) {
+                if (str) {
+                    char sav = str[-1];
 
-	    for (str = compprefix, end = strchr(str, d->sep); end;) {
-		*end = '\0';
+                    str[-1] = '\0';
+                    zaddlinknode(state.vals, ztrdup(arg));
+                    str[-1] = sav;
+                } else {
+                    zaddlinknode(state.vals, tricat(arg, compsuffix, ""));
+                    nosfx = 1;
+                }
+            } else
+                zaddlinknode(state.vals, ztrdup(""));
 
-		if ((heq = !!(eq = strchr(str, d->argsep))))
-		    *eq++ = '\0';
-		else
-		    eq = "";
+            cv_inactive(d, val->xor);
 
-		if ((ptr = cv_get_val(d, str))) {
-		    zaddlinknode(state.vals, ztrdup(str));
-		    zaddlinknode(state.vals, ztrdup(eq));
-
-		    cv_inactive(d, ptr->xor);
-		}
-		if (heq)
-		    eq[-1] = d->argsep;
-
-		*end = d->sep;
-		str = end + 1;
-		end = strchr(str, d->sep);
-	    }
-	    ignore_prefix(str - compprefix);
-
-	    if ((str = strchr(compsuffix, d->sep))) {
-		char *beg = str;
-
-		for (str++; str; str = end) {
-		    if ((end = strchr(str, d->sep)))
-			*end = '\0';
-
-		    if ((heq = !!(eq = strchr(str, d->argsep))))
-			*eq++ = '\0';
-		    else
-			eq = "";
-
-		    if ((ptr = cv_get_val(d, str))) {
-			zaddlinknode(state.vals, ztrdup(str));
-			zaddlinknode(state.vals, ztrdup(eq));
-
-			cv_inactive(d, ptr->xor);
-		    }
-		    if (heq)
-			eq[-1] = d->argsep;
-		    if (end)
-			*end++ = d->sep;
-		}
-		ignore_suffix(strlen(beg));
-	    }
-	} else {
-	    char tmp[2];
-
-	    tmp[1] = '\0';
-
-	    for (str = compprefix; *str; str++) {
-		tmp[0] = *str;
-		if ((ptr = cv_get_val(d, tmp))) {
-		    zaddlinknode(state.vals, ztrdup(tmp));
-		    zaddlinknode(state.vals, ztrdup(""));
-
-		    cv_inactive(d, ptr->xor);
-		}
-	    }
-	    for (str = compsuffix; *str; str++) {
-		tmp[0] = *str;
-		if ((ptr = cv_get_val(d, tmp))) {
-		    zaddlinknode(state.vals, ztrdup(tmp));
-		    zaddlinknode(state.vals, ztrdup(""));
-
-		    cv_inactive(d, ptr->xor);
-		}
-	    }
-	    ignore_prefix(strlen(compprefix));
-	    ignore_suffix(strlen(compsuffix));
-	}
+            if (str)
+                pign = str;
+            else
+                val->active = 1;
+        }
     }
-    str = tricat(compprefix, compsuffix, "");
-    zsfree(compprefix);
-    zsfree(compsuffix);
-    compprefix = str;
-    compsuffix = ztrdup("");
+    state.val = val;
+    if (val && arg && !str)
+        state.def = val->arg;
 
-    if ((eq = strchr(str, d->argsep))) {
-	*eq++ = '\0';
+    if (!nosfx && d->hassep) {
+        int ign = 0;
+        char *more = NULL;
 
-	if ((ptr = cv_get_val(d, str)) && ptr->type != CVV_NOARG) {
-	    eq[-1] = d->argsep;
-	    ignore_prefix(eq - str);
-	    state.def = ptr->arg;
-	    state.val = ptr;
-	} else
-	    eq[-1] = d->argsep;
-    }
+        ignore_prefix(pign - compprefix);
+
+        if (!d->sep && (!val || val->type == CVV_NOARG)) {
+            ign = strlen(compsuffix);
+            more = compsuffix;
+        } else {
+            if (d->sep) {
+                char *ns = strchr(compsuffix, d->sep), *as;
+
+                if (d->argsep && (as = strchr(compsuffix, d->argsep)) &&
+                    (!ns || as <= ns)) {
+                    ign = strlen(as);
+                } else
+                    ign = (ns ? strlen(ns) : 0);
+
+                more = (ns ? ns + 1 : NULL);
+            } else if (d->argsep) {
+                char *as;
+
+                if ((as = strchr(compsuffix, d->argsep)))
+                    ign = strlen(as);
+            }
+        }
+        if (ign)
+            ignore_suffix(ign);
+
+        while (more && *more) {
+            if ((val = cv_next(d, &str, &arg))) {
+                zaddlinknode(state.vals, ztrdup(val->name));
+                if (arg) {
+                    if (str) {
+                        char sav = str[-1];
+
+                        str[-1] = '\0';
+                        zaddlinknode(state.vals, ztrdup(arg));
+                        str[-1] = sav;
+                    } else {
+                        zaddlinknode(state.vals, tricat(arg, compsuffix, ""));
+                        nosfx = 1;
+                    }
+                } else
+                    zaddlinknode(state.vals, ztrdup(""));
+
+                cv_inactive(d, val->xor);
+            }
+        }
+    } else if (arg)
+        ignore_prefix(arg - compprefix);
+    else
+        ignore_prefix(pign - compprefix);
+
     memcpy(&cv_laststate, &state, sizeof(state));
 }
 
@@ -2477,6 +2597,8 @@ bin_compvalues(char *nam, char **args, char *ops, int func)
     }
     switch (args[0][1]) {
     case 'i':
+        /* This initialises the internal data structures.  The arguments are
+         * just the arguments that were given to _values itself. */
 	{
 	    Cvdef def = get_cvdef(nam, args + 1);
 	    int cvp = cv_parsed;
@@ -2495,6 +2617,9 @@ bin_compvalues(char *nam, char **args, char *ops, int func)
 	return 1;
 
     case 'D':
+        /* This returns the description and action to use if we are at
+         * a place where some action has to be used at all.  In that case
+         * zero is returned and non-zero otherwise. */
 	{
 	    Caarg arg = cv_laststate.def;
 
@@ -2507,6 +2632,8 @@ bin_compvalues(char *nam, char **args, char *ops, int func)
 	    return 1;
 	}
     case 'C':
+        /* This returns the sub-context (i.e.: the tag) to use when executing
+         * an action. */
 	{
 	    Caarg arg = cv_laststate.def;
 
@@ -2518,6 +2645,10 @@ bin_compvalues(char *nam, char **args, char *ops, int func)
 	    return 1;
 	}
     case 'V':
+        /* This is what -O is for comparguments: it returns (in three arrays)
+         * the values for values without arguments, with arguments and with
+         * optional arguments (so that we can get the auto-suffixes right).
+         * As for comparguments, the strings returned are usable for _describe. */
 	{
 	    LinkList noarg = newlinklist();
 	    LinkList arg = newlinklist();
@@ -2551,6 +2682,8 @@ bin_compvalues(char *nam, char **args, char *ops, int func)
 	    return 0;
 	}
     case 's':
+        /* This returns the value separator, if any, and sets the return
+         * value to say if there is such a separator. */
 	if (cv_laststate.d->hassep) {
 	    char tmp[2];
 
@@ -2562,6 +2695,7 @@ bin_compvalues(char *nam, char **args, char *ops, int func)
 	}
 	return 1;
     case 'S':
+        /* Like -s, but for the separator between values and their arguments. */
 	{
 	    char tmp[2];
 
@@ -2571,9 +2705,15 @@ bin_compvalues(char *nam, char **args, char *ops, int func)
 	}
 	return 0;
     case 'd':
+        /* This returns the description string (first argument to _values)
+         * which is passed down to _describe. */
 	setsparam(args[1], ztrdup(cv_laststate.d->descr));
 	return 0;
     case 'L':
+        /* Almost the same as for comparguments.  This gets a value name
+         * and returns the description and action of its first argument, if
+         * any.  The rest (prefix matching) is in _values.  Return non-zero
+         * if there is no such option. */
 	{
 	    Cvval val = cv_get_val(cv_laststate.d, args[1]);
 
@@ -2589,6 +2729,8 @@ bin_compvalues(char *nam, char **args, char *ops, int func)
 	    return 1;
 	}
     case 'v':
+        /* Again, as for comparguments.  This returns the values and their
+         * arguments as an array which will be stored in val_args in _values. */
 	if (cv_laststate.vals) {
 	    char **ret, **p;
 	    LinkNode n;
@@ -3576,6 +3718,8 @@ cf_remove_other(char **names, char *pre, int *amb)
 
 		if ((q = strchr((p = dupstring(p)), '/')))
 		    *q = '\0';
+
+                p = dyncat(p, "/");
 
 		for (; *names; names++)
 		    if (!strpfx(p, *names)) {

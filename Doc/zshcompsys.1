@@ -1,4 +1,4 @@
-.TH "ZSHCOMPSYS" "1" "June 1, 2001" "zsh 4\&.0\&.1"
+.TH "ZSHCOMPSYS" "1" "June 25, 2001" "zsh 4\&.0\&.2"
 .SH "NAME"
 zshcompsys \- zsh completion system
 .\" Yodl file: Zsh/compsys.yo
@@ -3964,6 +3964,9 @@ while _tags; do
 done\fP
 .fi
 .RE
+.PP
+Note that this means that the \fIcommand\fP has to accept the options
+that have to be passed down to \fBcompadd\fP\&.
 .RE
 .TP
 \fB_retrieve_cache\fP \fIcache_identifier\fP
@@ -4185,6 +4188,9 @@ Unlike \fB_requested\fP, however, \fB_wanted\fP cannot be called without
 the \fIcommand\fP\&.  This is because \fB_wanted\fP also implements the loop
 over the tags, not just the one for the labels; conversely, it should not
 be called in the middle of a \fB_tags\fP loop\&.
+.PP
+Note that, as for \fB_requested\fP, the \fIcommand\fP has to accept the options
+that have to be passed down to \fBcompadd\fP\&.
 .PP
 Like \fB_tags\fP this function supports the \fB\-C\fP option to give a
 different name for the argument context field\&.

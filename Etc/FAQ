@@ -1,14 +1,14 @@
 
 Archive-Name: unix-faq/shell/zsh
-Last-Modified: 2001/05/24
+Last-Modified: 2001/06/25
 Submitted-By: pws@pwstephenson.fsnet.co.uk (Peter Stephenson)
 Posting-Frequency: Monthly
 Copyright: (C) P.W. Stephenson, 1995--2001 (see end of document)
 
 Changes since last issue posted:
 
-       Nothing substantive, but many minor tweaks in preparation for
-       the release of 4.0.1.
+  1.6  4.0.2 nearly released.
+  3.1  typeset splitting incompatibility and KSH_TYPESET option
 
 This document contains a list of frequently-asked (or otherwise
 significant) questions concerning the Z-shell, a command interpreter
@@ -231,7 +231,7 @@ Chapter 1: Introducing zsh and how to install it
 
 1.5: What's the latest version?
 
-  Zsh 4.0.1 is the latest production version.
+  Zsh 4.0.2 is the latest production version.
 
   Zsh 3.0.8 was the previous production version.  The major number 3.0
   largely reflected considerable internal changes in zsh to make it more
@@ -464,7 +464,7 @@ your shell' posted frequently to the USENET group comp.unix.shell.
         subscripts start at 1, not 0; array[0] refers to array[1];
         `$array' refers to the whole array, not $array[0];
         braces are unnecessary: $a[1] == ${a[1]}, etc.
-        The KSH_ARRAYS option is now available.
+        Set the KSH_ARRAYS option for compatibility.
     o   Coprocesses are established by `coproc'; `|&' behaves like
         csh.  Handling of coprocess file descriptors is also different.
     o   In `cmd1 && cmd2 &', only `cmd2' instead of the whole
@@ -892,6 +892,23 @@ Chapter 3: How to get various things to work
   SH_WORD_SPLIT is set when zsh is invoked with the names `ksh' or `sh',
   or (entirely equivalent) when `emulate ksh' or `emulate sh' is in
   effect.
+
+  There is one other effect of word splitting which differs between ksh
+  and zsh.  In ksh, the builtin commands that declare parameters such
+  as typeset and export force word-splitting not to take place
+  after on an assignment argument:
+
+    typeset param=`echo foo bar`
+
+  in ksh will create a parameter with value `foo bar', but in zsh will
+  create a parameter param with value foo and a parameter bar
+  whose value is empty.  Contrast this with a normal assignment (no
+  typeset or other command in front), which never causes a word split
+  unless you have GLOB_ASSIGN set.  From zsh version 4.0.2 the option
+  KSH_TYPESET, set automatically in compatibility mode, fixes this
+  problem.  Note that in bash this behaviour occurs with all arguments that
+  look like assignments, whatever the command name; to get this behaviour
+  in zsh you have to set the option MAGIC_EQUAL_SUBST.
 
 3.2: In which startup file do I put...?
 

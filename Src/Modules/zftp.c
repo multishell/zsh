@@ -1242,7 +1242,8 @@ zfclosedata(void)
 static int
 zfgetdata(char *name, char *rest, char *cmd, int getsize)
 {
-    int len, newfd, is_passive;
+    SOCKLEN_T len;
+    int newfd, is_passive;
     union zftp_sockaddr zdsock;
 
     if (zfopendata(name, &zdsock, &is_passive))
@@ -1876,7 +1877,8 @@ zftp_open(char *name, char **args, int flags)
     struct servent *zservp;
     struct hostent *zhostp = NULL;
     char **addrp, *fname;
-    int err, len, tmout;
+    int err, tmout;
+    SOCKLEN_T len;
     int herrno, af, salen;
 
     if (!*args) {
