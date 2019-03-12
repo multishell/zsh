@@ -708,7 +708,7 @@ strinend(void)
  * they aren't needed */
 
 static void
-nohw(int c)
+nohw(UNUSED(int c))
 {
 }
 
@@ -1779,6 +1779,8 @@ void
 resizehistents(void)
 {
     if (histlinect > histsiz) {
+	/* The reason we don't just call freehistnode(hist_ring->down) is
+	 * so that we can honor the HISTEXPIREDUPSFIRST setting. */
 	putoldhistentryontop(0);
 	freehistnode((HashNode)hist_ring);
 	while (histlinect > histsiz) {
@@ -1789,12 +1791,26 @@ resizehistents(void)
 }
 
 /* Remember the last line in the history file so we can find it again. */
-static struct {
+static struct histfile_stats {
     char *text;
     time_t stim, mtim;
     off_t fpos, fsiz;
     int next_write_ev;
 } lasthist;
+
+static struct histsave {
+    struct histfile_stats lasthist;
+    char *histfile;
+    HashTable histtab;
+    Histent hist_ring;
+    int curhist;
+    int histlinect;
+    int histsiz;
+    int savehistsiz;
+    int locallevel;
+} *histsave_stack;
+static int histsave_stack_size = 0;
+static int histsave_stack_pos = 0;
 
 static int histfile_linect;
 
@@ -2076,31 +2092,20 @@ savehistfile(char *fn, int err, int writeflags)
 	fclose(out);
 
 	if ((writeflags & (HFILE_SKIPOLD | HFILE_FAST)) == HFILE_SKIPOLD) {
-	    HashTable remember_histtab = histtab;
-	    Histent remember_hist_ring = hist_ring;
-	    int remember_histlinect = histlinect;
-	    int remember_curhist = curhist;
-	    int remember_histsiz = histsiz;
 	    int remember_histactive = histactive;
 
-	    hist_ring = NULL;
-	    curhist = histlinect = 0;
-	    histsiz = savehistsiz;
+	    /* Zeroing histactive avoids unnecessary munging of curline. */
 	    histactive = 0;
-	    createhisttable(); /* sets histtab */
+	    /* The NULL leaves HISTFILE alone, preserving fn's value. */
+	    pushhiststack(NULL, savehistsiz, savehistsiz, -1);
 
 	    hist_ignore_all_dups |= isset(HISTSAVENODUPS);
 	    readhistfile(fn, err, 0);
 	    hist_ignore_all_dups = isset(HISTIGNOREALLDUPS);
 	    if (histlinect)
 		savehistfile(fn, err, 0);
-	    deletehashtable(histtab);
 
-	    curhist = remember_curhist;
-	    histlinect = remember_histlinect;
-	    hist_ring = remember_hist_ring;
-	    histtab = remember_histtab;
-	    histsiz = remember_histsiz;
+	    pophiststack();
 	    histactive = remember_histactive;
 	}
     } else if (err)
@@ -2139,11 +2144,13 @@ lockhistfile(char *fn, int keep_trying)
 	    write(fd, tmpfile+len+1, strlen(tmpfile+len+1));
 	    close(fd);
 	    while (link(tmpfile, lockfile) < 0) {
-		if (stat(lockfile, &sb) < 0) {
+		if (errno != EEXIST || !keep_trying)
+		    ;
+		else if (stat(lockfile, &sb) < 0) {
 		    if (errno == ENOENT)
 			continue;
 		}
-		else if (keep_trying) {
+		else {
 		    if (time(NULL) - sb.st_mtime < 10)
 			sleep(1);
 		    else
@@ -2326,4 +2333,132 @@ bufferwords(LinkList list, char *buf, int *index)
 	*index = cur;
 
     return list;
+}
+
+/* Move the current history list out of the way and prepare a fresh history
+ * list using hf for HISTFILE, hs for HISTSIZE, and shs for SAVEHIST.  If
+ * the hf value is an empty string, HISTFILE will be unset from the new
+ * environment; if it is NULL, HISTFILE will not be changed, not even by the
+ * pop function (this functionality is used internally to rewrite the current
+ * history file without affecting pointers into the environment).
+ */
+
+/**/
+int
+pushhiststack(char *hf, int hs, int shs, int level)
+{
+    struct histsave *h;
+    int curline_in_ring = (histactive & HA_ACTIVE) && hist_ring == &curline;
+
+    if (histsave_stack_pos == histsave_stack_size) {
+	histsave_stack_size += 5;
+	histsave_stack = zrealloc(histsave_stack,
+			    histsave_stack_size * sizeof (struct histsave));
+    }
+
+    if (curline_in_ring)
+	unlinkcurline();
+
+    h = &histsave_stack[histsave_stack_pos++];
+
+    h->lasthist = lasthist;
+    if (hf) {
+	if ((h->histfile = getsparam("HISTFILE")) != NULL && *h->histfile)
+	    h->histfile = ztrdup(h->histfile);
+	else
+	    h->histfile = "";
+    } else
+	h->histfile = NULL;
+    h->histtab = histtab;
+    h->hist_ring = hist_ring;
+    h->curhist = curhist;
+    h->histlinect = histlinect;
+    h->histsiz = histsiz;
+    h->savehistsiz = savehistsiz;
+    h->locallevel = level;
+
+    memset(&lasthist, 0, sizeof lasthist);
+    if (hf) {
+	if (*hf)
+	    setsparam("HISTFILE", ztrdup(hf));
+	else
+	    unsetparam("HISTFILE");
+    }
+    hist_ring = NULL;
+    curhist = histlinect = 0;
+    histsiz = hs;
+    savehistsiz = shs;
+    inithist(); /* sets histtab */
+
+    if (curline_in_ring)
+	linkcurline();
+
+    return histsave_stack_pos;
+}
+
+
+/**/
+int
+pophiststack(void)
+{
+    struct histsave *h;
+    int curline_in_ring = (histactive & HA_ACTIVE) && hist_ring == &curline;
+
+    if (histsave_stack_pos == 0)
+	return 0;
+
+    if (curline_in_ring)
+	unlinkcurline();
+
+    deletehashtable(histtab);
+    zsfree(lasthist.text);
+
+    h = &histsave_stack[--histsave_stack_pos];
+
+    lasthist = h->lasthist;
+    if (h->histfile) {
+	if (*h->histfile)
+	    setsparam("HISTFILE", h->histfile);
+	else
+	    unsetparam("HISTFILE");
+    }
+    histtab = h->histtab;
+    hist_ring = h->hist_ring;
+    curhist = h->curhist;
+    histlinect = h->histlinect;
+    histsiz = h->histsiz;
+    savehistsiz = h->savehistsiz;
+
+    if (curline_in_ring)
+	linkcurline();
+
+    return histsave_stack_pos + 1;
+}
+
+/* If pop_through > 0, pop all array items >= the 1-relative index value.
+ * If pop_through <= 0, pop (-1)*pop_through levels off the stack.
+ * If the (new) top of stack is from a higher locallevel, auto-pop until
+ * it is not.
+ */
+
+/**/
+int
+saveandpophiststack(int pop_through)
+{
+    if (pop_through <= 0) {
+	pop_through += histsave_stack_pos + 1;
+	if (pop_through <= 0)
+	    pop_through = 1;
+    }
+    while (pop_through > 1
+     && histsave_stack[pop_through-2].locallevel > locallevel)
+	pop_through--;
+    if (histsave_stack_pos < pop_through)
+	return 0;
+    do {
+	if (!nohistsave)
+	    savehistfile(NULL, 1, HFILE_USE_OPTIONS);
+	pophiststack();
+    } while (histsave_stack_pos >= pop_through);
+    return 1;
 }

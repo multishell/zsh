@@ -64,12 +64,12 @@ mod_export struct job *jobtab;
 /* Size of the job table. */
 
 /**/
-mod_export size_t jobtabsize;
+mod_export int jobtabsize;
 
 /* The highest numbered job in the jobtable */
 
 /**/
-mod_export size_t maxjob;
+mod_export int maxjob;
 
 /* If we have entered a subshell, the original shell's job table. */
 static struct job *oldjobtab;
@@ -904,6 +904,7 @@ addproc(pid_t pid, char *text, int aux)
     Process pn, *pnlist;
     struct timezone dummy_tz;
 
+    DPUTS(thisjob == -1, "No valid job in addproc.");
     pn = (Process) zshcalloc(sizeof *pn);
     pn->pid = pid;
     if (text)
@@ -971,14 +972,14 @@ waitforpid(pid_t pid)
 
     /* child_block() around this loop in case #ifndef WNOHANG */
     dont_queue_signals();
-    child_block();		/* unblocked in child_suspend() */
+    child_block();		/* unblocked in signal_suspend() */
     while (!errflag && (kill(pid, 0) >= 0 || errno != ESRCH)) {
 	if (first)
 	    first = 0;
 	else
 	    kill(pid, SIGCONT);
 
-	child_suspend(SIGINT);
+	signal_suspend(SIGCHLD, SIGINT);
 	child_block();
     }
     child_unblock();
@@ -995,7 +996,7 @@ zwaitjob(int job, int sig)
     Job jn = jobtab + job;
 
     dont_queue_signals();
-    child_block();		 /* unblocked during child_suspend() */
+    child_block();		 /* unblocked during signal_suspend() */
     if (jn->procs || jn->auxprocs) { /* if any forks were done         */
 	jn->stat |= STAT_LOCKED;
 	if (jn->stat & STAT_CHANGED)
@@ -1003,7 +1004,7 @@ zwaitjob(int job, int sig)
 	while (!errflag && jn->stat &&
 	       !(jn->stat & STAT_DONE) &&
 	       !(interact && (jn->stat & STAT_STOPPED))) {
-	    child_suspend(sig);
+	    signal_suspend(SIGCHLD, sig);
 	    /* Commenting this out makes ^C-ing a job started by a function
 	       stop the whole function again.  But I guess it will stop
 	       something else from working properly, we have to find out
@@ -1035,6 +1036,7 @@ void
 waitjobs(void)
 {
     Job jn = jobtab + thisjob;
+    DPUTS(thisjob == -1, "No valid job in waitjobs.");
 
     if (jn->procs || jn->auxprocs)
 	zwaitjob(thisjob, 0);
@@ -1129,6 +1131,7 @@ spawnjob(void)
 {
     Process pn;
 
+    DPUTS(thisjob == -1, "No valid job in spawnjob.");
     /* if we are not in a subshell */
     if (!subsh) {
 	if (curjob == -1 || !(jobtab[curjob].stat & STAT_STOPPED)) {
@@ -1362,7 +1365,7 @@ init_jobs(char **argv, char **envp)
 int
 expandjobtab(void)
 {
-    size_t newsize = jobtabsize + MAXJOBS_ALLOC;
+    int newsize = jobtabsize + MAXJOBS_ALLOC;
     struct job *newjobtab;
 
     if (newsize > MAX_MAXJOBS)
@@ -1396,7 +1399,7 @@ expandjobtab(void)
 void
 maybeshrinkjobtab(void)
 {
-    size_t jobbound;
+    int jobbound;
 
     queue_signals();
     jobbound = maxjob + MAXJOBS_ALLOC - (maxjob % MAXJOBS_ALLOC);
@@ -1669,7 +1672,7 @@ bin_fg(char *name, char **argv, Options ops, int func)
 
 /**/
 int
-bin_kill(char *nam, char **argv, Options ops, int func)
+bin_kill(char *nam, char **argv, UNUSED(Options ops), UNUSED(int func))
 {
     int sig = SIGTERM;
     int returnval = 0;
@@ -1813,7 +1816,7 @@ bin_kill(char *nam, char **argv, Options ops, int func)
 
 /**/
 int
-bin_suspend(char *name, char **argv, Options ops, int func)
+bin_suspend(char *name, UNUSED(char **argv), Options ops, UNUSED(int func))
 {
     /* won't suspend a login shell, unless forced */
     if (islogin && !OPT_ISSET(ops,'f')) {

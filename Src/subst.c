@@ -231,6 +231,36 @@ stringsubst(LinkList list, LinkNode node, int ssub, int asssub)
     return errflag ? NULL : node;
 }
 
+/*
+ * Simplified version of the prefork/singsub processing where
+ * we only do substitutions appropriate to quoting.  Currently
+ * this means only the expansions in $'....'.  This is used
+ * for the end tag for here documents.  As we are not doing
+ * `...` expansions, we just use those for quoting.  However,
+ * they stay in the text.  This is weird, but that's not
+ * my fault.
+ *
+ * The remnulargs() makes this consistent with the other forms
+ * of substitution, indicating that quotes have been fully
+ * processed.
+ */
+
+/**/
+void
+quotesubst(char *str)
+{
+    char *s = str;
+
+    while (*s) {
+	if (*s == String && s[1] == Snull) {
+	    s = getkeystring(s, NULL, 4, NULL);
+	} else {
+	    s++;
+	}
+    }
+    remnulargs(str);
+}
+
 /**/
 mod_export void
 globlist(LinkList list, int nountok)
@@ -280,7 +310,7 @@ static int mult_isarr;
 
 /**/
 static int
-multsub(char **s, char ***a, int *isarr, char *sep)
+multsub(char **s, char ***a, int *isarr, UNUSED(char *sep))
 {
     int l, omi = mult_isarr;
     char **r, **p;
@@ -1637,7 +1667,7 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 		 * Bet that's easier said than done.
 		 */
 		val = getstrvalue(v);
-		fwidth = v->pm->ct ? v->pm->ct : strlen(val);
+		fwidth = v->pm->ct ? v->pm->ct : (int)strlen(val);
 		switch (v->pm->flags & (PM_LEFT | PM_RIGHT_B | PM_RIGHT_Z)) {
 		    char *t;
 		    unsigned int t0;

@@ -30,8 +30,8 @@
 @end iftex
 @titlepage
 @title The Z Shell Manual
-@subtitle Version 4.2.0-pre-4
-@subtitle Updated March 12, 2004
+@subtitle Version 4.2.1-test-A
+@subtitle Updated August 6, 2004
 @author Original documentation by Paul Falstad
 @page
 This is a texinfo version of the documentation for the Z Shell, originally by 
@@ -64,7 +64,7 @@ This Info file documents Zsh, a freely available UNIX command interpreter
 
 @noindent
 @cindex version
-Version 4.2.0-pre-4, last updated March 12, 2004.
+Version 4.2.1-test-A, last updated August 6, 2004.
 @end ifinfo
 
 @noindent
@@ -1149,6 +1149,71 @@ are reset to their default values while executing @var{list}.
 @item @t{@{} @var{list} @t{@}}
 Execute @var{list}.
 
+@findex always
+@cindex always blocks
+@cindex try blocks
+@item @t{@{} @var{try-list} @t{@} always @{} @var{always-list} @t{@}}
+First execute @var{try-list}.  Regardless of errors, or @t{break},
+@t{continue}, or @t{return} commands encountered within @var{try-list},
+execute @var{always-list}.  Execution then continues from the
+result of the execution of @var{try-list}; in other words, any error,
+or @t{break}, @t{continue}, or @t{return} command is treated in the
+normal way, as if @var{always-list} were not present.  The two
+chunks of code are referred to as the `try block' and the `always block'.
+
+@noindent
+Optional newlines or semicolons may appear after the @t{always};
+note, however, that they may @emph{not} appear between the preceeding
+closing brace and the @t{always}.
+
+@noindent
+An `error' in this context is a condition such as a syntax error which
+causes the shell to abort execution of the current function, script, or
+list.  Syntax errors encountered while the shell is parsing the
+code do not cause the @var{always-list} to be executed.  For example,
+an erroneously constructed @t{if} block in @t{try-list} would cause the
+shell to abort during parsing, so that @t{always-list} would not be
+executed, while an erroneous substitution such as @t{$@{*foo*@}} would
+cause a run-time error, after which @t{always-list} would be executed.
+
+@noindent
+An error condition can be tested and reset with the special integer
+variable @t{TRY_BLOCK_ERROR}.  Outside an @t{always-list} the value is
+irrelevant, but it is initialised to @t{-1}.  Inside @t{always-list}, the
+value is 1 if an error occurred in the @t{try-list}, else 0.  If
+@t{TRY_BLOCK_ERROR} is set to 0 during the @t{always-list}, the error
+condition caused by the @t{try-list} is reset, and shell execution
+continues normally after the end of @t{always-list}.  Altering the value
+during the @t{try-list} is not useful (unless this forms part of an
+enclosing @t{always} block).
+
+@noindent
+Regardless of @t{TRY_BLOCK_ERROR}, after the end of @t{always-list} the
+normal shell status @t{$?} is the value returned from @t{always-list}.
+This will be non-zero if there was an error, even if @t{TRY_BLOCK_ERROR}
+was set to zero.
+
+@noindent
+The following executes the given code, ignoring any errors it causes.
+This is an alternative to the usual convention of protecting code by
+executing it in a subshell.
+
+@noindent
+@example
+@{
+    # code which may cause an error
+  @} always @{
+    # This code is executed regardless of the error.
+    (( TRY_BLOCK_ERROR = 0 ))
+@}
+# The error condition has been reset.
+@end example
+
+@noindent
+An @t{exit} command encountered in @t{try-list} does @emph{not} cause the
+execution of @var{always-list}.  Instead, the shell exits immediately
+after any @t{EXIT} trap has been executed.
+
 @findex function
 @item @t{function} @var{word} ... [ @t{()} ] [ @var{term} ] @t{@{} @var{list} @t{@}}
 @itemx @var{word} ... @t{()} [ @var{term} ] @t{@{} @var{list} @t{@}}
@@ -1435,12 +1500,23 @@ and `@t{\}' must be used to quote the characters
 `@t{\}', `@t{$}', `@t{`}' and the first character of @var{word}.
 
 @noindent
+Note that @var{word} itself does not undergo shell expansion.  Backquotes
+in @var{word} do not have their usual effect; instead they behave
+similarly to double quotes, except that the backquotes themselves are
+passed through unchanged.  (This information is given for completeness
+and it is not recommended that backquotes be used.)  Quotes in the form
+@t{$'}@var{...}@t{'} have their standard effect of expanding backslashed
+references to special characters.
+
+@noindent
 If @t{<<-} is used, then all leading
 tabs are stripped from @var{word} and from the document.
 
 @item @t{<<<} @var{word}
 Perform shell expansion on @var{word} and pass the result
 to standard input.  This is known as a @emph{here-string}.
+Compare the use of @var{word} in here-documents above, where @var{word}
+does not undergo shell expansion.
 
 @item @t{<&} @var{number}
 @itemx @t{>&} @var{number}
@@ -1953,6 +2029,30 @@ The signal number will be passed as the first parameter to the function.
 If a function of this form is defined and null,
 the shell and processes spawned by it will ignore @t{SIG}@var{NAL}.
 
+@noindent
+The return value from the function is handled specially.  If it is
+zero, the signal is assumed to have been handled, and execution continues
+normally.  Otherwise, the normal effect of the signal is produced;
+if this causes execution to terminate, the status returned to the shell is
+the status returned from the function.
+
+@noindent
+Programs terminated by uncaught signals typically return the status 128
+plus the signal number.  Hence the following causes the handler for
+@t{SIGINT} to print a message, then mimic the usual effect of the signal.
+
+@noindent
+@example
+TRAPINT() @{
+  print "Caught SIGINT, aborting."
+  return $(( 128 + $1 ))
+@}
+@end example
+
+@noindent
+The functions @t{TRAPZERR}, @t{TRAPDEBUG} and @t{TRAPEXIT} are never
+executed inside other traps.
+
 @findex TRAPDEBUG
 @item @t{TRAPDEBUG}
 Executed after each command.
@@ -2014,7 +2114,7 @@ an interactive shell associates a @emph{job} with each pipeline.
 It keeps a table of current jobs, printed by the @t{jobs}
 command, and assigns them small integer numbers.
 When a job is started asynchronously with `@t{&}',
-the shell prints a line which looks like:
+the shell prints a line to standard error which looks like:
 
 @noindent
 @example
@@ -2093,6 +2193,8 @@ The shell learns immediately whenever a process changes state.
 It normally informs you whenever a job becomes blocked so that
 no further progress is possible.  If the @t{NOTIFY} option is not set,
 it waits until just before it prints a prompt before it informs you.
+All such notifications are sent directly to the terminal, not to
+the standard output or standard error.
 
 @noindent
 When the monitor mode is on, each background job that completes
@@ -2797,12 +2899,14 @@ True if the exit status of the last command was @var{n}.
 True if at least @var{n} shell constructs were started.
 @item @t{C}
 @itemx @t{/}
-True if the current absolute path has at least @var{n} elements.
+True if the current absolute path has at least @var{n} elements
+relative to the root directory, hence @t{/} is counted as 0 elements.
 @item @t{c}
 @itemx @t{.}
 @itemx @t{~}
 True if the current path, with prefix replacement, has at
-least @var{n} elements.
+least @var{n} elements relative to the root directory, hence @t{/} is
+counted as 0 elements.
 @item @t{D}
 True if the month is equal to @var{n} (January = 0).
 @item @t{d}
@@ -4680,6 +4784,12 @@ A qualifier may be any one of the following:
 @item @t{/}
 directories
 
+@item @t{F}
+`full' (i.e. non-empty) directories.  Note that the
+opposite sense @t{(^F}@t{)} expands to empty directories
+and all non-directories.  Use @t{(/^F}@t{)} for
+empty directories
+
 @item @t{.}
 plain files
 
@@ -5265,14 +5375,14 @@ word (if the parameter is an array, if it is a scalar, or if it is a
 scalar and the `@t{w}' flag is given, respectively).  The subscript used
 is the number of the matching element, so that pairs of subscripts such as
 `@t{$foo[(r)}@var{??}@t{,3]}' and `@t{$foo[(r)}@var{??}@t{,(r)f*]}' are
-possible.  If the parameter is an associative array, only the value part
-of each pair is compared to the pattern, and the result is that value.
-Reverse subscripts may be used for assigning to ordinary array elements,
-but not for assigning to associative arrays.
+possible if the parameter is not an associative array.  If the
+parameter is an associative array, only the value part of each pair is
+compared to the pattern, and the result is that value.
 
 @item @t{R}
 Like `@t{r}', but gives the last match.  For associative arrays, gives
-all possible matches.
+all possible matches. May be used for assigning to ordinary array
+elements, but not for assigning to associative arrays.
 
 @item @t{i}
 Like `@t{r}', but gives the index of the match instead; this may not be
@@ -5721,6 +5831,13 @@ Incremented by one each time a new shell is started.
 @vindex signals
 @item @t{signals}
 An array containing the names of the signals.
+
+@vindex TRY_BLOCK_ERROR
+@item @t{TRY_BLOCK_ERROR} <S>
+In an @t{always} block, indicates whether the preceding list of code
+caused an error.  The value is 1 to indicate an error, 0 otherwise.
+It may be reset, clearing the error condition.  See
+@ref{Complex Commands}
 
 @vindex TTY
 @item @t{TTY}
@@ -6377,17 +6494,85 @@ appear in the list prefixed with `@t{no}'.  Hence (unless
 are changed from the default.
 
 @noindent
+
+@subsection Changing Directories
+@noindent
 @table @asis
-@pindex ALIASES
-@cindex aliases, expansion
-@item @t{ALIASES} <D>
-Expand aliases.
+@pindex AUTO_CD
+@cindex cd, automatic
+@item @t{AUTO_CD} (@t{-J})
+If a command is issued that can't be executed as a normal command,
+and the command is the name of a directory, perform the @t{cd}
+command to that directory.
 
-@pindex ALL_EXPORT
-@cindex export, automatic
-@item @t{ALL_EXPORT} (@t{-a}, ksh: @t{-a})
-All parameters subsequently defined are automatically exported.
+@pindex AUTO_PUSHD
+@cindex cd, behaving like pushd
+@cindex pushd, making cd behave like
+@item @t{AUTO_PUSHD} (@t{-N})
+Make @t{cd} push the old directory onto the directory stack.
 
+@pindex CDABLE_VARS
+@cindex cd, to parameter
+@item @t{CDABLE_VARS} (@t{-T})
+If the argument to a @t{cd} command (or an implied @t{cd} with the
+@t{AUTO_CD} option set) is not a directory, and does not begin with a
+slash, try to expand the expression as if it were preceded by a `@t{~}' (see
+@ref{Filename Expansion}).
+
+@pindex CHASE_DOTS
+@cindex cd, with .. in argument
+@item @t{CHASE_DOTS}
+When changing to a directory containing a path segment `@t{..}' which would
+otherwise be treated as canceling the previous segment in the path (in
+other words, `@t{foo/..}' would be removed from the path, or if `@t{..}' is
+the first part of the path, the last part of @t{$PWD} would be deleted),
+instead resolve the path to the physical directory.  This option is
+overridden by @t{CHASE_LINKS}.
+
+@noindent
+For example, suppose @t{/foo/bar} is a link to the directory @t{/alt/rod}.
+Without this option set, `@t{cd /foo/bar/..}' changes to @t{/foo}; with it
+set, it changes to @t{/alt}.  The same applies if the current directory
+is @t{/foo/bar} and `@t{cd ..}' is used.  Note that all other symbolic
+links in the path will also be resolved.
+
+@pindex CHASE_LINKS
+@cindex links, symbolic
+@cindex symbolic links
+@item @t{CHASE_LINKS} (@t{-w})
+Resolve symbolic links to their true values when changing directory.
+This also has the effect of @t{CHASE_DOTS}, i.e. a `@t{..}' path segment
+will be treated as referring to the physical parent, even if the preceding
+path segment is a symbolic link.
+
+@pindex PUSHD_IGNORE_DUPS
+@cindex directory stack, ignoring duplicates
+@item @t{PUSHD_IGNORE_DUPS}
+Don't push multiple copies of the same directory onto the directory stack.
+
+@pindex PUSHD_MINUS
+@cindex directory stack, controlling syntax
+@item @t{PUSHD_MINUS}
+Exchanges the meanings of `@t{+}' and `@t{-}'
+when used with a number to specify a directory in the stack.
+
+@pindex PUSHD_SILENT
+@cindex directory stack, silencing
+@item @t{PUSHD_SILENT} (@t{-E})
+Do not print the directory stack after @t{pushd} or @t{popd}.
+
+@pindex PUSHD_TO_HOME
+@cindex pushd, to home
+@item @t{PUSHD_TO_HOME} (@t{-D})
+Have @t{pushd} with no arguments act like `@t{pushd $HOME}'.
+
+@end table
+
+@noindent
+
+@subsection Completion
+@noindent
+@table @asis
 @pindex ALWAYS_LAST_PROMPT
 @item @t{ALWAYS_LAST_PROMPT} <D>
 If unset, key functions that list completions try to return to the last
@@ -6400,29 +6585,6 @@ If a completion is performed with the cursor within a word, and a
 full completion is inserted, the cursor is moved to the end of the
 word.  That is, the cursor is moved to the end of the word if either
 a single match is inserted or menu completion is performed.
-
-@pindex APPEND_HISTORY
-@cindex history, appending to a file
-@item @t{APPEND_HISTORY} <D>
-If this is set, zsh sessions will append their history list to
-the history file, rather than overwrite it. Thus, multiple parallel
-zsh sessions will all have their history lists added to the
-history file, in the order they are killed.
-
-@pindex AUTO_CD
-@cindex cd, automatic
-@item @t{AUTO_CD} (@t{-J})
-If a command is issued that can't be executed as a normal command,
-and the command is the name of a directory, perform the @t{cd}
-command to that directory.
-
-@pindex AUTO_CONTINUE
-@cindex jobs, continuing automatically
-@cindex continuing jobs automatically
-@item @t{AUTO_CONTINUE}
-With this option set, stopped jobs that are removed from the job table
-with the @t{disown} builtin command are automatically sent a @t{CONT}
-signal to make them running.
 
 @pindex AUTO_LIST
 @cindex completion, listing choices
@@ -6462,47 +6624,12 @@ is a `@t{,}', which will be removed if `@t{@}}' is typed next.
 If a parameter is completed whose content is the name of a directory,
 then add a trailing slash instead of a space.
 
-@pindex AUTO_PUSHD
-@cindex cd, behaving like pushd
-@cindex pushd, making cd behave like
-@item @t{AUTO_PUSHD} (@t{-N})
-Make @t{cd} push the old directory onto the directory stack.
-
 @pindex AUTO_REMOVE_SLASH
 @cindex slash, removing trailing
 @item @t{AUTO_REMOVE_SLASH} <D>
 When the last character resulting from a completion is a slash and the next
 character typed is a word delimiter, a slash, or a character that ends 
 a command (such as a semicolon or an ampersand), remove the slash.
-
-@pindex AUTO_RESUME
-@cindex jobs, resuming automatically
-@cindex resuming jobs automatically
-@item @t{AUTO_RESUME} (@t{-W})
-Treat single word simple commands without redirection
-as candidates for resumption of an existing job.
-
-@pindex BAD_PATTERN
-@cindex globbing, bad pattern
-@cindex filename generation, bad pattern
-@item @t{BAD_PATTERN} (@t{+2}) <C> <Z>
-If a pattern for filename generation is badly formed, print an error message.
-(If this option is unset, the pattern will be left unchanged.)
-
-@pindex BANG_HIST
-@cindex history, enable substitution
-@cindex enable history substitution
-@item @t{BANG_HIST} (@t{+K}) <C> <Z>
-Perform textual history expansion, @cite{csh}-style,
-treating the character `@t{!}' specially.
-
-@pindex BARE_GLOB_QUAL
-@cindex globbing qualifiers, enable
-@cindex enable globbing qualifiers
-@item @t{BARE_GLOB_QUAL} <Z>
-In a glob pattern, treat a trailing set of parentheses as a qualifier
-list, if it contains no `@t{|}', `@t{(}' or (if special) `@t{~}'
-characters.  See @ref{Filename Generation}.
 
 @pindex BASH_AUTO_LIST
 @cindex completion, listing choices, bash style
@@ -6514,116 +6641,6 @@ respected.  If @t{AUTO_MENU} is set, the menu behaviour will then start
 with the third press.  Note that this will not work with
 @t{MENU_COMPLETE}, since repeated completion calls immediately cycle
 through the list in that case.
-
-@pindex BEEP
-@cindex beep, enabling
-@cindex enabling the beep
-@item @t{BEEP} (@t{+B}) <D>
-Beep on error in ZLE.
-
-@pindex BG_NICE
-@cindex jobs, background priority
-@cindex background jobs, priority of
-@cindex priority of background jobs
-@item @t{BG_NICE} (@t{-6}) <C> <Z>
-Run all background jobs at a lower priority.  This option
-is set by default.
-
-@pindex BRACE_CCL
-@cindex brace expansion, extending
-@cindex expansion, brace, extending
-@item @t{BRACE_CCL}
-Expand expressions in braces which would not otherwise undergo brace
-expansion to a lexically ordered list of all the characters.  See
-@ref{Brace Expansion}.
-
-@pindex BSD_ECHO
-@cindex echo, BSD compatible
-@item @t{BSD_ECHO} <S>
-Make the @t{echo} builtin compatible with the BSD man page echo(1) command.
-This disables backslashed escape sequences in echo strings unless the
-@t{-e} option is specified.
-
-@pindex CASE_GLOB
-@cindex case-insensitive globbing, option
-@item @t{CASE_GLOB} <D>
-Make globbing (filename generation) sensitive to case.  Note that other
-uses of patterns are always sensitive to case.  If the option is unset,
-the presence of any character which is special to filename generation
-will cause case-insensitive matching.  For example, @t{cvs(/)} can
-match the directory @t{CVS} owing to the presence of the globbing flag
-(unless the option @t{BARE_GLOB_QUAL} is unset).
-
-@pindex C_BASES
-@cindex bases, output in C format
-@cindex hexadecimal, output in C format
-@cindex octal, output in C format
-@item @t{C_BASES}
-Output hexadecimal numbers in the standard C format, for example `@t{0xFF}'
-instead of the usual `@t{16#FF}'.  If the option @t{OCTAL_ZEROES} is also
-set (it is not by default), octal numbers will be treated similarly and
-hence appear as `@t{077}' instead of `@t{8#77}'.  This option has no effect
-on the choice of the output base, nor on the output of bases other than
-hexadecimal and octal.  Note that these formats will be understood on input
-irrespective of the setting of @t{C_BASES}.
-
-@pindex CDABLE_VARS
-@cindex cd, to parameter
-@item @t{CDABLE_VARS} (@t{-T})
-If the argument to a @t{cd} command (or an implied @t{cd} with the
-@t{AUTO_CD} option set) is not a directory, and does not begin with a
-slash, try to expand the expression as if it were preceded by a `@t{~}' (see
-@ref{Filename Expansion}).
-
-@pindex CHASE_DOTS
-@cindex cd, with .. in argument
-@item @t{CHASE_DOTS}
-When changing to a directory containing a path segment `@t{..}' which would
-otherwise be treated as canceling the previous segment in the path (in
-other words, `@t{foo/..}' would be removed from the path, or if `@t{..}' is
-the first part of the path, the last part of @t{$PWD} would be deleted),
-instead resolve the path to the physical directory.  This option is
-overridden by @t{CHASE_LINKS}.
-
-@noindent
-For example, suppose @t{/foo/bar} is a link to the directory @t{/alt/rod}.
-Without this option set, `@t{cd /foo/bar/..}' changes to @t{/foo}; with it
-set, it changes to @t{/alt}.  The same applies if the current directory
-is @t{/foo/bar} and `@t{cd ..}' is used.  Note that all other symbolic
-links in the path will also be resolved.
-
-@pindex CHASE_LINKS
-@cindex links, symbolic
-@cindex symbolic links
-@item @t{CHASE_LINKS} (@t{-w})
-Resolve symbolic links to their true values when changing directory.
-This also has the effect of @t{CHASE_DOTS}, i.e. a `@t{..}' path segment
-will be treated as referring to the physical parent, even if the preceding
-path segment is a symbolic link.
-
-@pindex CHECK_JOBS
-@cindex exiting, checking jobs when
-@cindex logging out, checking jobs when
-@item @t{CHECK_JOBS} <Z>
-Report the status of background and suspended jobs before exiting a shell
-with job control; a second attempt to exit the shell will succeed.
-@t{NO_CHECK_JOBS} is best used only in combination with @t{NO_HUP}, else
-such jobs will be killed automatically.
-
-@noindent
-The check is omitted if the commands run from the previous command line
-included a `@t{jobs}' command, since it is assumed the user is aware that
-there are background or suspended jobs.  A `@t{jobs}' command run from the
-@t{precmd} function is not counted for this purpose.
-
-@pindex CLOBBER
-@cindex clobbering, of files
-@cindex file clobbering, allowing
-@item @t{CLOBBER} (@t{+C}, ksh: @t{+C}) <D>
-Allows `@t{>}' redirection to truncate existing files,
-and `@t{>>}' to create files.
-Otherwise `@t{>!}' or `@t{>|}' must be used to truncate a file,
-and `@t{>>!}' or `@t{>>|}' to create a file.
 
 @pindex COMPLETE_ALIASES
 @cindex aliases, completion of
@@ -6637,55 +6654,116 @@ distinct command for completion purposes.
 If unset, the cursor is set to the end of the word if completion is
 started. Otherwise it stays there and completion is done from both ends.
 
-@pindex CORRECT
-@cindex correction, spelling
-@cindex spelling correction
-@item @t{CORRECT} (@t{-0})
-Try to correct the spelling of commands.
-Note that, when the @t{HASH_LIST_ALL} option is not set or when some
-directories in the path are not readable, this may falsely report spelling
-errors the first time some commands are used.
+@pindex GLOB_COMPLETE
+@item @t{GLOB_COMPLETE}
+When the current word has a glob pattern, do not insert all the words
+resulting from the expansion but generate matches as for completion and
+cycle through them like @t{MENU_COMPLETE}. The matches are generated as if
+a `@t{*}' was added to the end of the word, or inserted at the cursor when
+@t{COMPLETE_IN_WORD} is set.  This actually uses pattern matching, not
+globbing, so it works not only for files but for any completion, such as
+options, user names, etc.
 
-@pindex CORRECT_ALL
-@item @t{CORRECT_ALL} (@t{-O})
-Try to correct the spelling of all arguments in a line.
+@pindex HASH_LIST_ALL
+@item @t{HASH_LIST_ALL} <D>
+Whenever a command completion is attempted, make sure the entire
+command path is hashed first.  This makes the first completion slower.
 
-@pindex CSH_JUNKIE_HISTORY
-@cindex csh, history style
-@cindex history style, csh
-@item @t{CSH_JUNKIE_HISTORY} <C>
-A history reference without an event specifier will always refer to the
-previous command.  Without this option, such a history reference refers
-to the same event as the previous history reference, defaulting to the
-previous command.
+@pindex LIST_AMBIGUOUS
+@cindex ambiguous completion
+@cindex completion, ambiguous
+@item @t{LIST_AMBIGUOUS} <D>
+This option works when @t{AUTO_LIST} or @t{BASH_AUTO_LIST} is also
+set.  If there is an unambiguous prefix to insert on the command line,
+that is done without a completion list being displayed; in other
+words, auto-listing behaviour only takes place when nothing would be
+inserted.  In the case of @t{BASH_AUTO_LIST}, this means that the list
+will be delayed to the third call of the function.
 
-@pindex CSH_JUNKIE_LOOPS
-@cindex csh, loop style
-@cindex loop style, csh
-@item @t{CSH_JUNKIE_LOOPS} <C>
-Allow loop bodies to take the form `@var{list}; @t{end}' instead of
-`@t{do} @var{list}; @t{done}'.
+@pindex LIST_BEEP
+@cindex beep, ambiguous completion
+@cindex completion, beep on ambiguous
+@item @t{LIST_BEEP} <D>
+Beep on an ambiguous completion.  More accurately, this forces the
+completion widgets to return status 1 on an ambiguous completion, which
+causes the shell to beep if the option @t{BEEP} is also set; this may
+be modified if completion is called from a user-defined widget.
 
-@pindex CSH_JUNKIE_QUOTES
-@cindex csh, quoting style
-@cindex quoting style, csh
-@item @t{CSH_JUNKIE_QUOTES} <C>
-Changes the rules for single- and double-quoted text to match that of
-@cite{csh}.  These require that embedded newlines be preceded by a backslash;
-unescaped newlines will cause an error message.
-In double-quoted strings, it is made impossible to escape `@t{$}', `@t{`}'
-or `@t{"}' (and `@t{\}' itself no longer needs escaping).
-Command substitutions are only expanded once, and cannot be nested.
+@pindex LIST_PACKED
+@cindex completion, listing
+@item @t{LIST_PACKED}
+Try to make the completion list smaller (occupying less lines) by
+printing the matches in columns with different widths.
 
-@pindex CSH_NULLCMD
-@vindex NULLCMD, ignoring
-@vindex READNULLCMD, ignoring
-@cindex redirections with no command, csh
-@cindex csh, redirections with no command
-@item @t{CSH_NULLCMD} <C>
-Do not use the values of @t{NULLCMD} and @t{READNULLCMD} 
-when running redirections with no command.  This make 
-such redirections fail (see @ref{Redirection}).
+@pindex LIST_ROWS_FIRST
+@cindex completion, listing order
+@item @t{LIST_ROWS_FIRST}
+Lay out the matches in completion lists sorted horizontally, that is,
+the second match is to the right of the first one, not under it as
+usual.
+
+@pindex LIST_TYPES
+@cindex marking file types
+@cindex files, marking type of
+@item @t{LIST_TYPES} (@t{-X}) <D>
+When listing files that are possible completions, show the
+type of each file with a trailing identifying mark.
+
+@pindex MENU_COMPLETE
+@cindex completion, menu
+@item @t{MENU_COMPLETE} (@t{-Y})
+On an ambiguous completion, instead of listing possibilities or beeping,
+insert the first match immediately.  Then when completion is requested
+again, remove the first match and insert the second match, etc.
+When there are no more matches, go back to the first one again.
+@t{reverse-menu-complete} may be used to loop through the list
+in the other direction. This option overrides @t{AUTO_MENU}.
+
+@pindex REC_EXACT
+@cindex completion, exact matches
+@item @t{REC_EXACT} (@t{-S})
+In completion, recognize exact matches even
+if they are ambiguous.
+
+@end table
+
+@noindent
+
+@subsection Expansion and Globbing
+@noindent
+@table @asis
+@pindex BAD_PATTERN
+@cindex globbing, bad pattern
+@cindex filename generation, bad pattern
+@item @t{BAD_PATTERN} (@t{+2}) <C> <Z>
+If a pattern for filename generation is badly formed, print an error message.
+(If this option is unset, the pattern will be left unchanged.)
+
+@pindex BARE_GLOB_QUAL
+@cindex globbing qualifiers, enable
+@cindex enable globbing qualifiers
+@item @t{BARE_GLOB_QUAL} <Z>
+In a glob pattern, treat a trailing set of parentheses as a qualifier
+list, if it contains no `@t{|}', `@t{(}' or (if special) `@t{~}'
+characters.  See @ref{Filename Generation}.
+
+@pindex BRACE_CCL
+@cindex brace expansion, extending
+@cindex expansion, brace, extending
+@item @t{BRACE_CCL}
+Expand expressions in braces which would not otherwise undergo brace
+expansion to a lexically ordered list of all the characters.  See
+@ref{Brace Expansion}.
+
+@pindex CASE_GLOB
+@cindex case-insensitive globbing, option
+@item @t{CASE_GLOB} <D>
+Make globbing (filename generation) sensitive to case.  Note that other
+uses of patterns are always sensitive to case.  If the option is unset,
+the presence of any character which is special to filename generation
+will cause case-insensitive matching.  For example, @t{cvs(/)} can
+match the directory @t{CVS} owing to the presence of the globbing flag
+(unless the option @t{BARE_GLOB_QUAL} is unset).
 
 @pindex CSH_NULL_GLOB
 @cindex csh, null globbing style
@@ -6698,50 +6776,11 @@ do not report an error unless all the patterns
 in a command have no matches.
 Overrides @t{NOMATCH}.
 
-@pindex DVORAK
-@item @t{DVORAK}
-Use the Dvorak keyboard instead of the standard qwerty keyboard as a basis
-for examining spelling mistakes for the @t{CORRECT} and @t{CORRECT_ALL}
-options and the @t{spell-word} editor command.
-
-@pindex EMACS
-@item @t{EMACS}
-If ZLE is loaded, turning on this option has the equivalent effect
-of `@t{bindkey -e}'.  In addition, the VI option is unset.
-Turning it off has no effect.  The option setting is
-not guaranteed to reflect the current keymap.  This option is
-provided for compatibility; @t{bindkey} is the recommended interface.
-
 @pindex EQUALS
 @cindex filename expansion, =
 @item @t{EQUALS} <Z>
 Perform @t{=} filename expansion.
 (See @ref{Filename Expansion}.)
-
-@pindex ERR_EXIT
-@cindex exit status, trapping
-@item @t{ERR_EXIT} (@t{-e}, ksh: @t{-e})
-If a command has a non-zero exit status, execute the @t{ZERR}
-trap, if set, and exit.  This is disabled while running initialization
-scripts.
-
-@pindex ERR_RETURN
-@cindex function return, on error
-cidnex(return from function, on error)
-@item @t{ERR_RETURN}
-If a command has a non-zero exit status, return immediately from the
-enclosing function.  The logic is identical to that for @t{ERR_EXIT},
-except that an implicit @t{return} statement is executed instead of an
-@t{exit}.  This will trigger an exit at the outermost level of a
-non-interactive script.
-
-@pindex EXEC
-@cindex command execution, enabling
-@item @t{EXEC} (@t{+n}, ksh: @t{+n}) <D>
-Do execute commands.  Without this option, commands are
-read and checked for syntax errors, but not executed.
-This option cannot be turned off in an interactive shell,
-except when `@t{-n}' is supplied to the shell at startup.
 
 @pindex EXTENDED_GLOB
 @cindex globbing, extended
@@ -6750,63 +6789,12 @@ Treat the `@t{#}', `@t{~}' and `@t{^}' characters as part of patterns
 for filename generation, etc.  (An initial unquoted `@t{~}'
 always produces named directory expansion.)
 
-@pindex EXTENDED_HISTORY
-@cindex history, timestamping
-@item @t{EXTENDED_HISTORY} <C>
-Save each command's beginning timestamp (in seconds since the epoch)
-and the duration (in seconds) to the history file.  The format of
-this prefixed data is:
-
-@noindent
-`@t{:}@var{<beginning time>}@t{:}@var{<elapsed seconds>}@t{:}@var{<command>}'.
-
-@pindex FLOW_CONTROL
-@cindex flow control
-@item @t{FLOW_CONTROL} <D>
-If this option is unset,
-output flow control via start/stop characters (usually assigned to
-^S/^Q) is disabled in the shell's editor.
-
-@pindex FUNCTION_ARGZERO
-@cindex $0, setting
-@item @t{FUNCTION_ARGZERO} <C> <Z>
-When executing a shell function or sourcing a script, set @t{$0}
-temporarily to the name of the function/script.
-
 @pindex GLOB
 @cindex globbing, enabling
 @cindex enabling globbing
 @item @t{GLOB} (@t{+F}, ksh: @t{+f}) <D>
 Perform filename generation (globbing).
 (See @ref{Filename Generation}.)
-
-@pindex GLOBAL_EXPORT
-@cindex environment, and local parameters
-@item @t{GLOBAL_EXPORT} (@t{<Z>})
-If this option is set, passing the @t{-x} flag to the builtins @t{declare},
-@t{float}, @t{integer}, @t{readonly} and @t{typeset} (but not @t{local})
-will also set the @t{-g} flag;  hence parameters exported to
-the environment will not be made local to the enclosing function, unless
-they were already or the flag @t{+g} is given explicitly.  If the option is
-unset, exported parameters will be made local in just the same way as any
-other parameter.
-
-@noindent
-This option is set by default for backward compatibility; it is not
-recommended that its behaviour be relied upon.  Note that the builtin
-@t{export} always sets both the @t{-x} and @t{-g} flags, and hence its
-effect extends beyond the scope of the enclosing function; this is the
-most portable way to achieve this behaviour.
-
-@cindex exporting, and local parameters
-@pindex GLOBAL_RCS
-@cindex startup files, global, inhibiting
-@cindex files, global startup, inhibiting
-@item @t{GLOBAL_RCS} (@t{-d}) <D>
-If this option is unset, the startup files @t{/etc/zprofile},
-@t{/etc/zshrc}, @t{/etc/zlogin} and @t{/etc/zlogout} will not be run.  It
-can be disabled and re-enabled at any time, including inside local startup
-files (@t{.zshrc}, etc.).
 
 @pindex GLOB_ASSIGN
 @item @t{GLOB_ASSIGN} <C>
@@ -6821,16 +6809,6 @@ of array assignments of the form `@var{name}@t{=(}@var{value}@t{)}'
 with this option set, it is not possible to predict whether the result
 will be an array or a scalar.
 
-@pindex GLOB_COMPLETE
-@item @t{GLOB_COMPLETE}
-When the current word has a glob pattern, do not insert all the words
-resulting from the expansion but generate matches as for completion and
-cycle through them like @t{MENU_COMPLETE}. The matches are generated as if
-a `@t{*}' was added to the end of the word, or inserted at the cursor when
-@t{COMPLETE_IN_WORD} is set.  This actually uses pattern matching, not
-globbing, so it works not only for files but for any completion, such as
-options, user names, etc.
-
 @pindex GLOB_DOTS
 @cindex globbing, of . files
 @item @t{GLOB_DOTS} (@t{-4})
@@ -6844,30 +6822,122 @@ characters resulting from command substitution as being eligible for
 filename generation.  Braces (and commas in between) do not become eligible
 for expansion.
 
-@pindex HASH_CMDS
-@cindex hashing, of commands
-@cindex command hashing
-@item @t{HASH_CMDS} <D>
-Note the location of each command the first time it is executed.
-Subsequent invocations of the same command will use the
-saved location, avoiding a path search.
-If this option is unset, no path hashing is done at all.
-However, when @t{CORRECT} is set, commands whose names do not appear in
-the functions or aliases hash tables are hashed in order to avoid
-reporting them as spelling errors.
+@pindex IGNORE_BRACES
+@cindex disabling brace expansion
+@cindex brace expansion, disabling
+@cindex expansion, brace, disabling
+@item @t{IGNORE_BRACES} (@t{-I}) <S>
+Do not perform brace expansion.
 
-@pindex HASH_DIRS
-@cindex hashing, of directories
-@cindex directories, hashing
-@item @t{HASH_DIRS} <D>
-Whenever a command name is hashed, hash the directory containing it,
-as well as all directories that occur earlier in the path.
-Has no effect if neither @t{HASH_CMDS} nor @t{CORRECT} is set.
+@pindex KSH_GLOB
+@item @t{KSH_GLOB} <K>
+In pattern matching, the interpretation of parentheses is affected by
+a preceding `@t{@@}', `@t{*}', `@t{+}', `@t{?}' or `@t{!}'.
+See @ref{Filename Generation}.
 
-@pindex HASH_LIST_ALL
-@item @t{HASH_LIST_ALL} <D>
-Whenever a command completion is attempted, make sure the entire
-command path is hashed first.  This makes the first completion slower.
+@pindex MAGIC_EQUAL_SUBST
+@item @t{MAGIC_EQUAL_SUBST}
+All unquoted arguments of the form `@var{anything}@t{=}@var{expression}'
+appearing after the command name have filename expansion (that is,
+where @var{expression} has a leading `@t{~}' or `@t{=}') performed on
+@var{expression} as if it were a parameter assignment.  The argument is
+not otherwise treated specially; it is passed to the command as a single
+argument, and not used as an actual parameter assignment.  For example, in
+@t{echo foo=~/bar:~/rod}, both occurrences of @t{~} would be replaced.
+Note that this happens anyway with @t{typeset} and similar statements.
+
+@noindent
+This option respects the setting of the @t{KSH_TYPESET} option.  In other
+words, if both options are in effect, arguments looking like
+assignments will not undergo wordsplitting.
+
+@pindex MARK_DIRS
+@cindex directories, marking
+@cindex marking directories
+@item @t{MARK_DIRS} (@t{-8}, ksh: @t{-X})
+Append a trailing `@t{/}' to all directory
+names resulting from filename generation (globbing).
+
+@pindex NOMATCH
+@cindex globbing, no matches
+@item @t{NOMATCH} (@t{+3}) <C> <Z>
+If a pattern for filename generation has no matches,
+print an error, instead of
+leaving it unchanged in the argument list.
+This also applies to file expansion
+of an initial `@t{~}' or `@t{=}'.
+
+@pindex NULL_GLOB
+@cindex globbing, no matches
+@item @t{NULL_GLOB} (@t{-G})
+If a pattern for filename generation has no matches,
+delete the pattern from the argument list instead
+of reporting an error.  Overrides @t{NOMATCH}.
+
+@pindex NUMERIC_GLOB_SORT
+@cindex globbing, sorting numerically
+@item @t{NUMERIC_GLOB_SORT}
+If numeric filenames are matched by a filename generation pattern,
+sort the filenames numerically rather than lexicographically.
+
+@pindex RC_EXPAND_PARAM
+@cindex rc, parameter expansion style
+@cindex parameter expansion style, rc
+@item @t{RC_EXPAND_PARAM} (@t{-P})
+Array expansions of the form
+`@var{foo}@t{$@{}@var{xx}@t{@}}@var{bar}', where the parameter
+@var{xx} is set to @t{(}@var{a b c}@t{)}, are substituted with
+`@var{fooabar foobbar foocbar}' instead of the default
+`@var{fooa b cbar}'.
+
+@pindex SH_GLOB
+@cindex sh, globbing style
+@cindex globbing style, sh
+@item @t{SH_GLOB} <K> <S>
+Disables the special meaning of `@t{(}', `@t{|}', `@t{)}'
+and '@t{<}' for globbing the result of parameter and command substitutions,
+and in some other places where
+the shell accepts patterns.  This option is set by default if zsh is
+invoked as @t{sh} or @t{ksh}.
+
+@pindex UNSET
+@cindex parameters, substituting unset
+@cindex unset parameters, substituting
+@item @t{UNSET} (@t{+u}, ksh: @t{+u}) <K> <S> <Z>
+Treat unset parameters as if they were empty when substituting.
+Otherwise they are treated as an error.
+
+@end table
+
+@noindent
+
+@subsection History
+@noindent
+@table @asis
+@pindex APPEND_HISTORY
+@cindex history, appending to a file
+@item @t{APPEND_HISTORY} <D>
+If this is set, zsh sessions will append their history list to
+the history file, rather than overwrite it. Thus, multiple parallel
+zsh sessions will all have their history lists added to the
+history file, in the order they are killed.
+
+@pindex BANG_HIST
+@cindex history, enable substitution
+@cindex enable history substitution
+@item @t{BANG_HIST} (@t{+K}) <C> <Z>
+Perform textual history expansion, @cite{csh}-style,
+treating the character `@t{!}' specially.
+
+@pindex EXTENDED_HISTORY
+@cindex history, timestamping
+@item @t{EXTENDED_HISTORY} <C>
+Save each command's beginning timestamp (in seconds since the epoch)
+and the duration (in seconds) to the history file.  The format of
+this prefixed data is:
+
+@noindent
+`@t{:}@var{<beginning time>}@t{:}@var{<elapsed seconds>}@t{:}@var{<command>}'.
 
 @pindex HIST_ALLOW_CLOBBER
 @item @t{HIST_ALLOW_CLOBBER}
@@ -6955,18 +7025,139 @@ Whenever the user enters a line with history expansion,
 don't execute the line directly; instead, perform
 history expansion and reload the line into the editing buffer.
 
-@pindex HUP
-@cindex jobs, HUP
-@item @t{HUP} <Z>
-Send the @t{HUP} signal to running jobs when the
-shell exits.
+@pindex INC_APPEND_HISTORY
+@cindex history, incremental appending to a file
+@item @t{INC_APPEND_HISTORY}
+This options works like @t{APPEND_HISTORY} except that new history lines
+are added to the @t{$HISTFILE} incrementally (as soon as they are
+entered), rather than waiting until the shell is killed.
+The file is periodically trimmed to the number of lines specified by
+@t{$SAVEHIST}, but can exceed this value between trimmings.
 
-@pindex IGNORE_BRACES
-@cindex disabling brace expansion
-@cindex brace expansion, disabling
-@cindex expansion, brace, disabling
-@item @t{IGNORE_BRACES} (@t{-I}) <S>
-Do not perform brace expansion.
+@pindex SHARE_HISTORY
+@cindex share history
+@cindex history, sharing
+@item @t{SHARE_HISTORY} <K>
+
+@noindent
+This option both imports new commands from the history file, and also
+causes your typed commands to be appended to the history file (the
+latter is like specifying @t{INC_APPEND_HISTORY}).
+The history lines are also output with timestamps ala
+@t{EXTENDED_HISTORY} (which makes it easier to find the spot where
+we left off reading the file after it gets re-written).
+
+@noindent
+By default, history movement commands visit the imported lines as
+well as the local lines, but you can toggle this on and off with the
+set-local-history zle binding.  It is also possible to create a zle
+widget that will make some commands ignore imported commands, and
+some include them.
+
+@noindent
+If you find that you want more control over when commands
+get imported, you may wish to turn @t{SHARE_HISTORY} off,
+@t{INC_APPEND_HISTORY} on, and then manually import
+commands whenever you need them using `@t{fc -RI}'.
+
+@end table
+
+@noindent
+
+@subsection Initialisation
+@noindent
+@table @asis
+@pindex ALL_EXPORT
+@cindex export, automatic
+@item @t{ALL_EXPORT} (@t{-a}, ksh: @t{-a})
+All parameters subsequently defined are automatically exported.
+
+@pindex GLOBAL_EXPORT
+@cindex environment, and local parameters
+@item @t{GLOBAL_EXPORT} (@t{<Z>})
+If this option is set, passing the @t{-x} flag to the builtins @t{declare},
+@t{float}, @t{integer}, @t{readonly} and @t{typeset} (but not @t{local})
+will also set the @t{-g} flag;  hence parameters exported to
+the environment will not be made local to the enclosing function, unless
+they were already or the flag @t{+g} is given explicitly.  If the option is
+unset, exported parameters will be made local in just the same way as any
+other parameter.
+
+@noindent
+This option is set by default for backward compatibility; it is not
+recommended that its behaviour be relied upon.  Note that the builtin
+@t{export} always sets both the @t{-x} and @t{-g} flags, and hence its
+effect extends beyond the scope of the enclosing function; this is the
+most portable way to achieve this behaviour.
+
+@cindex exporting, and local parameters
+@pindex GLOBAL_RCS
+@cindex startup files, global, inhibiting
+@cindex files, global startup, inhibiting
+@item @t{GLOBAL_RCS} (@t{-d}) <D>
+If this option is unset, the startup files @t{/etc/zprofile},
+@t{/etc/zshrc}, @t{/etc/zlogin} and @t{/etc/zlogout} will not be run.  It
+can be disabled and re-enabled at any time, including inside local startup
+files (@t{.zshrc}, etc.).
+
+@pindex RCS
+@cindex startup files, sourcing
+@item @t{RCS} (@t{+f}) <D>
+After @t{/etc/zshenv} is sourced on startup, source the
+@t{.zshenv}, @t{/etc/zprofile}, @t{.zprofile},
+@t{/etc/zshrc}, @t{.zshrc}, @t{/etc/zlogin}, @t{.zlogin}, and @t{.zlogout}
+files, as described in @ref{Files}.
+If this option is unset, the @t{/etc/zshenv} file is still sourced, but any
+of the others will not be; it can be set at any time to prevent the
+remaining startup files after the currently executing one from
+being sourced.
+
+@end table
+
+@noindent
+
+@subsection Input/Output
+@noindent
+@table @asis
+@pindex ALIASES
+@cindex aliases, expansion
+@item @t{ALIASES} <D>
+Expand aliases.
+
+@pindex CLOBBER
+@cindex clobbering, of files
+@cindex file clobbering, allowing
+@item @t{CLOBBER} (@t{+C}, ksh: @t{+C}) <D>
+Allows `@t{>}' redirection to truncate existing files,
+and `@t{>>}' to create files.
+Otherwise `@t{>!}' or `@t{>|}' must be used to truncate a file,
+and `@t{>>!}' or `@t{>>|}' to create a file.
+
+@pindex CORRECT
+@cindex correction, spelling
+@cindex spelling correction
+@item @t{CORRECT} (@t{-0})
+Try to correct the spelling of commands.
+Note that, when the @t{HASH_LIST_ALL} option is not set or when some
+directories in the path are not readable, this may falsely report spelling
+errors the first time some commands are used.
+
+@pindex CORRECT_ALL
+@item @t{CORRECT_ALL} (@t{-O})
+Try to correct the spelling of all arguments in a line.
+
+@pindex DVORAK
+@item @t{DVORAK}
+Use the Dvorak keyboard instead of the standard qwerty keyboard as a basis
+for examining spelling mistakes for the @t{CORRECT} and @t{CORRECT_ALL}
+options and the @t{spell-word} editor command.
+
+@pindex FLOW_CONTROL
+@cindex flow control
+@item @t{FLOW_CONTROL} <D>
+If this option is unset,
+output flow control via start/stop characters (usually assigned to
+^S/^Q) is disabled in the shell's editor.
 
 @pindex IGNORE_EOF
 @cindex EOF, ignoring
@@ -6982,113 +7173,260 @@ implemented by shell functions can be bound to EOF (normally
 Control-D) without printing the normal warning message.  This works
 only for normal widgets, not for completion widgets.
 
-@pindex INC_APPEND_HISTORY
-@cindex history, incremental appending to a file
-@item @t{INC_APPEND_HISTORY}
-This options works like @t{APPEND_HISTORY} except that new history lines
-are added to the @t{$HISTFILE} incrementally (as soon as they are
-entered), rather than waiting until the shell is killed.
-The file is periodically trimmed to the number of lines specified by
-@t{$SAVEHIST}, but can exceed this value between trimmings.
-
-@pindex INTERACTIVE
-@item @t{INTERACTIVE} (@t{-i}, ksh: @t{-i})
-This is an interactive shell.  This option is set upon initialisation if
-the standard input is a tty and commands are being read from standard input.
-(See the discussion of @t{SHIN_STDIN}.)
-This heuristic may be overridden by specifying a state for this option
-on the command line.
-The value of this option cannot be changed anywhere other than the command line.
-
 @pindex INTERACTIVE_COMMENTS
 @cindex comments, in interactive shells
 @item @t{INTERACTIVE_COMMENTS} (@t{-k}) <K> <S>
 Allow comments even in interactive shells.
 
-@pindex KSH_ARRAYS
-@cindex arrays, ksh style
-@cindex array style, ksh
-@cindex ksh, array style
-@item @t{KSH_ARRAYS} <K> <S>
-Emulate @cite{ksh} array handling as closely as possible.  If this option
-is set, array elements are numbered from zero, an array parameter
-without subscript refers to the first element instead of the whole array,
-and braces are required to delimit a subscript (`@t{$@{path[2]@}}' rather
-than just `@t{$path[2]}').
+@pindex HASH_CMDS
+@cindex hashing, of commands
+@cindex command hashing
+@item @t{HASH_CMDS} <D>
+Note the location of each command the first time it is executed.
+Subsequent invocations of the same command will use the
+saved location, avoiding a path search.
+If this option is unset, no path hashing is done at all.
+However, when @t{CORRECT} is set, commands whose names do not appear in
+the functions or aliases hash tables are hashed in order to avoid
+reporting them as spelling errors.
 
-@pindex KSH_AUTOLOAD
-@item @t{KSH_AUTOLOAD} <K> <S>
-Emulate @cite{ksh} function autoloading.  This means that when a function is
-autoloaded, the corresponding file is merely executed, and must define
-the function itself.  (By default, the function is defined to the contents
-of the file.  However, the most common @cite{ksh}-style case - of the file
-containing only a simple definition of the function - is always handled
-in the @cite{ksh}-compatible manner.)
+@pindex HASH_DIRS
+@cindex hashing, of directories
+@cindex directories, hashing
+@item @t{HASH_DIRS} <D>
+Whenever a command name is hashed, hash the directory containing it,
+as well as all directories that occur earlier in the path.
+Has no effect if neither @t{HASH_CMDS} nor @t{CORRECT} is set.
 
-@pindex KSH_GLOB
-@item @t{KSH_GLOB} <K>
-In pattern matching, the interpretation of parentheses is affected by
-a preceding `@t{@@}', `@t{*}', `@t{+}', `@t{?}' or `@t{!}'.
-See @ref{Filename Generation}.
+@pindex MAIL_WARNING
+@cindex mail, warning of reading
+@item @t{MAIL_WARNING} (@t{-U})
+Print a warning message if a mail file has been
+accessed since the shell last checked.
 
-@pindex KSH_OPTION_PRINT
-@cindex option printing, ksh style
-@cindex option printing style, ksh
-@cindex ksh, option printing style
-@item @t{KSH_OPTION_PRINT} <K>
-Alters the way options settings are printed: instead of separate lists of
-set and unset options, all options are shown, marked `on' if
-they are in the non-default state, `off' otherwise.
+@pindex PATH_DIRS
+@cindex path search, extended
+@item @t{PATH_DIRS} (@t{-Q})
+Perform a path search even on command names with slashes in them.
+Thus if `@t{/usr/local/bin}' is in the user's path, and he or she types
+`@t{X11/xinit}', the command `@t{/usr/local/bin/X11/xinit}' will be executed
+(assuming it exists).
+Commands explicitly beginning with `@t{/}', `@t{./}' or `@t{../}'
+are not subject to the path search.
+This also applies to the @t{.} builtin.
 
-@pindex KSH_TYPESET
-@cindex argument splitting, in typeset etc.
-@cindex ksh, argument splitting in typeset
-@item @t{KSH_TYPESET} <K>
-Alters the way arguments to the @t{typeset} family of commands, including
-@t{declare}, @t{export}, @t{float}, @t{integer}, @t{local} and
-@t{readonly}, are processed.  Without this option, zsh will perform normal
-word splitting after command and parameter expansion in arguments of an
-assignment; with it, word splitting does not take place in those cases.
+@noindent
+Note that subdirectories of the current directory are always searched for
+executables specified in this form.  This takes place before any search
+indicated by this option, and regardless of whether `@t{.}' or the current
+directory appear in the command search path.
 
-@pindex LIST_AMBIGUOUS
-@cindex ambiguous completion
-@cindex completion, ambiguous
-@item @t{LIST_AMBIGUOUS} <D>
-This option works when @t{AUTO_LIST} or @t{BASH_AUTO_LIST} is also
-set.  If there is an unambiguous prefix to insert on the command line,
-that is done without a completion list being displayed; in other
-words, auto-listing behaviour only takes place when nothing would be
-inserted.  In the case of @t{BASH_AUTO_LIST}, this means that the list
-will be delayed to the third call of the function.
+@pindex PRINT_EIGHT_BIT
+@cindex eight bit characters, printing
+@item @t{PRINT_EIGHT_BIT}
+Print eight bit characters literally in completion lists, etc.
+This option is not necessary if your system correctly returns the
+printability of eight bit characters (see man page ctype(3)).
 
-@pindex LIST_BEEP
-@cindex beep, ambiguous completion
-@cindex completion, beep on ambiguous
-@item @t{LIST_BEEP} <D>
-Beep on an ambiguous completion.  More accurately, this forces the
-completion widgets to return status 1 on an ambiguous completion, which
-causes the shell to beep if the option @t{BEEP} is also set; this may
-be modified if completion is called from a user-defined widget.
+@pindex PRINT_EXIT_VALUE
+@cindex exit status, printing
+@item @t{PRINT_EXIT_VALUE} (@t{-1})
+Print the exit value of programs with non-zero exit status.
 
-@pindex LIST_PACKED
-@cindex completion, listing
-@item @t{LIST_PACKED}
-Try to make the completion list smaller (occupying less lines) by
-printing the matches in columns with different widths.
+@pindex RC_QUOTES
+@cindex rc, quoting style
+@cindex quoting style, rc
+@item @t{RC_QUOTES}
+Allow the character sequence `@t{@value{dsq}}' to signify a single quote
+within singly quoted strings.  Note this does not apply in quoted strings
+using the format @t{$'}@var{...}@t{'}, where a backslashed single quote can
+be used.
 
-@pindex LIST_ROWS_FIRST
-@cindex completion, listing order
-@item @t{LIST_ROWS_FIRST}
-Lay out the matches in completion lists sorted horizontally, that is,
-the second match is to the right of the first one, not under it as
-usual.
+@pindex RM_STAR_SILENT
+@cindex rm *, querying before
+@cindex querying before rm *
+@item @t{RM_STAR_SILENT} (@t{-H}) <K> <S>
+Do not query the user before executing `@t{rm *}' or `@t{rm path/*}'.
 
-@pindex LIST_TYPES
-@cindex marking file types
-@cindex files, marking type of
-@item @t{LIST_TYPES} (@t{-X}) <D>
-When listing files that are possible completions, show the
-type of each file with a trailing identifying mark.
+@pindex RM_STAR_WAIT
+@cindex rm *, waiting before
+@cindex waiting before rm *
+@item @t{RM_STAR_WAIT}
+If querying the user before executing `@t{rm *}' or `@t{rm path/*}',
+first wait ten seconds and ignore anything typed in that time.
+This avoids the problem of reflexively answering `yes' to the query
+when one didn't really mean it.  The wait and query can always be
+avoided by expanding the `@t{*}' in ZLE (with tab).
+
+@pindex SHORT_LOOPS
+@item @t{SHORT_LOOPS} <C> <Z>
+Allow the short forms of @t{for}, @t{repeat}, @t{select},
+@t{if}, and @t{function} constructs.
+
+@pindex SUN_KEYBOARD_HACK
+@cindex sun keyboard, annoying
+@cindex annoying keyboard, sun
+@item @t{SUN_KEYBOARD_HACK} (@t{-L})
+If a line ends with a backquote, and there are an odd number
+of backquotes on the line, ignore the trailing backquote.
+This is useful on some keyboards where the return key is
+too small, and the backquote key lies annoyingly close to it.
+
+@end table
+
+@noindent
+
+@subsection Job Control
+@noindent
+@table @asis
+@pindex AUTO_CONTINUE
+@cindex jobs, continuing automatically
+@cindex continuing jobs automatically
+@item @t{AUTO_CONTINUE}
+With this option set, stopped jobs that are removed from the job table
+with the @t{disown} builtin command are automatically sent a @t{CONT}
+signal to make them running.
+
+@pindex AUTO_RESUME
+@cindex jobs, resuming automatically
+@cindex resuming jobs automatically
+@item @t{AUTO_RESUME} (@t{-W})
+Treat single word simple commands without redirection
+as candidates for resumption of an existing job.
+
+@pindex BG_NICE
+@cindex jobs, background priority
+@cindex background jobs, priority of
+@cindex priority of background jobs
+@item @t{BG_NICE} (@t{-6}) <C> <Z>
+Run all background jobs at a lower priority.  This option
+is set by default.
+
+@pindex CHECK_JOBS
+@cindex exiting, checking jobs when
+@cindex logging out, checking jobs when
+@item @t{CHECK_JOBS} <Z>
+Report the status of background and suspended jobs before exiting a shell
+with job control; a second attempt to exit the shell will succeed.
+@t{NO_CHECK_JOBS} is best used only in combination with @t{NO_HUP}, else
+such jobs will be killed automatically.
+
+@noindent
+The check is omitted if the commands run from the previous command line
+included a `@t{jobs}' command, since it is assumed the user is aware that
+there are background or suspended jobs.  A `@t{jobs}' command run from the
+@t{precmd} function is not counted for this purpose.
+
+@pindex HUP
+@cindex jobs, HUP
+@item @t{HUP} <Z>
+Send the @t{HUP} signal to running jobs when the
+shell exits.
+
+@pindex LONG_LIST_JOBS
+@cindex jobs, list format
+@item @t{LONG_LIST_JOBS} (@t{-R})
+List jobs in the long format by default.
+
+@pindex MONITOR
+@cindex job control, allowing
+@item @t{MONITOR} (@t{-m}, ksh: @t{-m})
+Allow job control.  Set by default in interactive shells.
+
+@pindex NOTIFY
+@cindex background jobs, notification
+@cindex notification of background jobs
+@item @t{NOTIFY} (@t{-5}, ksh: @t{-b}) <Z>
+Report the status of background jobs immediately, rather than
+waiting until just before printing a prompt.
+
+@end table
+
+@noindent
+
+@subsection Prompting
+@noindent
+@table @asis
+@pindex PROMPT_BANG
+@cindex prompt, ! expansion
+@item @t{PROMPT_BANG} <K>
+If set, `@t{!}' is treated specially in prompt expansion.
+See @ref{Prompt Expansion}.
+
+@pindex PROMPT_CR
+@cindex prompt, with CR
+@item @t{PROMPT_CR} (@t{+V}) <D>
+Print a carriage return just before printing
+a prompt in the line editor.  This is on by default as multi-line editing
+is only possible if the editor knows where the start of the line appears.
+
+@pindex PROMPT_PERCENT
+@cindex prompt, % expansion
+@item @t{PROMPT_PERCENT} <C> <Z>
+If set, `@t{%}' is treated specially in prompt expansion.
+See @ref{Prompt Expansion}.
+
+@pindex PROMPT_SUBST
+@cindex prompt, parameter expansion
+@item @t{PROMPT_SUBST} <K>
+If set, @emph{parameter expansion}, @emph{command substitution} and
+@emph{arithmetic expansion} are performed in prompts.
+
+@pindex TRANSIENT_RPROMPT
+@item @t{TRANSIENT_RPROMPT}
+Remove any right prompt from display when accepting a command
+line.  This may be useful with terminals with other cut/paste methods.
+
+@end table
+
+@noindent
+
+@subsection Scripts and Functions
+@noindent
+@table @asis
+@pindex C_BASES
+@cindex bases, output in C format
+@cindex hexadecimal, output in C format
+@cindex octal, output in C format
+@item @t{C_BASES}
+Output hexadecimal numbers in the standard C format, for example `@t{0xFF}'
+instead of the usual `@t{16#FF}'.  If the option @t{OCTAL_ZEROES} is also
+set (it is not by default), octal numbers will be treated similarly and
+hence appear as `@t{077}' instead of `@t{8#77}'.  This option has no effect
+on the choice of the output base, nor on the output of bases other than
+hexadecimal and octal.  Note that these formats will be understood on input
+irrespective of the setting of @t{C_BASES}.
+
+@pindex ERR_EXIT
+@cindex exit status, trapping
+@item @t{ERR_EXIT} (@t{-e}, ksh: @t{-e})
+If a command has a non-zero exit status, execute the @t{ZERR}
+trap, if set, and exit.  This is disabled while running initialization
+scripts.
+
+@pindex ERR_RETURN
+@cindex function return, on error
+cidnex(return from function, on error)
+@item @t{ERR_RETURN}
+If a command has a non-zero exit status, return immediately from the
+enclosing function.  The logic is identical to that for @t{ERR_EXIT},
+except that an implicit @t{return} statement is executed instead of an
+@t{exit}.  This will trigger an exit at the outermost level of a
+non-interactive script.
+
+@pindex EXEC
+@cindex command execution, enabling
+@item @t{EXEC} (@t{+n}, ksh: @t{+n}) <D>
+Do execute commands.  Without this option, commands are
+read and checked for syntax errors, but not executed.
+This option cannot be turned off in an interactive shell,
+except when `@t{-n}' is supplied to the shell at startup.
+
+@pindex FUNCTION_ARGZERO
+@cindex $0, setting
+@item @t{FUNCTION_ARGZERO} <C> <Z>
+When executing a shell function or sourcing a script, set @t{$0}
+temporarily to the name of the function/script.
 
 @pindex LOCAL_OPTIONS
 @item @t{LOCAL_OPTIONS} <K>
@@ -7122,94 +7460,10 @@ fn() @{ setopt localtraps; trap @value{dsq} INT; sleep 3; @}
 @noindent
 will restore normally handling of @t{SIGINT} after the function exits.
 
-@pindex LOGIN
-@item @t{LOGIN} (@t{-l}, ksh: @t{-l})
-This is a login shell.
-If this option is not explicitly set, the shell is a login shell if
-the first character of the @t{argv[0]} passed to the shell is a `@t{-}'.
-
-@pindex LONG_LIST_JOBS
-@cindex jobs, list format
-@item @t{LONG_LIST_JOBS} (@t{-R})
-List jobs in the long format by default.
-
-@pindex MAGIC_EQUAL_SUBST
-@item @t{MAGIC_EQUAL_SUBST}
-All unquoted arguments of the form `@var{anything}@t{=}@var{expression}'
-appearing after the command name have filename expansion (that is,
-where @var{expression} has a leading `@t{~}' or `@t{=}') performed on
-@var{expression} as if it were a parameter assignment.  The argument is
-not otherwise treated specially; it is passed to the command as a single
-argument, and not used as an actual parameter assignment.  For example, in
-@t{echo foo=~/bar:~/rod}, both occurrences of @t{~} would be replaced.
-Note that this happens anyway with @t{typeset} and similar statements.
-
-@noindent
-This option respects the setting of the @t{KSH_TYPESET} option.  In other
-words, if both options are in effect, arguments looking like
-assignments will not undergo wordsplitting.
-
-@pindex MAIL_WARNING
-@cindex mail, warning of reading
-@item @t{MAIL_WARNING} (@t{-U})
-Print a warning message if a mail file has been
-accessed since the shell last checked.
-
-@pindex MARK_DIRS
-@cindex directories, marking
-@cindex marking directories
-@item @t{MARK_DIRS} (@t{-8}, ksh: @t{-X})
-Append a trailing `@t{/}' to all directory
-names resulting from filename generation (globbing).
-
-@pindex MENU_COMPLETE
-@cindex completion, menu
-@item @t{MENU_COMPLETE} (@t{-Y})
-On an ambiguous completion, instead of listing possibilities or beeping,
-insert the first match immediately.  Then when completion is requested
-again, remove the first match and insert the second match, etc.
-When there are no more matches, go back to the first one again.
-@t{reverse-menu-complete} may be used to loop through the list
-in the other direction. This option overrides @t{AUTO_MENU}.
-
-@pindex MONITOR
-@cindex job control, allowing
-@item @t{MONITOR} (@t{-m}, ksh: @t{-m})
-Allow job control.  Set by default in interactive shells.
-
 @pindex MULTIOS
 @item @t{MULTIOS} <Z>
 Perform implicit @cite{tee}s or @cite{cat}s when multiple
 redirections are attempted (see @ref{Redirection}).
-
-@pindex NOMATCH
-@cindex globbing, no matches
-@item @t{NOMATCH} (@t{+3}) <C> <Z>
-If a pattern for filename generation has no matches,
-print an error, instead of
-leaving it unchanged in the argument list.
-This also applies to file expansion
-of an initial `@t{~}' or `@t{=}'.
-
-@pindex NOTIFY
-@cindex background jobs, notification
-@cindex notification of background jobs
-@item @t{NOTIFY} (@t{-5}, ksh: @t{-b}) <Z>
-Report the status of background jobs immediately, rather than
-waiting until just before printing a prompt.
-
-@pindex NULL_GLOB
-@cindex globbing, no matches
-@item @t{NULL_GLOB} (@t{-G})
-If a pattern for filename generation has no matches,
-delete the pattern from the argument list instead
-of reporting an error.  Overrides @t{NOMATCH}.
-
-@pindex NUMERIC_GLOB_SORT
-@cindex globbing, sorting numerically
-@item @t{NUMERIC_GLOB_SORT}
-If numeric filenames are matched by a filename generation pattern,
-sort the filenames numerically rather than lexicographically.
 
 @pindex OCTAL_ZEROES
 @cindex octal, arithmetic expressions
@@ -7219,28 +7473,116 @@ Interpret any integer constant beginning with a 0 as octal, per IEEE Std
 causes problems with parsing of, for example, date and time strings with
 leading zeroes.
 
-@pindex OVERSTRIKE
-@cindex editor, overstrike mode
-@cindex overstrike mode, of editor
-@item @t{OVERSTRIKE}
-Start up the line editor in overstrike mode.
+@pindex TYPESET_SILENT
+@item @t{TYPESET_SILENT}
+If this is unset, executing any of the `@t{typeset}' family of
+commands with no options and a list of parameters that have no values
+to be assigned but already exist will display the value of the parameter.
+If the option is set, they will only be shown when parameters are selected
+with the `@t{-m}' option.  The option `@t{-p}' is available whether or not
+the option is set.
 
-@pindex PATH_DIRS
-@cindex path search, extended
-@item @t{PATH_DIRS} (@t{-Q})
-Perform a path search even on command names with slashes in them.
-Thus if `@t{/usr/local/bin}' is in the user's path, and he or she types
-`@t{X11/xinit}', the command `@t{/usr/local/bin/X11/xinit}' will be executed
-(assuming it exists).
-Commands explicitly beginning with `@t{/}', `@t{./}' or `@t{../}'
-are not subject to the path search.
-This also applies to the @t{.} builtin.
+@pindex VERBOSE
+@cindex tracing, of input lines
+@cindex input, tracing
+@item @t{VERBOSE} (@t{-v}, ksh: @t{-v})
+Print shell input lines as they are read.
+
+@pindex XTRACE
+@cindex tracing, of commands
+@cindex commands, tracing
+@item @t{XTRACE} (@t{-x}, ksh: @t{-x})
+Print commands and their arguments as they are executed.
+
+@end table
 
 @noindent
-Note that subdirectories of the current directory are always searched for
-executables specified in this form.  This takes place before any search
-indicated by this option, and regardless of whether `@t{.}' or the current
-directory appear in the command search path.
+
+@subsection Shell Emulation
+@noindent
+@table @asis
+@pindex BSD_ECHO
+@cindex echo, BSD compatible
+@item @t{BSD_ECHO} <S>
+Make the @t{echo} builtin compatible with the BSD man page echo(1) command.
+This disables backslashed escape sequences in echo strings unless the
+@t{-e} option is specified.
+
+@pindex CSH_JUNKIE_HISTORY
+@cindex csh, history style
+@cindex history style, csh
+@item @t{CSH_JUNKIE_HISTORY} <C>
+A history reference without an event specifier will always refer to the
+previous command.  Without this option, such a history reference refers
+to the same event as the previous history reference, defaulting to the
+previous command.
+
+@pindex CSH_JUNKIE_LOOPS
+@cindex csh, loop style
+@cindex loop style, csh
+@item @t{CSH_JUNKIE_LOOPS} <C>
+Allow loop bodies to take the form `@var{list}; @t{end}' instead of
+`@t{do} @var{list}; @t{done}'.
+
+@pindex CSH_JUNKIE_QUOTES
+@cindex csh, quoting style
+@cindex quoting style, csh
+@item @t{CSH_JUNKIE_QUOTES} <C>
+Changes the rules for single- and double-quoted text to match that of
+@cite{csh}.  These require that embedded newlines be preceded by a backslash;
+unescaped newlines will cause an error message.
+In double-quoted strings, it is made impossible to escape `@t{$}', `@t{`}'
+or `@t{"}' (and `@t{\}' itself no longer needs escaping).
+Command substitutions are only expanded once, and cannot be nested.
+
+@pindex CSH_NULLCMD
+@vindex NULLCMD, ignoring
+@vindex READNULLCMD, ignoring
+@cindex redirections with no command, csh
+@cindex csh, redirections with no command
+@item @t{CSH_NULLCMD} <C>
+Do not use the values of @t{NULLCMD} and @t{READNULLCMD} 
+when running redirections with no command.  This make 
+such redirections fail (see @ref{Redirection}).
+
+@pindex KSH_ARRAYS
+@cindex arrays, ksh style
+@cindex array style, ksh
+@cindex ksh, array style
+@item @t{KSH_ARRAYS} <K> <S>
+Emulate @cite{ksh} array handling as closely as possible.  If this option
+is set, array elements are numbered from zero, an array parameter
+without subscript refers to the first element instead of the whole array,
+and braces are required to delimit a subscript (`@t{$@{path[2]@}}' rather
+than just `@t{$path[2]}').
+
+@pindex KSH_AUTOLOAD
+@item @t{KSH_AUTOLOAD} <K> <S>
+Emulate @cite{ksh} function autoloading.  This means that when a function is
+autoloaded, the corresponding file is merely executed, and must define
+the function itself.  (By default, the function is defined to the contents
+of the file.  However, the most common @cite{ksh}-style case - of the file
+containing only a simple definition of the function - is always handled
+in the @cite{ksh}-compatible manner.)
+
+@pindex KSH_OPTION_PRINT
+@cindex option printing, ksh style
+@cindex option printing style, ksh
+@cindex ksh, option printing style
+@item @t{KSH_OPTION_PRINT} <K>
+Alters the way options settings are printed: instead of separate lists of
+set and unset options, all options are shown, marked `on' if
+they are in the non-default state, `off' otherwise.
+
+@pindex KSH_TYPESET
+@cindex argument splitting, in typeset etc.
+@cindex ksh, argument splitting in typeset
+@item @t{KSH_TYPESET} <K>
+Alters the way arguments to the @t{typeset} family of commands, including
+@t{declare}, @t{export}, @t{float}, @t{integer}, @t{local} and
+@t{readonly}, are processed.  Without this option, zsh will perform normal
+word splitting after command and parameter expansion in arguments of an
+assignment; with it, word splitting does not take place in those cases.
 
 @pindex POSIX_BUILTINS
 @item @t{POSIX_BUILTINS} <K> <S>
@@ -7268,167 +7610,6 @@ builtins are
 @t{trap} and
 @t{unset}.
 
-@pindex PRINT_EIGHT_BIT
-@cindex eight bit characters, printing
-@item @t{PRINT_EIGHT_BIT}
-Print eight bit characters literally in completion lists, etc.
-This option is not necessary if your system correctly returns the
-printability of eight bit characters (see man page ctype(3)).
-
-@pindex PRINT_EXIT_VALUE
-@cindex exit status, printing
-@item @t{PRINT_EXIT_VALUE} (@t{-1})
-Print the exit value of programs with non-zero exit status.
-
-@pindex PRIVILEGED
-@cindex privileged mode
-@cindex mode, privileged
-@item @t{PRIVILEGED} (@t{-p}, ksh: @t{-p})
-Turn on privileged mode. This is enabled automatically on startup if the
-effective user (group) ID is not equal to the real user (group) ID.  Turning
-this option off causes the effective user and group IDs to be set to the
-real user and group IDs. This option disables sourcing user startup files.
-If zsh is invoked as `@t{sh}' or `@t{ksh}' with this option set,
-@t{/etc/suid_profile} is sourced (after @t{/etc/profile} on interactive
-shells). Sourcing @t{~/.profile} is disabled and the contents of the
-@t{ENV} variable is ignored. This option cannot be changed using the
-@t{-m} option of @t{setopt} and @t{unsetopt}, and changing it inside a
-function always changes it globally regardless of the @t{LOCAL_OPTIONS}
-option.
-
-@pindex PROMPT_BANG
-@cindex prompt, ! expansion
-@item @t{PROMPT_BANG} <K>
-If set, `@t{!}' is treated specially in prompt expansion.
-See @ref{Prompt Expansion}.
-
-@pindex PROMPT_CR
-@cindex prompt, with CR
-@item @t{PROMPT_CR} (@t{+V}) <D>
-Print a carriage return just before printing
-a prompt in the line editor.  This is on by default as multi-line editing
-is only possible if the editor knows where the start of the line appears.
-
-@pindex PROMPT_PERCENT
-@cindex prompt, % expansion
-@item @t{PROMPT_PERCENT} <C> <Z>
-If set, `@t{%}' is treated specially in prompt expansion.
-See @ref{Prompt Expansion}.
-
-@pindex PROMPT_SUBST
-@cindex prompt, parameter expansion
-@item @t{PROMPT_SUBST} <K>
-If set, @emph{parameter expansion}, @emph{command substitution} and
-@emph{arithmetic expansion} are performed in prompts.
-
-@pindex PUSHD_IGNORE_DUPS
-@cindex directory stack, ignoring duplicates
-@item @t{PUSHD_IGNORE_DUPS}
-Don't push multiple copies of the same directory onto the directory stack.
-
-@pindex PUSHD_MINUS
-@cindex directory stack, controlling syntax
-@item @t{PUSHD_MINUS}
-Exchanges the meanings of `@t{+}' and `@t{-}'
-when used with a number to specify a directory in the stack.
-
-@pindex PUSHD_SILENT
-@cindex directory stack, silencing
-@item @t{PUSHD_SILENT} (@t{-E})
-Do not print the directory stack after @t{pushd} or @t{popd}.
-
-@pindex PUSHD_TO_HOME
-@cindex pushd, to home
-@item @t{PUSHD_TO_HOME} (@t{-D})
-Have @t{pushd} with no arguments act like `@t{pushd $HOME}'.
-
-@pindex RC_EXPAND_PARAM
-@cindex rc, parameter expansion style
-@cindex parameter expansion style, rc
-@item @t{RC_EXPAND_PARAM} (@t{-P})
-Array expansions of the form
-`@var{foo}@t{$@{}@var{xx}@t{@}}@var{bar}', where the parameter
-@var{xx} is set to @t{(}@var{a b c}@t{)}, are substituted with
-`@var{fooabar foobbar foocbar}' instead of the default
-`@var{fooa b cbar}'.
-
-@pindex RC_QUOTES
-@cindex rc, quoting style
-@cindex quoting style, rc
-@item @t{RC_QUOTES}
-Allow the character sequence `@t{@value{dsq}}' to signify a single quote
-within singly quoted strings.  Note this does not apply in quoted strings
-using the format @t{$'}@var{...}@t{'}, where a backslashed single quote can
-be used.
-
-@pindex RCS
-@cindex startup files, sourcing
-@item @t{RCS} (@t{+f}) <D>
-After @t{/etc/zshenv} is sourced on startup, source the
-@t{.zshenv}, @t{/etc/zprofile}, @t{.zprofile},
-@t{/etc/zshrc}, @t{.zshrc}, @t{/etc/zlogin}, @t{.zlogin}, and @t{.zlogout}
-files, as described in @ref{Files}.
-If this option is unset, the @t{/etc/zshenv} file is still sourced, but any
-of the others will not be; it can be set at any time to prevent the
-remaining startup files after the currently executing one from
-being sourced.
-
-@pindex REC_EXACT
-@cindex completion, exact matches
-@item @t{REC_EXACT} (@t{-S})
-In completion, recognize exact matches even
-if they are ambiguous.
-
-@pindex RESTRICTED
-@cindex restricted shell
-@item @t{RESTRICTED} (@t{-r})
-Enables restricted mode.  This option cannot be changed using
-@t{unsetopt}, and setting it inside a function always changes it
-globally regardless of the @t{LOCAL_OPTIONS} option.  See
-@ref{Restricted Shell}.
-
-@pindex RM_STAR_SILENT
-@cindex rm *, querying before
-@cindex querying before rm *
-@item @t{RM_STAR_SILENT} (@t{-H}) <K> <S>
-Do not query the user before executing `@t{rm *}' or `@t{rm path/*}'.
-
-@pindex RM_STAR_WAIT
-@cindex rm *, waiting before
-@cindex waiting before rm *
-@item @t{RM_STAR_WAIT}
-If querying the user before executing `@t{rm *}' or `@t{rm path/*}',
-first wait ten seconds and ignore anything typed in that time.
-This avoids the problem of reflexively answering `yes' to the query
-when one didn't really mean it.  The wait and query can always be
-avoided by expanding the `@t{*}' in ZLE (with tab).
-
-@pindex SHARE_HISTORY
-@cindex share history
-@cindex history, sharing
-@item @t{SHARE_HISTORY} <K>
-
-@noindent
-This option both imports new commands from the history file, and also
-causes your typed commands to be appended to the history file (the
-latter is like specifying @t{INC_APPEND_HISTORY}).
-The history lines are also output with timestamps ala
-@t{EXTENDED_HISTORY} (which makes it easier to find the spot where
-we left off reading the file after it gets re-written).
-
-@noindent
-By default, history movement commands visit the imported lines as
-well as the local lines, but you can toggle this on and off with the
-set-local-history zle binding.  It is also possible to create a zle
-widget that will make some commands ignore imported commands, and
-some include them.
-
-@noindent
-If you find that you want more control over when commands
-get imported, you may wish to turn @t{SHARE_HISTORY} off,
-@t{INC_APPEND_HISTORY} on, and then manually import
-commands whenever you need them using `@t{fc -RI}'.
-
 @pindex SH_FILE_EXPANSION
 @cindex sh, expansion style
 @cindex expansion style, sh
@@ -7439,32 +7620,6 @@ and brace expansion.
 If this option is unset, it is performed @emph{after}
 brace expansion, so things like `@t{~$USERNAME}' and
 `@t{~@{pfalstad,rc@}}' will work.
-
-@pindex SH_GLOB
-@cindex sh, globbing style
-@cindex globbing style, sh
-@item @t{SH_GLOB} <K> <S>
-Disables the special meaning of `@t{(}', `@t{|}', `@t{)}'
-and '@t{<}' for globbing the result of parameter and command substitutions,
-and in some other places where
-the shell accepts patterns.  This option is set by default if zsh is
-invoked as @t{sh} or @t{ksh}.
-
-@pindex SHIN_STDIN
-@item @t{SHIN_STDIN} (@t{-s}, ksh: @t{-s})
-Commands are being read from the standard input.
-Commands are read from standard input if no command is specified with
-@t{-c} and no file of commands is specified.  If @t{SHIN_STDIN}
-is set explicitly on the command line,
-any argument that would otherwise have been
-taken as a file to run will instead be treated as a normal positional
-parameter.
-Note that setting or unsetting this option on the command line does not
-necessarily affect the state the option will have while the shell is
-running - that is purely an indicator of whether on not commands are
-@emph{actually} being read from standard input.
-The value of this option cannot be changed anywhere other 
-than the command line.
 
 @pindex SH_NULLCMD
 @vindex NULLCMD, ignoring
@@ -7487,11 +7642,6 @@ If this option is set the shell tries to interpret single letter options
 (which are used with @t{set} and @t{setopt}) like @cite{ksh} does.
 This also affects the value of the @t{-} special parameter.
 
-@pindex SHORT_LOOPS
-@item @t{SHORT_LOOPS} <C> <Z>
-Allow the short forms of @t{for}, @t{repeat}, @t{select},
-@t{if}, and @t{function} constructs.
-
 @pindex SH_WORD_SPLIT
 @cindex field splitting, sh style
 @cindex sh, field splitting style
@@ -7499,6 +7649,76 @@ Allow the short forms of @t{for}, @t{repeat}, @t{select},
 Causes field splitting to be performed on unquoted parameter expansions.
 Note that this option has nothing to do with word splitting.
 (See @ref{Parameter Expansion}.)
+
+@pindex TRAPS_ASYNC
+@cindex traps, asynchronous
+@item @t{TRAPS_ASYNC}
+While waiting for a program to exit, handle signals and run traps
+immediately.  Otherwise the trap is run after a child process has exited.
+Note this does not affect the point at which traps are run for any case
+other than when the shell is waiting for a child process.
+
+@end table
+
+@noindent
+
+@subsection Shell State
+@noindent
+@table @asis
+@pindex INTERACTIVE
+@item @t{INTERACTIVE} (@t{-i}, ksh: @t{-i})
+This is an interactive shell.  This option is set upon initialisation if
+the standard input is a tty and commands are being read from standard input.
+(See the discussion of @t{SHIN_STDIN}.)
+This heuristic may be overridden by specifying a state for this option
+on the command line.
+The value of this option cannot be changed anywhere other than the command line.
+
+@pindex LOGIN
+@item @t{LOGIN} (@t{-l}, ksh: @t{-l})
+This is a login shell.
+If this option is not explicitly set, the shell is a login shell if
+the first character of the @t{argv[0]} passed to the shell is a `@t{-}'.
+
+@pindex PRIVILEGED
+@cindex privileged mode
+@cindex mode, privileged
+@item @t{PRIVILEGED} (@t{-p}, ksh: @t{-p})
+Turn on privileged mode. This is enabled automatically on startup if the
+effective user (group) ID is not equal to the real user (group) ID.  Turning
+this option off causes the effective user and group IDs to be set to the
+real user and group IDs. This option disables sourcing user startup files.
+If zsh is invoked as `@t{sh}' or `@t{ksh}' with this option set,
+@t{/etc/suid_profile} is sourced (after @t{/etc/profile} on interactive
+shells). Sourcing @t{~/.profile} is disabled and the contents of the
+@t{ENV} variable is ignored. This option cannot be changed using the
+@t{-m} option of @t{setopt} and @t{unsetopt}, and changing it inside a
+function always changes it globally regardless of the @t{LOCAL_OPTIONS}
+option.
+
+@pindex RESTRICTED
+@cindex restricted shell
+@item @t{RESTRICTED} (@t{-r})
+Enables restricted mode.  This option cannot be changed using
+@t{unsetopt}, and setting it inside a function always changes it
+globally regardless of the @t{LOCAL_OPTIONS} option.  See
+@ref{Restricted Shell}.
+
+@pindex SHIN_STDIN
+@item @t{SHIN_STDIN} (@t{-s}, ksh: @t{-s})
+Commands are being read from the standard input.
+Commands are read from standard input if no command is specified with
+@t{-c} and no file of commands is specified.  If @t{SHIN_STDIN}
+is set explicitly on the command line,
+any argument that would otherwise have been
+taken as a file to run will instead be treated as a normal positional
+parameter.
+Note that setting or unsetting this option on the command line does not
+necessarily affect the state the option will have while the shell is
+running - that is purely an indicator of whether on not commands are
+@emph{actually} being read from standard input.
+The value of this option cannot be changed anywhere other 
+than the command line.
 
 @pindex SINGLE_COMMAND
 @cindex single command
@@ -7509,46 +7729,37 @@ has been executed.  This also makes the shell non-interactive, unless the
 @t{INTERACTIVE} option is explicitly set on the command line.
 The value of this option cannot be changed anywhere other than the command line.
 
+@end table
+
+@noindent
+
+@subsection Zle
+@noindent
+@table @asis
+@pindex BEEP
+@cindex beep, enabling
+@cindex enabling the beep
+@item @t{BEEP} (@t{+B}) <D>
+Beep on error in ZLE.
+
+@pindex EMACS
+@item @t{EMACS}
+If ZLE is loaded, turning on this option has the equivalent effect
+of `@t{bindkey -e}'.  In addition, the VI option is unset.
+Turning it off has no effect.  The option setting is
+not guaranteed to reflect the current keymap.  This option is
+provided for compatibility; @t{bindkey} is the recommended interface.
+
+@pindex OVERSTRIKE
+@cindex editor, overstrike mode
+@cindex overstrike mode, of editor
+@item @t{OVERSTRIKE}
+Start up the line editor in overstrike mode.
+
 @pindex SINGLE_LINE_ZLE
 @cindex editor, single line mode
 @item @t{SINGLE_LINE_ZLE} (@t{-M}) <K>
 Use single-line command line editing instead of multi-line.
-
-@pindex SUN_KEYBOARD_HACK
-@cindex sun keyboard, annoying
-@cindex annoying keyboard, sun
-@item @t{SUN_KEYBOARD_HACK} (@t{-L})
-If a line ends with a backquote, and there are an odd number
-of backquotes on the line, ignore the trailing backquote.
-This is useful on some keyboards where the return key is
-too small, and the backquote key lies annoyingly close to it.
-
-@pindex TRANSIENT_RPROMPT
-@item @t{TRANSIENT_RPROMPT}
-Remove any right prompt from display when accepting a command
-line.  This may be useful with terminals with other cut/paste methods.
-
-@pindex TYPESET_SILENT
-@item @t{TYPESET_SILENT}
-If this is unset, executing any of the `@t{typeset}' family of
-commands with no options and a list of parameters that have no values
-to be assigned but already exist will display the value of the parameter.
-If the option is set, they will only be shown when parameters are selected
-with the `@t{-m}' option.  The option `@t{-p}' is available whether or not
-the option is set.
-
-@pindex UNSET
-@cindex parameters, substituting unset
-@cindex unset parameters, substituting
-@item @t{UNSET} (@t{+u}, ksh: @t{+u}) <K> <S> <Z>
-Treat unset parameters as if they were empty when substituting.
-Otherwise they are treated as an error.
-
-@pindex VERBOSE
-@cindex tracing, of input lines
-@cindex input, tracing
-@item @t{VERBOSE} (@t{-v}, ksh: @t{-v})
-Print shell input lines as they are read.
 
 @pindex VI
 @item @t{VI}
@@ -7558,12 +7769,6 @@ Turning it off has no effect.  The option setting is
 not guaranteed to reflect the current keymap.  This option is
 provided for compatibility; @t{bindkey} is the recommended interface.
 
-@pindex XTRACE
-@cindex tracing, of commands
-@cindex commands, tracing
-@item @t{XTRACE} (@t{-x}, ksh: @t{-x})
-Print commands and their arguments as they are executed.
-
 @pindex ZLE
 @cindex editor, enabling
 @cindex enabling the editor
@@ -7572,6 +7777,8 @@ Use the zsh line editor.  Set by default in interactive shells connected to
 a terminal.
 
 @end table
+
+@noindent
 @node Option Aliases, Single Letter Options, Description of Options, Options
 
 @section Option Aliases
@@ -7769,6 +7976,8 @@ SH_WORD_SPLIT
 @table @asis
 @item @t{-C}
 @emph{NO_}CLOBBER
+@item @t{-T}
+TRAPS_ASYNC
 @item @t{-X}
 MARK_DIRS
 @item @t{-a}
@@ -7913,9 +8122,9 @@ which no alias has been defined.
 @findex autoload
 @cindex functions, autoloading
 @cindex autoloading functions
-@item @t{autoload} [ @{@t{+}|@t{-}@}@t{UXmt} ] [ @t{-wkz} ] [ @var{name} ... ]
-Equivalent to @t{functions -u}, with the exception of @t{-X}/@t{+X},
-@t{-w}, @t{-k} and @t{-z}.
+@item @t{autoload} [ @{@t{+}|@t{-}@}@t{UXktz} ] [ @t{-w} ] [ @var{name} ... ]
+Equivalent to @t{functions -u}, with the exception of @t{-X}/@t{+X} and
+@t{-w}.
 
 @noindent
 The flag @t{-X} may be used only inside a shell function, and may not be
@@ -7932,17 +8141,10 @@ function was not previously defined @emph{and} a definition for it was found.
 This does @emph{not} replace any existing definition of the function.  The
 exit status is nonzero (failure) if the function was already defined or
 when no definition was found.  In the latter case the function remains
-undefined and marked for autoloading.
-
-@noindent
-The flag @t{+X} may be combined with either @t{-k} or @t{-z} to make
-the function be loaded using ksh-style or zsh-style autoloading,
-respectively. If neither is given, the current setting of the
-@t{KSH_AUTOLOAD} options determines how the function is loaded. With
-ksh-style autoloading, the contents of the file will not be executed
-immediately. Instead, the function created will contain the contents of 
-the file plus a call to the function itself appended to it, thus given 
-normal ksh autoloading behaviour on the first call to the function.
+undefined and marked for autoloading.  If ksh-style autoloading is
+enabled, the function created will contain the contents of the file
+plus a call to the function itself appended to it, thus giving normal
+ksh autoloading behaviour on the first call to the function.
 
 @noindent
 With the @t{-w} flag, the @var{name}s are taken as names of files compiled
@@ -8271,6 +8473,8 @@ Do nothing and return an exit code of 1.
 @cindex history, editing
 @cindex editing history
 @item @t{fc} [ @t{-e} @var{ename} ] [ @t{-nlrdDfEim} ] [ @var{old}@t{=}@var{new} ... ] [ @var{first} [ @var{last} ] ]
+@itemx @t{fc} @t{-p} [ @t{-a} ] [ @var{filename} [ @var{histsize} [ @var{savehistsize} ] ] ]
+@itemx @t{fc} @t{-P}
 @itemx @t{fc} @t{-ARWI} [ @var{filename} ]
 Select a range of commands from @var{first} to @var{last} from the
 history list.
@@ -8311,6 +8515,40 @@ Adding the @t{-i} flag causes the dates to be printed in ISO8601
 With the @t{-D} flag, @t{fc} prints elapsed times.
 
 @noindent
+@cindex history, stack
+@cindex stack, history
+
+@noindent
+`@t{fc -p}' pushes the current history list onto a stack and switches to a
+new history list.  If the @t{-a} option is also specified, this history list
+will be automatically popped when the current function scope is exited, which
+is a much better solution than creating a trap function to call `@t{fc -P}'
+manually.  If no arguments are specified, the history list is left empty,
+@t{$HISTFILE} is unset, and @t{$HISTSIZE} & @t{$SAVEHIST} are set to their
+default values.  If one argument is given, @t{$HISTFILE} is set to that
+filename, @t{$HISTSIZE} & @t{$SAVEHIST} are left unchanged, and the history
+file is read in (if it exists) to initialize the new list.  If a second
+argument is specified, @t{$HISTSIZE} & @t{$SAVEHIST} are instead set to the
+single specified numeric value.  Finally, if a third argument is specified,
+@t{$SAVEHIST} is set to a separate value from @t{$HISTSIZE}.  You are free to
+change these environment values for the new history list however you desire
+in order to manipulate the new history list.
+
+@noindent
+`@t{fc -P}' pops the history list back to an older list saved by `@t{fc -p}'.
+The current list is saved to its @t{$HISTFILE} before it is destroyed
+(assuming that @t{$HISTFILE} and @t{$SAVEHIST} are set appropriately, of
+course).  The values of @t{$HISTFILE}, @t{$HISTSIZE}, and @t{$SAVEHIST} are
+restored to the values they had when `@t{fc -p}' was called.  Note that this
+restoration can conflict with making these variables "local", so your best
+bet is to avoid local declarations for these variables in functions that use
+`@t{fc -p}'.  The one other guaranteed-safe combination is declaring these
+variables to be local at the top of your function and using the automatic
+option (@t{-a}) with `@t{fc -p}'.  Finally, note that it is legal to manually
+pop a push marked for automatic popping if you need to do so before the
+function exits.
+
+@noindent
 @cindex history, file
 @cindex file, history
 `@t{fc -R}' reads the history from the given file,
@@ -8339,7 +8577,7 @@ Equivalent to @t{typeset -E}, except that options irrelevant to floating
 point numbers are not permitted.
 
 @findex functions
-@item @t{functions} [ @{@t{+}|@t{-}@}@t{UXmtu} ] [ @var{name} ... ]
+@item @t{functions} [ @{@t{+}|@t{-}@}@t{UXkmtuz} ] [ @var{name} ... ]
 Equivalent to @t{typeset -f}.
 
 @item @t{getcap}
@@ -8517,6 +8755,11 @@ is given, use hard limits instead of soft limits.
 If no @var{resource} is given, print all limits.
 
 @noindent
+When looping over multiple resources, the shell will abort immediately if
+it detects a badly formed argument.  However, if it fails to set a limit
+for some other reason it will continue trying to set the remaining limits.
+
+@noindent
 @var{resource} can be one of:
 
 @noindent
@@ -8559,7 +8802,16 @@ Maximum amount of virtual memory.
 
 @noindent
 Which of these resource limits are available depends on the system.
-@var{resource} can be abbreviated to any unambiguous prefix.
+@var{resource} can be abbreviated to any unambiguous prefix.  It
+can also be an integer, which corresponds to the integer defined
+for the resource by the operating system.
+
+@noindent
+If argument corresponds to a number which is out of the range of the
+resources configured into the shell, the shell will try to read or write
+the limit anyway, and will report an error if this fails.  As the shell
+does not store such resources internally, an attempt to set the limit will
+fail unless the @t{-s} option is present.
 
 @noindent
 @var{limit} is a number, with an optional scaling factor, as follows:
@@ -9068,6 +9320,9 @@ and the @t{trap} statement is not executed inside the body of a function,
 then the command @var{arg} is executed when the shell terminates.
 
 @noindent
+@t{ZERR}, @t{DEBUG} and @t{EXIT} traps are not executed inside other traps.
+
+@noindent
 The @t{trap} command with no arguments prints a list of commands
 associated with each signal.
 
@@ -9118,7 +9373,7 @@ Equivalent to @t{whence -v}.
 @findex typeset
 @cindex parameters, setting
 @cindex parameters, declaring
-@item @t{typeset} [ @{@t{+}|@t{-}@}@t{AEFHLRUZafghilprtuxm} [@var{n}]] [ @var{name}[@t{=}@var{value}] ... ]
+@item @t{typeset} [ @{@t{+}|@t{-}@}@t{AEFHLRUZafghiklprtuxmz} [@var{n}]] [ @var{name}[@t{=}@var{value}] ... ]
 @itemx @t{typeset} -T [ @{@t{+|@t{-}}@}@t{LRUZrux} ] @var{SCALAR}[@t{=}@var{value}] @var{array} @t{[} @var{sep} @t{]}
 Set or display attributes and values for shell parameters.
 
@@ -9254,13 +9509,16 @@ shown.
 
 @item @t{-f}
 The names refer to functions rather than parameters.  No assignments
-can be made, and the only other valid flags are @t{-t}, @t{-u} and
-@t{-U}.  The flag @t{-t} turns on execution tracing for this
+can be made, and the only other valid flags are @t{-t}, @t{-k}, @t{-u},
+@t{-U} and @t{-z}.  The flag @t{-t} turns on execution tracing for this
 function.  The @t{-u} and @t{-U} flags cause the function to be
 marked for autoloading; @t{-U} also causes alias expansion to be
 suppressed when the function is loaded.  The @t{fpath} parameter
 will be searched to find the function definition when the function
-is first referenced; see @ref{Functions}.
+is first referenced; see @ref{Functions}. The @t{-k} and @t{-z} flags
+make the function be loaded using ksh-style or zsh-style autoloading
+respectively. If neither is given, the setting of the KSH_AUTOLOAD option
+determines how the function is loaded.
 
 @item @t{-h}
 Hide: only useful for special parameters (those marked `<S>' in the table in
@@ -9335,7 +9593,7 @@ compatibility with previous versions of zsh.
 @findex ulimit
 @cindex resource limits
 @cindex limits, resource
-@item @t{ulimit} [ @t{-SHacdflmnpstv} [ @var{limit} ] ... ]
+@item @t{ulimit} [ [ @t{-SHacdflmnpstv} | @t{-N} @var{resource} [ @var{limit} ] ... ]
 Set or display resource limits of the shell and the processes started by
 the shell.  The value of @var{limit} can be a number in the unit specified
 below or the value `@t{unlimited}'.  By default, only soft limits are
@@ -9346,6 +9604,11 @@ options are used, the file size limit (@t{-f}) is assumed.  If
 @var{limit} is omitted the current value of the specified resources are
 printed.  When more than one resource values are printed the limit name and
 unit is printed before each value.
+
+@noindent
+When looping over multiple resources, the shell will abort immediately if
+it detects a badly formed argument.  However, if it fails to set a limit
+for some other reson it will continue trying to set the remaining limits.
 
 @noindent
 @table @asis
@@ -9373,6 +9636,18 @@ processes available to the user.
 K-bytes on the size of virtual memory.  On some systems this
 refers to the limit called `address space'.
 @end table
+
+@noindent
+A resource may also be specified by integer in the form `@t{-N}
+@var{resource}', where @var{resource} corresponds to the integer defined for
+the resource by the operating system.  This may be used to set the limits
+for resources known to the shell which do not correspond to option letters.
+Such limits will be shown by number in the output of `@t{ulimit -a}'.
+
+@noindent
+The number may alternatively be out of the range of limits compiled into
+the shell.  The shell will try to read or write the limit anyway, and
+will report an error if this fails.
 
 @findex umask
 @cindex umask
@@ -9624,9 +9899,11 @@ are to be autoloaded. If @t{-z} is given, the
 function will be autoloaded as if the @t{KSH_AUTOLOAD} option is
 @emph{not} set, even if it is set at the time the compiled file is
 read, while if the @t{-k} is given, the function will be loaded as if
-@t{KSH_AUTOLOAD} @emph{is} set.  If neither of these options is given, the
-function will be loaded as determined by the setting of the
-@t{KSH_AUTOLOAD} option at the time the compiled file is read.
+@t{KSH_AUTOLOAD} @emph{is} set.  These options also take precedence over
+any @t{-k} or @t{-z} options specified to the @t{autoload} builtin. If
+neither of these options is given, the function will be loaded as
+determined by the setting of the @t{KSH_AUTOLOAD} option at the time
+the compiled file is read.
 
 These options may also appear as many times as necessary between the listed
 @var{name}s to specify the loading style of all following functions, up to
@@ -10186,7 +10463,8 @@ by `@t{bindkey -m}'.
 @findex vared
 @cindex parameters, editing
 @cindex editing parameters
-@item @t{vared} [ @t{-Aache} ] [ @t{-p} @var{prompt} ] [ @t{-r} @var{rprompt} ] @var{name}
+@item @t{vared} [ @t{-Aache} ] [ @t{-p} @var{prompt} ] [ @t{-r} @var{rprompt} ]
+@itemx   [ -M @var{main-keymap} ] [ -m @var{vicmd-keymap} ] @var{name}
 The value of the parameter @var{name} is loaded into the edit
 buffer, and the line editor is invoked.  When the editor exits,
 @var{name} is set to the string value returned by the editor.
@@ -10213,9 +10491,17 @@ created automatically, even without @t{-c}.
 If the @t{-p} flag is given, the following string will be taken as
 the prompt to display at the left.  If the @t{-r} flag is given,
 the following string gives the prompt to display at the right.  If the
-@t{-h} flag is specified, the history can be accessed from ZLE. If the 
+@t{-h} flag is specified, the history can be accessed from ZLE. If the
 @t{-e} flag is given, typing @t{^D} (Control-D) on an empty line
 causes @t{vared} to exit immediately with a non-zero return value.
+
+@noindent
+The @t{-M} option gives a keymap to link to the @t{main} keymap during
+editing, and the @t{-m} option gives a keymap to link to the @t{vicmd}
+keymap during editing.  For vi-style editing, this allows a pair of keymaps
+to override @t{viins} and @t{vicmd}.  For emacs-style editing, only @t{-M}
+is normally needed but the @t{-m} option may still be used.  On exit, the
+previous keymaps will be restored.
 
 @findex zle
 @cindex widgets, rebinding
@@ -10582,7 +10868,10 @@ string which the next yank would insert in the line.
 
 @vindex HISTNO
 @item @t{HISTNO} (integer)
-The current history number; read-only.
+The current history number.  Setting this has the same effect as
+moving up or down in the history to the corresponding history line.
+An attempt to set it is ignored if the line is not stored in the
+history.
 
 @vindex KEYMAP
 @item @t{KEYMAP} (scalar)
@@ -11228,7 +11517,7 @@ Copy the area from the cursor to the mark to the kill buffer.
 Duplicate the word to the left of the cursor.
 
 @tindex copy-prev-shell-word
-@item @t{copy-prev-shell-word} (ESC-^_) (unbound) (unbound)
+@item @t{copy-prev-shell-word}
 Like @t{copy-prev-word}, but the word is found by using shell parsing, 
 whereas @t{copy-prev-word} looks for blanks. This makes a difference
 when the word is quoted and contains spaces.
@@ -11748,6 +12037,21 @@ using the @t{send-break} widget.
 @tindex redisplay
 @item @t{redisplay} (unbound) (^R) (^R)
 Redisplays the edit buffer.
+
+@tindex reset-prompt
+@item @t{reset-prompt} (unbound) (unbound) (unbound)
+Force the prompts on both the left and right of the screen to be
+re-expanded, then redisplay the edit buffer.  This
+reflects changes both to the prompt variables themselves and changes
+in the expansion of the values (for example, changes in time or
+directory, or changes to the value of variables referred to by the
+prompt).
+
+@noindent
+Otherwise, the prompt is only expanded each time zle starts, and
+when the display as been interrupted by output from another part of the
+shell (such as a job notification) which causes the command line to be
+reprinted.
 
 @tindex send-break
 @item @t{send-break} (^G ESC-^G) (unbound) (unbound)
@@ -13311,8 +13615,8 @@ Functions with the @t{#autoload} tag are marked for autoloading but
 are not otherwise treated specially.  Typically they are to be called
 from within one of the completion functions.  Any @var{options} supplied
 will be passed to the @t{autoload} builtin; a typical use is @t{+X} to
-force the function to be loaded immediately.  Note that the @t{-U} flag is
-always added implicitly.
+force the function to be loaded immediately.  Note that the @t{-U} and
+@t{-z} flags are always added implicitly.
 
 @end table
 
@@ -13320,15 +13624,6 @@ always added implicitly.
 The @t{#} is part of the tag name and no white space is allowed after it.
 The @t{#compdef} tags use the @t{compdef} function described below; the
 main difference is that the name of the function is supplied implicitly.
-
-@noindent
-Note also that the functions for the completion system assume that the
-@t{KSH_AUTOLOAD} option is not set.  They cannot be loaded if it is
-set.  To avoid having to unset @t{KSH_AUTOLOAD}, you can instead use one or
-more @t{zwc} file(s) that have been created with the command @t{zcompile
--z} to load the functions for the completion system; see
-@ref{Shell Builtin Commands}.  This forces the functions to be autoloaded the way zsh normally
-loads functions.
 
 @noindent
 The special contexts for which completion functions can be defined are:
@@ -14333,6 +14628,11 @@ Note that the completion function generally has to call the specified
 command for each attempt to generate the completion list.  Hence
 care should be taken to specify only commands that take a short
 time to run, and in particular to avoid any that may never terminate.
+
+@kindex command-path, completion style
+@item @t{command-path}
+This is a list of directories to search for commands to complete.  The
+default for this style is the value of the special parameter @t{path}.
 
 @kindex commands, completion style
 @item @t{commands}
@@ -19032,6 +19332,41 @@ shell, and to the new shell's PID in the original shell.
 The return value of the builtin is zero in both shells if successful,
 and non-zero on error.
 
+@noindent
+The target of @t{clone} should be an unused terminal, such as an unused virtual
+console or a virtual terminal created by
+
+@noindent
+xterm -e sh -c 'trap : INT QUIT TSTP; tty; while :; do sleep 100000000; done'
+
+@noindent
+Some words of explanation are warranted about this long xterm command
+line: when doing clone on a pseudo-terminal, some other session
+("session" meant as a unix session group, or SID) is already owning
+the terminal. Hence the cloned zsh cannot acquire the pseudo-terminal
+as a controlling tty. That means two things:
+
+@noindent
+the job control signals will go to the sh-started-by-xterm process
+      group (that's why we disable INT QUIT and TSTP with trap; otherwise
+      the while loop could get suspended or killed)
+
+@noindent
+the cloned shell will have job control disabled, and the job
+      control keys (control-C, control-\ and control-Z) will not work.
+
+@noindent
+This does not apply when cloning to an @cite{unused} vc.
+
+@noindent
+Cloning to an used (and unprepared) terminal will result in two
+processes reading simultaneously from the same terminal, with
+input bytes going randomly to either process.
+
+@noindent
+@t{clone} is mostly useful as a shell built-in replacement for
+openvt.
+
 @end table
 @c (avoiding a yodl bug)
 @node The zsh/compctl Module, The zsh/complete Module, The zsh/clone Module, Zsh Modules
@@ -20179,6 +20514,21 @@ substrings, unless the @t{-a} option is given, in which
 case it will set the array @var{arr}.
 
 @end table
+
+@noindent
+The @t{zsh/pcre} module makes available the following test condition:
+@table @asis
+@findex pcre-match
+@item expr @t{-pcre-match} pcre
+Matches a string against a perl-compatible regular expression.
+
+@noindent
+For example,
+
+@noindent
+[[ "$text" -pcre-match ^d+$ ]] && print text variable contains only "d's".
+
+@end table
 @c (avoiding a yodl bug)
 @node The zsh/sched Module, The zsh/net/socket Module, The zsh/pcre Module, Zsh Modules
 
@@ -20929,16 +21279,28 @@ more information on how responses from the server may be printed.
 @noindent
 @table @asis
 @cindex FTP, starting a session
-@item @t{open} @var{host} [ @var{user} [ @var{password} [ @var{account} ] ] ]
+@item @t{open} @var{host}[@t{:}@var{port}] [ @var{user} [ @var{password} [ @var{account} ] ] ]
 Open a new FTP session to @var{host}, which may be the name of a TCP/IP
-connected host or an IP number in the standard dot notation.
+connected host or an IP number in the standard dot notation.  If the
+argument is in the form @var{host}@t{:}@var{port}, open a connection to
+TCP port @var{port} instead of the standard FTP port 21.  This may be
+the name of a TCP service or a number:  see the description of
+@t{ZFTP_PORT} below for more information.
+
+@noindent
+If IPv6 addresses in colon format are used, the @var{host} should be
+surrounded by quoted square brackets to distinguish it from the @var{port},
+for example @t{'[fe80::203:baff:fe02:8b56]'}.  For consistency this is
+allowed with all forms of @var{host}.
+
+@noindent
 Remaining arguments are passed to the @t{login} subcommand.  Note that
 if no arguments beyond @var{host} are supplied, @t{open} will @emph{not}
 automatically call @t{login}.  If no arguments at all are supplied,
 @t{open} will use the parameters set by the @t{params} subcommand.
 
 @noindent
-After a successful open, the shell variables @t{ZFTP_HOST},
+After a successful open, the shell variables @t{ZFTP_HOST}, @t{ZFTP_PORT},
 @t{ZFTP_IP} and @t{ZFTP_SYSTEM} are available; see `Variables'
 below.
 
@@ -21136,7 +21498,7 @@ control connection are sent to standard error.
 @item @t{close}
 @itemx @t{quit}
 Close the current data connection.  This unsets the shell parameters
-@t{ZFTP_HOST}, @t{ZFTP_IP}, @t{ZFTP_SYSTEM}, @t{ZFTP_USER},
+@t{ZFTP_HOST}, @t{ZFTP_PORT}, @t{ZFTP_IP}, @t{ZFTP_SYSTEM}, @t{ZFTP_USER},
 @t{ZFTP_ACCOUNT}, @t{ZFTP_PWD}, @t{ZFTP_TYPE} and @t{ZFTP_MODE}.
 
 @item @t{session} [ @var{sessname} ]
@@ -21196,6 +21558,19 @@ Readonly.  The hostname of the current remote server.  If the host was
 opened as an IP number, @t{ZFTP_HOST} contains that instead; this
 saves the overhead for a name lookup, as IP numbers are most commonly
 used when a nameserver is unavailable.
+
+@vindex ZFTP_PORT
+@item @t{ZFTP_PORT}
+Readonly.  The number of the remote TCP port to which the connection is
+open (even if the port was originally specified as a named service).
+Usually this is the standard FTP port, 21.
+
+@noindent
+In the unlikely event that your system does not have the appropriate
+conversion functions, this appears in network byte order.  If your
+system is little-endian, the port then consists of two swapped bytes and the
+standard port will be reported as 5376.  In that case, numeric ports passed
+to @t{zftp open} will also need to be in this format.
 
 @vindex ZFTP_SYSTEM
 @item @t{ZFTP_SYSTEM}
@@ -23789,7 +24164,7 @@ distribution in your home directory, you would use the commands:
 mkdir ~/zsh_help
 cd ~/zsh_help
 man zshall | colcrt - | \ 
-perl ~/zsh-4.2.0-pre-4/Util/helpfiles
+perl ~/zsh-4.2.1-test-A/Util/helpfiles
 @end example
 
 @noindent
@@ -23945,7 +24320,7 @@ Run @t{zkbd} either as an autoloaded function, or as a shell script:
 
 @noindent
 @example
-zsh -f ~/zsh-4.2.0-pre-4/Functions/Misc/zkbd
+zsh -f ~/zsh-4.2.1-test-A/Functions/Misc/zkbd
 @end example
 
 @noindent
@@ -24010,7 +24385,7 @@ command and redirect the output into a file:
 
 @noindent
 @example
-. ~/zsh-4.2.0-pre-4/Util/reporter > zsh.report
+. ~/zsh-4.2.1-test-A/Util/reporter > zsh.report
 @end example
 
 @noindent
@@ -24460,6 +24835,29 @@ bindkey '\e^P' history-beginning-search-backward-end
 bindkey '\e^N' history-beginning-search-forward-end
 @end example
 
+@tindex history-pattern-search
+@tindex history-pattern-search-backward
+@tindex history-pattern-search-forward
+@item @t{history-pattern-search}
+The function @t{history-pattern-search} implements widgets which prompt
+for a pattern with which to search the history backwards or forwards.  The
+pattern is in the usual zsh format, however the first character may be
+@t{^} to anchor the search to the start of the line, and the last character
+may be @t{$} to anchor the search to the end of the line.  If the
+search was not anchored to the end of the line the cursor is positioned
+just after the pattern found.
+
+@noindent
+The commands to create bindable widgets are similar to those in the
+example immediately above:
+
+@noindent
+@example
+autoload -U history-pattern-search
+zle -N history-pattern-search-backward history-pattern-search
+zle -N history-pattern-search-forward history-pattern-search
+@end example
+
 @tindex up-line-or-beginning-search
 @tindex down-line-or-beginning-search
 @item @t{up-line-or-beginning-search}, @t{down-line-or-beginning-search}
@@ -24642,13 +25040,22 @@ when executing, for example, @t{execute-named-cmd}).  The value is then
 returned to the calling function in the parameter @t{$REPLY} and the
 editing buffer restored to its previous state.  If the read was aborted
 by a keyboard break (typically @t{^G}), the function returns status 1
-and @t{$REPLY} is not set.  If an argument is supplied to the function
-it is taken as a prompt, otherwise `@t{? }' is used.
+and @t{$REPLY} is not set.
+
+@noindent
+If one argument is supplied to the function it is taken as a prompt,
+otherwise `@t{? }' is used.  If two arguments are supplied, they are the
+prompt and the initial value of @t{$LBUFFER}, and if a third argument is
+given it is the initial value of @t{$RBUFFER}.  This provides a default
+value and starting cursor placement.  Upon return the entire buffer is the
+value of @t{$REPLY}.
 
 @noindent
 One option is available: `@t{-k} @var{num}' specifies that @var{num}
 characters are to be read instead of a whole line.  The line editor is not
-invoked recursively in this case.  Note that unlike the @t{read} builtin
+invoked recursively in this case, so depending on the terminal settings
+the input may not be visible, and only the input keys are placed in
+@t{$REPLY}, not the entire buffer.  Note that unlike the @t{read} builtin
 @var{num} must be given; there is no default.
 
 @noindent
@@ -24995,11 +25402,13 @@ examples are given below.
 A list of files in the format of @t{~/.mime.types} and
 @t{/etc/mime.types} to be read during setup, replacing the default list
 which consists of those two files.  The context is @t{:mime:}.
+A @t{+} in the list will be replaced by the default files.
 
 @item mailcap
 A list of files in the format of @t{~/.mailcap} and
 @t{/etc/mailcap} to be read during setup, replacing the default list
 which consists of those two files.  The context is @t{:mime:}.
+A @t{+} in the list will be replaced by the default files.
 
 @item handler
 Specifies a handler for a suffix; the suffix is given by the context as
@@ -25261,6 +25670,61 @@ If you quit in the middle of a game, the next invocation of the @t{tetris}
 widget will continue where you left off.  If you lost, it will start a new
 game.
 
+@findex zargs
+@item @t{zargs} [ @var{option} ... @t{-}@t{-} ] [ @var{input} ... ] [ @t{-}@t{-} @var{command} [ @var{arg} ... ] ]
+This function works like GNU xargs, except that instead of reading lines
+of arguments from the standard input, it takes them from the command line.
+This is useful because zsh, especially with recursive glob operators,
+often can construct a command line for a shell function that is longer
+than can be accepted by an external command.
+
+@noindent
+The @var{option} list represents options of the @t{zargs} command itself,
+which are the same as those of @t{xargs}.  The @var{input} list is the
+collection of strings (often file names) that become the arguments of the
+@t{command}, analogous to the standard input of @t{xargs}.  Finally, the
+@var{arg} list consists of those arguments (usually options) that are
+passed to the @var{command} each time it runs.  The @var{arg} list precedes
+the elements from the @t{input} list in each run.  If no @var{command} is
+provided, then no @var{arg} list may be provided, and in that event the
+default command is `@t{print}' with arguments `@t{-r -}@t{-}'.
+
+@noindent
+For example, to get a long @t{ls} listing of all plain files in the
+current directory or its subdirectories:
+
+@noindent
+@example
+autoload -U zargs
+zargs -- **/*(.) -- ls -l
+@end example
+
+@noindent
+Note that `@t{-}@t{-}' is used both to mark the end of the @var{option}
+list and to mark the end of the @var{input} list, so it must appear twice
+whenever the @var{input} list may be empty.  If there is guaranteed to be
+at least one @var{input} and the first @var{input} does not begin with a
+`@t{-}', then the first `@t{-}@t{-}' may be omitted.
+
+@noindent
+In the event that the string `@t{-}@t{-}' is or may be an @var{INPUT}, the
+@t{-e} option may be used to change the end-of-inputs marker.  Note that
+this does @emph{not} change the end-of-options marker.  For example, to use
+`@t{..}' as the marker:
+
+@noindent
+@example
+zargs -e.. -- **/*(.) .. ls -l
+@end example
+
+@noindent
+This is a good choice in that example because no plain file can be named
+`@t{..}', but the best end-marker depends on the circumstances.
+
+@noindent
+For details of the other @t{zargs} options, see man page xargs(1) or run
+@t{zargs} with the @t{-}@t{-help} option.
+
 @findex zcalc
 @item @t{zcalc} [ @var{expression} ... ]
 A reasonably powerful calculator based on zsh's arithmetic evaluation
@@ -25315,16 +25779,12 @@ See the comments in the function for a few extra tips.
 
 @findex zed
 @item @t{zed} [ @t{-f} ] @var{name}
-This function uses the ZLE editor to edit a file or function.  It rebinds
-the return key to insert a line break, and adds bindings for `@t{^X^W}' in
-the @t{emacs} keymap and `@t{ZZ}' in the @t{vicmd} keymap to accept (and
-therefore write, in the case of a file) the edited file or function.
-Keybindings are otherwise the standard ones; completion is available, and
-styles may be set with the context prefix `@t{:completion:zed}'.
+@itemx @t{zed -b}
+This function uses the ZLE editor to edit a file or function.
 
 @noindent
-Only one @var{name} argument is recognized (additional arguments are
-ignored).  If the @t{-f} option is given, the name is taken to be that of
+Only one @var{name} argument is allowed.
+If the @t{-f} option is given, the name is taken to be that of
 a function; if the function is marked for autoloading, @t{zed} searches
 for it in the @t{fpath} and loads it.  Note that functions edited this way
 are installed into the current shell, but @emph{not} written back to the
@@ -25333,6 +25793,43 @@ autoload file.
 @noindent
 Without @t{-f}, @var{name} is the path name of the file to edit, which need
 not exist; it is created on write, if necessary.
+
+@noindent
+While editing, the function sets the main keymap to @t{zed} and the
+vi command keymap to @t{zed-vicmd}.  These will be copied from the existing
+@t{main} and @t{vicmd} keymaps if they do not exist the first time @t{zed}
+is run.  They can be used to provide special key bindings used only in zed.
+
+@noindent
+If it creates the keymap, @t{zed} rebinds the return key to insert a line
+break and `@t{^X^W}' to accept the edit in the @t{zed} keymap, and binds
+`@t{ZZ}' to accept the edit in the @t{zed-vicmd} keymap.
+
+@noindent
+The bindings alone can be installed by running `@t{zed -b}'.  This is
+suitable for putting into a startup file.  Note that, if rerun,
+this will overwrite the existing @t{zed} and @t{zed-vicmd} keymaps.
+
+@noindent
+Completion is available, and styles may be set with the context prefix
+`@t{:completion:zed}'.
+
+@noindent
+A zle widget @t{zed-set-file-name} is available.  This can be called by
+name from within zed using `@t{\ex zed-set-file-name}' (note, however, that
+because of zed's rebindings you will have to type @t{^j} at the end instead
+of the return key), or can be bound to a key in either of the @t{zed} or
+@t{zed-vicmd} keymaps after `@t{zed -b}' has been run.  When the widget is
+called, it prompts for a new name for the file being edited.  When zed
+exits the file will be written under that name and the original file will
+be left alone.  The widget has no effect with `@t{zed -f}'.
+
+@noindent
+While @t{zed-set-file-name} is running, zed uses the keymap
+@t{zed-normal-keymap}, which is linked from the main keymap in effect
+at the time zed initialised its bindings.  (This is to make the return key
+operate normally.)  The result is that if the main keymap has been changed,
+the widget won't notice.  This is not a concern for most users.
 
 @findex zcp
 @findex zln

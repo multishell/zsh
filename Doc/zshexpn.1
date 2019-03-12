@@ -1,4 +1,4 @@
-.TH "ZSHEXPN" "1" "March 19, 2004" "zsh 4\&.2\&.0"
+.TH "ZSHEXPN" "1" "August 13, 2004" "zsh 4\&.2\&.1"
 .SH "NAME"
 zshexpn \- zsh expansion and substitution
 .\" Yodl file: Zsh/expn.yo
@@ -1642,6 +1642,12 @@ A qualifier may be any one of the following:
 .PD
 \fB/\fP
 directories
+.TP
+\fBF\fP
+`full' (i\&.e\&. non\-empty) directories\&.  Note that the
+opposite sense \fB(^F\fP\fB)\fP expands to empty directories
+and all non\-directories\&.  Use \fB(/^F\fP\fB)\fP for
+empty directories
 .TP
 \fB\&.\fP
 plain files

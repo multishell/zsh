@@ -675,7 +675,15 @@ extern short ospeed;
 #endif
 
 #ifdef __CYGWIN__
+# include <sys/cygwin.h>
 # define IS_DIRSEP(c) ((c) == '/' || (c) == '\\')
 #else
 # define IS_DIRSEP(c) ((c) == '/')
+#endif
+
+#if defined(__GNUC__) && !defined(APPLE)
+/* Does the OS X port of gcc still gag on __attribute__? */
+#define UNUSED(x) x __attribute__((__unused__))
+#else
+#define UNUSED(x) x
 #endif

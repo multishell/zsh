@@ -49,7 +49,7 @@ int cmdsp;
 
 /* parser states, for %_ */
 
-static char *cmdnames[] = {
+static char *cmdnames[CS_COUNT] = {
     "for",      "while",     "repeat",    "select",
     "until",    "if",        "then",      "else",
     "elif",     "math",      "cond",      "cmdor",
@@ -57,7 +57,7 @@ static char *cmdnames[] = {
     "case",     "function",  "subsh",     "cursh",
     "array",    "quote",     "dquote",    "bquote",
     "cmdsubst", "mathsubst", "elif-then", "heredoc",
-    "heredocd", "brace",     "braceparam",
+    "heredocd", "brace",     "braceparam", "always",
 };
  
 /* The buffer into which an expanded and metafied prompt is being written, *
@@ -244,9 +244,12 @@ putpromptchar(int doprint, int endchar)
 		    if ((nd = finddir(ss))) {
 			arg--;
 			ss += strlen(nd->dir);
-		    }
+		    } /*FALLTHROUGH*/
 		case '/':
 		case 'C':
+		    /* `/' gives 0, `/any' gives 1, etc. */
+		    if (*ss++ == '/' && *ss)
+			arg--;
 		    for (; *ss; ss++)
 			if (*ss == '/')
 			    arg--;
@@ -283,11 +286,11 @@ putpromptchar(int doprint, int endchar)
 			test = 1;
 		    break;
 		case '#':
-		    if (geteuid() == arg)
+		    if (geteuid() == (uid_t)arg)
 			test = 1;
 		    break;
 		case 'g':
-		    if (getegid() == arg)
+		    if (getegid() == (gid_t)arg)
 			test = 1;
 		    break;
 		case 'j':
@@ -526,9 +529,16 @@ putpromptchar(int doprint, int endchar)
 		    }
 		    timet = time(NULL);
 		    tm = localtime(&timet);
-		    for(t0=80; ; t0*=2) {
+		    /*
+		     * Hack because strftime won't say how
+		     * much space it actually needs.  Try to add it
+		     * a few times until it works.  Some formats don't
+		     * actually have a length, so we could go on for
+		     * ever.
+		     */
+		    for(j = 0, t0 = strlen(tmfmt)*8; j < 3; j++, t0*=2) {
 			addbufspc(t0);
-			if (ztrftime(bp, t0, tmfmt, tm))
+			if (ztrftime(bp, t0, tmfmt, tm) >= 0)
 			    break;
 		    }
 		    bp += strlen(bp);
@@ -579,7 +589,7 @@ putpromptchar(int doprint, int endchar)
 		    arg = 1;
 		else if (arg < 0)
 		    arg += arrlen(psvar) + 1;
-		if (arrlen(psvar) >= arg)
+		if (arg > 0 && arrlen(psvar) >= arg)
 		    stradd(psvar[arg - 1]);
 		break;
 	    case 'E':
@@ -739,7 +749,8 @@ stradd(char *d)
 mod_export void
 tsetcap(int cap, int flag)
 {
-    if (!(termflags & TERM_SHORT) && tcstr[cap]) {
+    if (tccan(cap) && !isset(SINGLELINEZLE) &&
+        !(termflags & (TERM_NOUP|TERM_BAD|TERM_UNKNOWN))) {
 	switch(flag) {
 	case -1:
 	    tputs(tcstr[cap], 1, putraw);

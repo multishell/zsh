@@ -874,7 +874,7 @@ Optional Features:
   --enable-site-fndir=DIR    same for site functions (not version specific)
   --enable-function-subdirs  install functions in subdirectories
   --enable-maildir-support   enable maildir support in MAIL and MAILPATH
-  --enable-max-function-depth=MAX   limit function depth to MAX
+  --enable-max-function-depth=MAX   limit function depth to MAX, default 4096
   --enable-pcre           enable the search for the pcre library (may create
                           run-time library dependencies)
   --enable-cap            enable the search for POSIX capabilities (may
@@ -884,6 +884,7 @@ Optional Packages:
   --with-PACKAGE[=ARG]    use PACKAGE [ARG=yes]
   --without-PACKAGE       do not use PACKAGE (same as --with-PACKAGE=no)
   --with-curses-terminfo     use terminfo support from curses library
+  --with-tcsetpgrp        assumes that tcsetpgrp() exists and works correctly
 
 Some influential environment variables:
   CC          C compiler command
@@ -1806,12 +1807,18 @@ if test "${enable_max_function_depth+set}" = set; then
 #define MAX_FUNCTION_DEPTH 4096
 _ACEOF
 
-else
+elif test x$enableval != xno; then
   cat >>confdefs.h <<_ACEOF
 #define MAX_FUNCTION_DEPTH $enableval
 _ACEOF
 
 fi
+else
+  cat >>confdefs.h <<\_ACEOF
+#define MAX_FUNCTION_DEPTH 4096
+_ACEOF
+
+
 fi;
 
 # Check whether --enable-pcre or --disable-pcre was given.
@@ -9897,6 +9904,8 @@ fi
 
 
 
+
+
 for ac_func in strftime difftime gettimeofday \
 	       select poll \
 	       readlink faccessx fchdir ftruncate \
@@ -9924,7 +9933,8 @@ for ac_func in strftime difftime gettimeofday \
 	       nl_langinfo \
 	       erand48 open_memstream \
 	       wctomb iconv \
-	       grantpt unlockpt ptsname
+	       grantpt unlockpt ptsname \
+	       htons ntohs
 do
 as_ac_var=`echo "ac_cv_func_$ac_func" | $as_tr_sh`
 echo "$as_me:$LINENO: checking for $ac_func" >&5
@@ -13206,7 +13216,25 @@ fi
 
 
 
-if test -t 0 && test $ac_cv_func_tcsetpgrp = yes; then
+
+# Check whether --with-tcsetpgrp or --without-tcsetpgrp was given.
+if test "${with_tcsetpgrp+set}" = set; then
+  withval="$with_tcsetpgrp"
+
+case "x$withval" in
+    xyes) zsh_working_tcsetpgrp=yes;;
+    xno)  zsh_working_tcsetpgrp=no;;
+    *)    { { echo "$as_me:$LINENO: error: please use --with-tcsetpgrp=yes or --with-tcsetpgrp=no" >&5
+echo "$as_me: error: please use --with-tcsetpgrp=yes or --with-tcsetpgrp=no" >&2;}
+   { (exit 1); exit 1; }; };;
+esac
+else
+  zsh_working_tcsetpgrp=check
+fi;
+if test "x$ac_cv_func_tcsetpgrp" = xyes; then
+case "x$zsh_working_tcsetpgrp" in
+  xcheck)
+    trap "" SIGTTOU > /dev/null 2>&1 || :
     echo "$as_me:$LINENO: checking if tcsetpgrp() actually works" >&5
 echo $ECHO_N "checking if tcsetpgrp() actually works... $ECHO_C" >&6
 if test "${zsh_cv_sys_tcsetpgrp+set}" = set; then
@@ -13224,10 +13252,15 @@ cat >>conftest.$ac_ext <<_ACEOF
 
 #include <sys/types.h>
 #include <unistd.h>
+#include <fcntl.h>
 main() {
+    int fd;
     int ret;
-    ret=tcsetpgrp(0, tcgetpgrp(0));
-    exit(ret<0);
+    fd=open("/dev/tty", O_RDWR);
+    if (fd < 0) exit(2);
+    ret=tcsetpgrp(fd, tcgetpgrp(fd));
+    if (ret < 0) exit(1);
+    exit(0);
 }
 
 _ACEOF
@@ -13249,19 +13282,45 @@ echo "$as_me: failed program was:" >&5
 sed 's/^/| /' conftest.$ac_ext >&5
 
 ( exit $ac_status )
-zsh_cv_sys_tcsetpgrp=no
+
+case $? in
+    1) zsh_cv_sys_tcsetpgrp=no;;
+    2) zsh_cv_sys_tcsetpgrp=notty;;
+    *) zsh_cv_sys_tcsetpgrp=error;;
+esac
+
 fi
 rm -f core *.core gmon.out bb.out conftest$ac_exeext conftest.$ac_objext conftest.$ac_ext
 fi
 fi
 echo "$as_me:$LINENO: result: $zsh_cv_sys_tcsetpgrp" >&5
 echo "${ECHO_T}$zsh_cv_sys_tcsetpgrp" >&6
-    if test $zsh_cv_sys_tcsetpgrp = no; then
-      cat >>confdefs.h <<\_ACEOF
+    case "x$zsh_cv_sys_tcsetpgrp" in
+      xno)    cat >>confdefs.h <<\_ACEOF
 #define BROKEN_TCSETPGRP 1
 _ACEOF
-
-    fi
+;;
+      xyes)   :;;
+      xnotty) { { echo "$as_me:$LINENO: error: no controlling tty
+Try running configure with --with-tcsetpgrp or --without-tcsetpgrp" >&5
+echo "$as_me: error: no controlling tty
+Try running configure with --with-tcsetpgrp or --without-tcsetpgrp" >&2;}
+   { (exit 1); exit 1; }; };;
+      *)      { { echo "$as_me:$LINENO: error: unexpected return status" >&5
+echo "$as_me: error: unexpected return status" >&2;}
+   { (exit 1); exit 1; }; };;
+    esac
+    trap - SIGTTOU > /dev/null 2>&1 || :
+    ;;
+  xyes) :;;
+  xno)  cat >>confdefs.h <<\_ACEOF
+#define BROKEN_TCSETPGRP 1
+_ACEOF
+;;
+  *)    { { echo "$as_me:$LINENO: error: unexpected value zsh_working_tcsetpgrp=$zsh_working_tcsetpgrp" >&5
+echo "$as_me: error: unexpected value zsh_working_tcsetpgrp=$zsh_working_tcsetpgrp" >&2;}
+   { (exit 1); exit 1; }; };;
+esac
 fi
 
 
@@ -13547,8 +13606,10 @@ if test "x$aixdynamic" = xyes; then
   zsh_cv_shared_environ="${zsh_cv_shared_environ=yes}"
 elif test "$host_os" = cygwin; then
   DL_EXT="${DL_EXT=dll}"
-  DLLD="${DLLD=dllwrap}"
-  DLLDFLAGS="${DLLDFLAGS=--export-all-symbols}"
+##DLLD="${DLLD=dllwrap}"
+  DLLD="${DLLD=$CC}"
+##DLLDFLAGS="${DLLDFLAGS=--export-all-symbols}"
+  DLLDFLAGS=${DLLDFLAGS=-shared -Wl,--export-all-symbols}
   zsh_cv_func_dlsym_needs_underscore=no
   DLLDFLAGS=${DLLDFLAGS=}
   EXTRA_LDFLAGS=${EXTRA_LDFLAGS=}

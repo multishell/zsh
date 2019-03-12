@@ -285,7 +285,7 @@ mod_export int lastend;
 
 /**/
 int
-do_completion(Hookdef dummy, Compldat dat)
+do_completion(UNUSED(Hookdef dummy), Compldat dat)
 {
     int ret = 0, lst = dat->lst, incmd = dat->incmd, osl = showinglist;
     char *s = dat->s;
@@ -444,7 +444,7 @@ static int oldmenucmp;
 
 /**/
 int
-before_complete(Hookdef dummy, int *lst)
+before_complete(UNUSED(Hookdef dummy), int *lst)
 {
     oldmenucmp = menucmp;
 
@@ -483,7 +483,7 @@ before_complete(Hookdef dummy, int *lst)
 
 /**/
 int
-after_complete(Hookdef dummy, int *dat)
+after_complete(UNUSED(Hookdef dummy), int *dat)
 {
     if (menucmp && !oldmenucmp) {
 	struct chdata cdat;
@@ -1477,7 +1477,7 @@ set_comp_sep(void)
     sl = strlen(s);
     if (swe > sl) {
 	swe = sl;
-	if (strlen(ns) > swe - swb + 1)
+	if ((int)strlen(ns) > swe - swb + 1)
 	    ns[swe - swb + 1] = '\0';
     }
     qs = (issq ? dupstring(s + swe) : rembslash(s + swe));
@@ -1862,8 +1862,8 @@ addmatches(Cadata dat, char **argv)
 	    llpl = strlen(lpre);
 	    llsl = strlen(lsuf);
 
-	    if (llpl + strlen(compqiprefix) + strlen(lipre) != origlpre ||
-		llsl + strlen(compqisuffix) + strlen(lisuf) != origlsuf)
+	    if (llpl + (int)strlen(compqiprefix) + (int)strlen(lipre) != origlpre
+	     || llsl + (int)strlen(compqisuffix) + (int)strlen(lisuf) != origlsuf)
 		lenchanged = 1;
 
 	    /* Test if there is an existing -P prefix. */

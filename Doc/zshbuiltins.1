@@ -1,4 +1,4 @@
-.TH "ZSHBUILTINS" "1" "March 19, 2004" "zsh 4\&.2\&.0"
+.TH "ZSHBUILTINS" "1" "August 13, 2004" "zsh 4\&.2\&.1"
 .SH "NAME"
 zshbuiltins \- zsh built\-in commands
 .\" Yodl file: Zsh/builtins.yo
@@ -78,9 +78,9 @@ status is nonzero if a \fIname\fP (with no \fIvalue\fP) is given for
 which no alias has been defined\&.
 .RE
 .TP
-\fBautoload\fP [ {\fB+\fP|\fB\-\fP}\fBUXmt\fP ] [ \fB\-wkz\fP ] [ \fIname\fP \&.\&.\&. ]
-Equivalent to \fBfunctions \-u\fP, with the exception of \fB\-X\fP/\fB+X\fP,
-\fB\-w\fP, \fB\-k\fP and \fB\-z\fP\&.
+\fBautoload\fP [ {\fB+\fP|\fB\-\fP}\fBUXktz\fP ] [ \fB\-w\fP ] [ \fIname\fP \&.\&.\&. ]
+Equivalent to \fBfunctions \-u\fP, with the exception of \fB\-X\fP/\fB+X\fP and
+\fB\-w\fP\&.
 .RS
 .PP
 The flag \fB\-X\fP may be used only inside a shell function, and may not be
@@ -96,16 +96,10 @@ function was not previously defined \fIand\fP a definition for it was found\&.
 This does \fInot\fP replace any existing definition of the function\&.  The
 exit status is nonzero (failure) if the function was already defined or
 when no definition was found\&.  In the latter case the function remains
-undefined and marked for autoloading\&.
-.PP
-The flag \fB+X\fP may be combined with either \fB\-k\fP or \fB\-z\fP to make
-the function be loaded using ksh\-style or zsh\-style autoloading,
-respectively\&. If neither is given, the current setting of the
-\fBKSH_AUTOLOAD\fP options determines how the function is loaded\&. With
-ksh\-style autoloading, the contents of the file will not be executed
-immediately\&. Instead, the function created will contain the contents of 
-the file plus a call to the function itself appended to it, thus given 
-normal ksh autoloading behaviour on the first call to the function\&.
+undefined and marked for autoloading\&.  If ksh\-style autoloading is
+enabled, the function created will contain the contents of the file
+plus a call to the function itself appended to it, thus giving normal
+ksh autoloading behaviour on the first call to the function\&.
 .PP
 With the \fB\-w\fP flag, the \fIname\fPs are taken as names of files compiled
 with the \fBzcompile\fP builtin, and all functions defined in them are
@@ -422,6 +416,12 @@ Do nothing and return an exit code of 1\&.
 .PD 0
 \fBfc\fP [ \fB\-e\fP \fIename\fP ] [ \fB\-nlrdDfEim\fP ] [ \fIold\fP\fB=\fP\fInew\fP \&.\&.\&. ] [ \fIfirst\fP [ \fIlast\fP ] ]
 .TP
+.PD 0
+\fBfc\fP \fB\-p\fP [ \fB\-a\fP ] [ \fIfilename\fP [ \fIhistsize\fP [ \fIsavehistsize\fP ] ] ]
+.TP
+.PD 0
+\fBfc\fP \fB\-P\fP
+.TP
 .PD
 \fBfc\fP \fB\-ARWI\fP [ \fIfilename\fP ]
 Select a range of commands from \fIfirst\fP to \fIlast\fP from the
@@ -460,6 +460,35 @@ Adding the \fB\-i\fP flag causes the dates to be printed in ISO8601
 `\fIyyyy\fP\fB\-\fP\fImm\fP\fB\-\fP\fIdd\fP' format\&.
 With the \fB\-D\fP flag, \fBfc\fP prints elapsed times\&.
 .PP
+.PP
+`\fBfc \-p\fP' pushes the current history list onto a stack and switches to a
+new history list\&.  If the \fB\-a\fP option is also specified, this history list
+will be automatically popped when the current function scope is exited, which
+is a much better solution than creating a trap function to call `\fBfc \-P\fP'
+manually\&.  If no arguments are specified, the history list is left empty,
+\fB$HISTFILE\fP is unset, and \fB$HISTSIZE\fP & \fB$SAVEHIST\fP are set to their
+default values\&.  If one argument is given, \fB$HISTFILE\fP is set to that
+filename, \fB$HISTSIZE\fP & \fB$SAVEHIST\fP are left unchanged, and the history
+file is read in (if it exists) to initialize the new list\&.  If a second
+argument is specified, \fB$HISTSIZE\fP & \fB$SAVEHIST\fP are instead set to the
+single specified numeric value\&.  Finally, if a third argument is specified,
+\fB$SAVEHIST\fP is set to a separate value from \fB$HISTSIZE\fP\&.  You are free to
+change these environment values for the new history list however you desire
+in order to manipulate the new history list\&.
+.PP
+`\fBfc \-P\fP' pops the history list back to an older list saved by `\fBfc \-p\fP'\&.
+The current list is saved to its \fB$HISTFILE\fP before it is destroyed
+(assuming that \fB$HISTFILE\fP and \fB$SAVEHIST\fP are set appropriately, of
+course)\&.  The values of \fB$HISTFILE\fP, \fB$HISTSIZE\fP, and \fB$SAVEHIST\fP are
+restored to the values they had when `\fBfc \-p\fP' was called\&.  Note that this
+restoration can conflict with making these variables "local", so your best
+bet is to avoid local declarations for these variables in functions that use
+`\fBfc \-p\fP'\&.  The one other guaranteed\-safe combination is declaring these
+variables to be local at the top of your function and using the automatic
+option (\fB\-a\fP) with `\fBfc \-p\fP'\&.  Finally, note that it is legal to manually
+pop a push marked for automatic popping if you need to do so before the
+function exits\&.
+.PP
 `\fBfc \-R\fP' reads the history from the given file,
 `\fBfc \-W\fP' writes the history out to the given file,
 and `\fBfc \-A\fP' appends the history out to the given file\&.
@@ -485,7 +514,7 @@ If no \fIjob\fP is specified, resume the current job\&.
 Equivalent to \fBtypeset \-E\fP, except that options irrelevant to floating
 point numbers are not permitted\&.
 .TP
-\fBfunctions\fP [ {\fB+\fP|\fB\-\fP}\fBUXmtu\fP ] [ \fIname\fP \&.\&.\&. ]
+\fBfunctions\fP [ {\fB+\fP|\fB\-\fP}\fBUXkmtuz\fP ] [ \fIname\fP \&.\&.\&. ]
 Equivalent to \fBtypeset \-f\fP\&.
 .TP
 \fBgetcap\fP
@@ -645,6 +674,10 @@ set the limit to the specified value\&.  If the \fB\-h\fP flag
 is given, use hard limits instead of soft limits\&.
 If no \fIresource\fP is given, print all limits\&.
 .PP
+When looping over multiple resources, the shell will abort immediately if
+it detects a badly formed argument\&.  However, if it fails to set a limit
+for some other reason it will continue trying to set the remaining limits\&.
+.PP
 \fIresource\fP can be one of:
 .PP
 .PD 0
@@ -702,7 +735,15 @@ Maximum amount of virtual memory\&.
 .PD
 .PP
 Which of these resource limits are available depends on the system\&.
-\fIresource\fP can be abbreviated to any unambiguous prefix\&.
+\fIresource\fP can be abbreviated to any unambiguous prefix\&.  It
+can also be an integer, which corresponds to the integer defined
+for the resource by the operating system\&.
+.PP
+If argument corresponds to a number which is out of the range of the
+resources configured into the shell, the shell will try to read or write
+the limit anyway, and will report an error if this fails\&.  As the shell
+does not store such resources internally, an attempt to set the limit will
+fail unless the \fB\-s\fP option is present\&.
 .PP
 \fIlimit\fP is a number, with an optional scaling factor, as follows:
 .PP
@@ -1178,6 +1219,8 @@ If \fIsig\fP is \fB0\fP or \fBEXIT\fP
 and the \fBtrap\fP statement is not executed inside the body of a function,
 then the command \fIarg\fP is executed when the shell terminates\&.
 .PP
+\fBZERR\fP, \fBDEBUG\fP and \fBEXIT\fP traps are not executed inside other traps\&.
+.PP
 The \fBtrap\fP command with no arguments prints a list of commands
 associated with each signal\&.
 .PP
@@ -1221,7 +1264,7 @@ terminal is frozen or not\&.
 Equivalent to \fBwhence \-v\fP\&.
 .TP
 .PD 0
-\fBtypeset\fP [ {\fB+\fP|\fB\-\fP}\fBAEFHLRUZafghilprtuxm\fP [\fIn\fP]] [ \fIname\fP[\fB=\fP\fIvalue\fP] \&.\&.\&. ]
+\fBtypeset\fP [ {\fB+\fP|\fB\-\fP}\fBAEFHLRUZafghiklprtuxmz\fP [\fIn\fP]] [ \fIname\fP[\fB=\fP\fIvalue\fP] \&.\&.\&. ]
 .TP
 .PD
 \fBtypeset\fP \-T [ {\fB+|\fB\-\fP\fP}\fBLRUZrux\fP ] \fISCALAR\fP[\fB=\fP\fIvalue\fP] \fIarray\fP \fB[\fP \fIsep\fP \fB]\fP
@@ -1351,13 +1394,16 @@ shown\&.
 .TP
 \fB\-f\fP
 The names refer to functions rather than parameters\&.  No assignments
-can be made, and the only other valid flags are \fB\-t\fP, \fB\-u\fP and
-\fB\-U\fP\&.  The flag \fB\-t\fP turns on execution tracing for this
+can be made, and the only other valid flags are \fB\-t\fP, \fB\-k\fP, \fB\-u\fP,
+\fB\-U\fP and \fB\-z\fP\&.  The flag \fB\-t\fP turns on execution tracing for this
 function\&.  The \fB\-u\fP and \fB\-U\fP flags cause the function to be
 marked for autoloading; \fB\-U\fP also causes alias expansion to be
 suppressed when the function is loaded\&.  The \fBfpath\fP parameter
 will be searched to find the function definition when the function
-is first referenced; see the section `Functions'\&.
+is first referenced; see the section `Functions'\&. The \fB\-k\fP and \fB\-z\fP flags
+make the function be loaded using ksh\-style or zsh\-style autoloading
+respectively\&. If neither is given, the setting of the KSH_AUTOLOAD option
+determines how the function is loaded\&.
 .TP
 \fB\-h\fP
 Hide: only useful for special parameters (those marked `<S>' in the table in
@@ -1428,7 +1474,7 @@ the parameter is not made local to the enclosing function\&.  This is for
 compatibility with previous versions of zsh\&.
 .RE
 .TP
-\fBulimit\fP [ \fB\-SHacdflmnpstv\fP [ \fIlimit\fP ] \&.\&.\&. ]
+\fBulimit\fP [ [ \fB\-SHacdflmnpstv\fP | \fB\-N\fP \fIresource\fP [ \fIlimit\fP ] \&.\&.\&. ]
 Set or display resource limits of the shell and the processes started by
 the shell\&.  The value of \fIlimit\fP can be a number in the unit specified
 below or the value `\fBunlimited\fP'\&.  By default, only soft limits are
@@ -1440,6 +1486,10 @@ options are used, the file size limit (\fB\-f\fP) is assumed\&.  If
 printed\&.  When more than one resource values are printed the limit name and
 unit is printed before each value\&.
 .RS
+.PP
+When looping over multiple resources, the shell will abort immediately if
+it detects a badly formed argument\&.  However, if it fails to set a limit
+for some other reson it will continue trying to set the remaining limits\&.
 .PP
 .PD 0
 .TP
@@ -1477,6 +1527,16 @@ processes available to the user\&.
 K\-bytes on the size of virtual memory\&.  On some systems this
 refers to the limit called `address space'\&.
 .PD
+.PP
+A resource may also be specified by integer in the form `\fB\-N\fP
+\fIresource\fP', where \fIresource\fP corresponds to the integer defined for
+the resource by the operating system\&.  This may be used to set the limits
+for resources known to the shell which do not correspond to option letters\&.
+Such limits will be shown by number in the output of `\fBulimit \-a\fP'\&.
+.PP
+The number may alternatively be out of the range of limits compiled into
+the shell\&.  The shell will try to read or write the limit anyway, and
+will report an error if this fails\&.
 .RE
 .TP
 \fBumask\fP [ \fB\-S\fP ] [ \fImask\fP ]
@@ -1709,9 +1769,11 @@ are to be autoloaded\&. If \fB\-z\fP is given, the
 function will be autoloaded as if the \fBKSH_AUTOLOAD\fP option is
 \fInot\fP set, even if it is set at the time the compiled file is
 read, while if the \fB\-k\fP is given, the function will be loaded as if
-\fBKSH_AUTOLOAD\fP \fIis\fP set\&.  If neither of these options is given, the
-function will be loaded as determined by the setting of the
-\fBKSH_AUTOLOAD\fP option at the time the compiled file is read\&.
+\fBKSH_AUTOLOAD\fP \fIis\fP set\&.  These options also take precedence over
+any \fB\-k\fP or \fB\-z\fP options specified to the \fBautoload\fP builtin\&. If
+neither of these options is given, the function will be loaded as
+determined by the setting of the \fBKSH_AUTOLOAD\fP option at the time
+the compiled file is read\&.
  
 These options may also appear as many times as necessary between the listed
 \fIname\fPs to specify the loading style of all following functions, up to

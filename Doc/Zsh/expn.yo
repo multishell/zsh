@@ -1630,6 +1630,12 @@ startitem()
 item(tt(/))(
 directories
 )
+item(tt(F))(
+`full' (i.e. non-empty) directories.  Note that the
+opposite sense tt(LPAR()^F)tt(RPAR()) expands to empty directories
+and all non-directories.  Use tt(LPAR()/^F)tt(RPAR()) for
+empty directories
+)
 item(tt(.))(
 plain files
 )

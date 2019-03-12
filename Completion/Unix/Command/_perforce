@@ -47,6 +47,12 @@
 #   p4 jobs -e 'user=pws'
 # i.e. those assigned to Perforce user `pws'.
 #
+# Completion of changes can be controlled by the `changes' style.
+# This takes additional arguments to be passed to `p4 changes'.
+# An obvious example is:
+#   zstyle ':completion:*:p4-*:changes' changes -u $USER
+# to limit changes to the present user.
+#
 # The style `all-files' is used to tell the completion system to
 # complete any file in a given context.  This is for use in places
 # where it would, for example, only complete files opened for editing.
@@ -117,6 +123,17 @@
 # you hit space or return.  Typing a `#' at this point will insert a
 # backslash, as before.  The # and @ are never added automatically; you
 # have to select one by hand.
+#
+# Perforce allows change and revision numbers to be preceded by =, <, <=, >
+# or >=.  See `p4 help undoc' for details.  (In particular, `=' is
+# an extremely useful shortcut when integrating single changes.)
+# This syntax is handled, but currently the < and > must be quoted
+# with a backslash, not by any other mechanism.  For example,
+#   p4 files myfile@\>=3<TAB>
+# will complete a change number.  The valid syntax where the second
+# change or revision in a range does not have the @ or # in front
+# (for example `file@32183,32185') is not currently handled; the @
+# must be repeated.
 #
 # File completion for some functions is restricted by the Perforce
 # status of the file; for example, `p4 opened' only completes opened
@@ -495,9 +512,10 @@ _perforce_branches() {
 (( $+functions[_perforce_changes] )) ||
 _perforce_changes() {
   local cline match mbegin mend max ctype num comma file
-  local -a cl cstatus amax
+  local -a cl cstatus amax xargs
 
   zstyle -s ":completion:${curcontext}:changes" max max || max=20
+  zstyle -a ":completion:${curcontext}:changes" changes xargs
   if [[ ${NUMERIC:-0} -lt 0 && -z $compstate[insert] ]]; then
     # Not inserting (i.e. just listing) and given a negative
     # prefix argument.  Instead of listing possible completions,
@@ -523,7 +541,7 @@ _perforce_changes() {
       # in case we are looking at a range.
       (-tf)
       file=${${(Q)PREFIX}%%[\#@]*}
-      compset -P '*@'
+      compset -P '*@(|\\\<|\\\>)(|=)'
       ;;
 
       # Changes already submitted
@@ -548,7 +566,7 @@ _perforce_changes() {
   # Limit to the 20 most recent changes by default to avoid huge
   # output.
   cl=(
-${${${${(f)"$(_perforce_call_p4 changes changes $amax $cstatus \$file)"}##Change\ }//\ on\ /:}/\ by\ /\ }
+${${${${(f)"$(_perforce_call_p4 changes changes $amax $xargs $cstatus \$file)"}##Change\ }//\ on\ /:}/\ by\ /\ }
 "default:change not yet numbered")
   [[ $#cl -eq 1 && $cl[1] = '' ]] && cl=()
   _describe -t changes "${ctype}change" cl -V changes-unsorted $comma
@@ -1229,9 +1247,9 @@ _perforce_revisions() {
 	shift
   fi
 
-  # Beware of @foo,#bar; stupid but probably valid.
+  # Beware of @foo,#bar; stupid but valid.
   pfx=${${(Q)PREFIX}%%[\#@]*}
-  compset -P '*\#'
+  compset -P '*\#(|\\\<|\\\>)(|=)'
 
   # Numerical revision numbers, possibly with text.
   if [[ -z $PREFIX || $PREFIX = <-> ]]; then

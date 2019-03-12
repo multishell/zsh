@@ -137,10 +137,10 @@ static char *STTYval;
 
 /* Execution functions. */
 
-static int (*execfuncs[]) _((Estate, int)) = {
+static int (*execfuncs[WC_COUNT-WC_CURSH]) _((Estate, int)) = {
     execcursh, exectime, execfuncdef, execfor, execselect,
     execwhile, execrepeat, execcase, execif, execcond,
-    execarith, execautofn
+    execarith, execautofn, exectry
 };
 
 /* structure for command builtin for when it is used with -v or -V */
@@ -219,7 +219,7 @@ zfork(void)
     /*
      * Is anybody willing to explain this test?
      */
-    if (thisjob >= jobtabsize - 1 && !expandjobtab()) {
+    if (thisjob != -1 && thisjob >= jobtabsize - 1 && !expandjobtab()) {
 	zerr("job table full", NULL, 0);
 	return -1;
     }
@@ -325,6 +325,9 @@ execcursh(Estate state, int do_exec)
 {
     Wordcode end = state->pc + WC_CURSH_SKIP(state->pc[-1]);
 
+    /* Skip word only used for try/always */
+    state->pc++;
+
     if (!list_pipe && thisjob != list_pipe_job && !hasprocs(thisjob))
 	deletejob(jobtab + thisjob);
     cmdpush(CS_CURSH);
@@ -352,18 +355,13 @@ zexecve(char *pth, char **argv)
     for (eep = argv; *eep; eep++)
 	if (*eep != pth)
 	    unmetafy(*eep, NULL);
-    for (eep = environ; *eep; eep++)
-	if (**eep == '_' && (*eep)[1] == '=')
-	    break;
     buf[0] = '_';
     buf[1] = '=';
     if (*pth == '/')
 	strcpy(buf + 2, pth);
     else
 	sprintf(buf + 2, "%s/%s", pwd, pth);
-    if (!*eep)
-	eep[1] = NULL;
-    *eep = buf;
+    zputenv(buf);
     closedumps();
     execve(pth, argv, environ);
 
@@ -449,7 +447,7 @@ isgooderr(int e, char *dir)
 
 /**/
 void
-execute(Cmdnam not_used_yet, int dash, int defpath)
+execute(UNUSED(Cmdnam cmdname), int dash, int defpath)
 {
     Cmdnam cn;
     char buf[MAXCMDLEN], buf2[MAXCMDLEN];
@@ -485,7 +483,7 @@ execute(Cmdnam not_used_yet, int dash, int defpath)
      * that as argv[0] for this external command       */
     if (unset(RESTRICTED) && (z = zgetenv("ARGV0"))) {
 	setdata(firstnode(args), (void *) ztrdup(z));
-	delenv(z - 6);
+	delenvvalue(z - 6);
     } else if (dash) {
     /* Else if the pre-command `-' was given, we add `-' *
      * to the front of argv[0] for this command.         */
@@ -789,7 +787,8 @@ execsimple(Estate state)
     if (errflag)
 	return (lastval = 1);
 
-    if (code)
+    /* In evaluated traps, don't modify the line number. */
+    if ((!intrap || trapisfunc) && code)
 	lineno = code - 1;
 
     code = wc_code(*state->pc++);
@@ -1260,7 +1259,8 @@ execpline2(Estate state, wordcode pcode,
     if (breaks || retflag)
 	return;
 
-    if (WC_PIPE_LINENO(pcode))
+    /* In evaluated traps, don't modify the line number. */
+    if ((!intrap || trapisfunc) && WC_PIPE_LINENO(pcode))
 	lineno = WC_PIPE_LINENO(pcode) - 1;
 
     if (pline_level == 1) {
@@ -2480,6 +2480,9 @@ execcmd(Estate state, int input, int output, int how, int last1)
                 subsh_close = -1;
 		/* If we're forked (and we should be), no need to return */
 		DPUTS(last1 != 1 && !forked, "BUG: not exiting?");
+		DPUTS(type != WC_SUBSH, "Not sure what we're doing.");
+		/* Skip word only used for try/always blocks */
+		state->pc++;
 		execlist(state, 0, 1);
 	    }
 	}
@@ -2519,15 +2522,13 @@ save_params(Estate state, Wordcode pc, LinkList *restore_p, LinkList *remove_p)
     while (wc_code(ac = *pc) == WC_ASSIGN) {
 	s = ecrawstr(state->prog, pc + 1, NULL);
 	if ((pm = (Param) paramtab->getnode(paramtab, s))) {
-	    if (pm->env) {
-		delenv(pm->env);
-		pm->env = NULL;
-	    }
+	    if (pm->env)
+		delenv(pm);
 	    if (!(pm->flags & PM_SPECIAL)) {
 		paramtab->removenode(paramtab, s);
 	    } else if (!(pm->flags & PM_READONLY) &&
 		       (unset(RESTRICTED) || !(pm->flags & PM_RESTRICTED))) {
-		Param tpm = (Param) zhalloc(sizeof *tpm);
+		Param tpm = (Param) hcalloc(sizeof *tpm);
 		tpm->nam = pm->nam;
 		copyparam(tpm, pm, 1);
 		pm = tpm;
@@ -2588,10 +2589,11 @@ restore_params(LinkList restorelist, LinkList removelist)
 		    tpm->sets.hfn(tpm, pm->u.hash);
 		    break;
 		}
+		pm = tpm;
 	    } else
 		paramtab->addnode(paramtab, pm->nam, pm);
 	    if ((pm->flags & PM_EXPORTED) && ((s = getsparam(pm->nam))))
-		pm->env = addenv(pm->nam, s, pm->flags);
+		addenv(pm, s);
 	}
     }
 }
@@ -2713,9 +2715,10 @@ gethere(char *str, int typ)
 
     for (s = str; *s; s++)
 	if (INULL(*s)) {
-	    *s = Nularg;
 	    qt = 1;
+	    break;
 	}
+    quotesubst(str);
     untokenize(str);
     if (typ == REDIR_HEREDOCDASH) {
 	strip = 1;
@@ -3162,7 +3165,7 @@ extern int tracingcond;
 
 /**/
 static int
-execcond(Estate state, int do_exec)
+execcond(Estate state, UNUSED(int do_exec))
 {
     int stat;
 
@@ -3187,7 +3190,7 @@ execcond(Estate state, int do_exec)
 
 /**/
 static int
-execarith(Estate state, int do_exec)
+execarith(Estate state, UNUSED(int do_exec))
 {
     char *e;
     mnumber val = zero_mnumber;
@@ -3221,7 +3224,7 @@ execarith(Estate state, int do_exec)
 
 /**/
 static int
-exectime(Estate state, int do_exec)
+exectime(Estate state, UNUSED(int do_exec))
 {
     int jb;
 
@@ -3239,7 +3242,7 @@ exectime(Estate state, int do_exec)
 
 /**/
 static int
-execfuncdef(Estate state, int do_exec)
+execfuncdef(Estate state, UNUSED(int do_exec))
 {
     Shfunc shf;
     char *s;
@@ -3369,7 +3372,7 @@ execshfunc(Shfunc shf, LinkList args)
 
 /**/
 static int
-execautofn(Estate state, int do_exec)
+execautofn(Estate state, UNUSED(int do_exec))
 {
     Shfunc shf;
     char *oldscriptname;
@@ -3398,8 +3401,12 @@ loadautofn(Shfunc shf, int fksh, int autol)
     prog = getfpfunc(shf->nam, &ksh);
     noaliases = noalias;
 
-    if (ksh == 1)
+    if (ksh == 1) {
 	ksh = fksh;
+	if (ksh == 1)
+	    ksh = (shf->flags & PM_KSHSTORED) ? 2 :
+		  (shf->flags & PM_ZSHSTORED) ? 0 : 1;
+    }
 
     if (prog == &dummy_eprog) {
 	/* We're not actually in the function; decrement locallevel */
@@ -3490,7 +3497,8 @@ doshfunc(char *name, Eprog prog, LinkList doshargs, int flags, int noreturnval)
 	memcpy(oldpipestats, pipestats, bytes);
     }
 
-    starttrapscope();
+    if (!intrap)
+	starttrapscope();
 
     tab = pparams;
     if (!(flags & PM_UNDEFINED))
@@ -3542,9 +3550,9 @@ doshfunc(char *name, Eprog prog, LinkList doshargs, int flags, int noreturnval)
     if (prog->flags & EF_RUN) {
 	Shfunc shf;
 
-	runshfunc(prog, NULL, fstack.name);
-
 	prog->flags &= ~EF_RUN;
+
+	runshfunc(prog, NULL, fstack.name);
 
 	if (!(shf = (Shfunc) shfunctab->getnode(shfunctab,
 						(name = fname)))) {
@@ -3590,7 +3598,8 @@ doshfunc(char *name, Eprog prog, LinkList doshargs, int flags, int noreturnval)
 	opts[LOCALOPTIONS] = saveopts[LOCALOPTIONS];
     }
 
-    endtrapscope();
+    if (!intrap)
+	endtrapscope();
 
     if (trapreturn < -1)
 	trapreturn++;
@@ -3662,6 +3671,7 @@ getfpfunc(char *s, int *ksh)
 {
     char **pp, buf[PATH_MAX];
     off_t len;
+    off_t rlen;
     char *d;
     Eprog r;
     int fd;
@@ -3681,12 +3691,12 @@ getfpfunc(char *s, int *ksh)
 	    if ((len = lseek(fd, 0, 2)) != -1) {
 		d = (char *) zalloc(len + 1);
 		lseek(fd, 0, 0);
-		if (read(fd, d, len) == len) {
+		if ((rlen = read(fd, d, len)) >= 0) {
 		    char *oldscriptname = scriptname;
 
 		    close(fd);
-		    d[len] = '\0';
-		    d = metafy(d, len, META_REALLOC);
+		    d[rlen] = '\0';
+		    d = metafy(d, rlen, META_REALLOC);
 
 		    scriptname = dupstring(s);
 		    r = parse_string(d);

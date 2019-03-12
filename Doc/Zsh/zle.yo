@@ -265,7 +265,8 @@ by `tt(bindkey -m)'.
 findex(vared)
 cindex(parameters, editing)
 cindex(editing parameters)
-item(tt(vared) [ tt(-Aache) ] [ tt(-p) var(prompt) ] [ tt(-r) var(rprompt) ] var(name))(
+xitem(tt(vared) [ tt(-Aache) ] [ tt(-p) var(prompt) ] [ tt(-r) var(rprompt) ])
+item(  [ -M var(main-keymap) ] [ -m var(vicmd-keymap) ] var(name))(
 The value of the parameter var(name) is loaded into the edit
 buffer, and the line editor is invoked.  When the editor exits,
 var(name) is set to the string value returned by the editor.
@@ -289,9 +290,16 @@ created automatically, even without tt(-c).
 If the tt(-p) flag is given, the following string will be taken as
 the prompt to display at the left.  If the tt(-r) flag is given,
 the following string gives the prompt to display at the right.  If the
-tt(-h) flag is specified, the history can be accessed from ZLE. If the 
+tt(-h) flag is specified, the history can be accessed from ZLE. If the
 tt(-e) flag is given, typing tt(^D) (Control-D) on an empty line
 causes tt(vared) to exit immediately with a non-zero return value.
+
+The tt(-M) option gives a keymap to link to the tt(main) keymap during
+editing, and the tt(-m) option gives a keymap to link to the tt(vicmd)
+keymap during editing.  For vi-style editing, this allows a pair of keymaps
+to override tt(viins) and tt(vicmd).  For emacs-style editing, only tt(-M)
+is normally needed but the tt(-m) option may still be used.  On exit, the
+previous keymaps will be restored.
 )
 findex(zle)
 cindex(widgets, rebinding)
@@ -626,7 +634,10 @@ string which the next yank would insert in the line.
 )
 vindex(HISTNO)
 item(tt(HISTNO) (integer))(
-The current history number; read-only.
+The current history number.  Setting this has the same effect as
+moving up or down in the history to the corresponding history line.
+An attempt to set it is ignored if the line is not stored in the
+history.
 )
 vindex(KEYMAP)
 item(tt(KEYMAP) (scalar))(
@@ -1225,7 +1236,7 @@ item(tt(copy-prev-word) (ESC-^_) (unbound) (unbound))(
 Duplicate the word to the left of the cursor.
 )
 tindex(copy-prev-shell-word)
-item(tt(copy-prev-shell-word) (ESC-^_) (unbound) (unbound))(
+item(tt(copy-prev-shell-word))(
 Like tt(copy-prev-word), but the word is found by using shell parsing, 
 whereas tt(copy-prev-word) looks for blanks. This makes a difference
 when the word is quoted and contains spaces.
@@ -1728,6 +1739,20 @@ using the tt(send-break) widget.
 tindex(redisplay)
 item(tt(redisplay) (unbound) (^R) (^R))(
 Redisplays the edit buffer.
+)
+tindex(reset-prompt)
+item(tt(reset-prompt) (unbound) (unbound) (unbound))(
+Force the prompts on both the left and right of the screen to be
+re-expanded, then redisplay the edit buffer.  This
+reflects changes both to the prompt variables themselves and changes
+in the expansion of the values (for example, changes in time or
+directory, or changes to the value of variables referred to by the
+prompt).
+
+Otherwise, the prompt is only expanded each time zle starts, and
+when the display as been interrupted by output from another part of the
+shell (such as a job notification) which causes the command line to be
+reprinted.
 )
 tindex(send-break)
 item(tt(send-break) (^G ESC-^G) (unbound) (unbound))(

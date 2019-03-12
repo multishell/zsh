@@ -1,4 +1,4 @@
-.TH "ZSHCOMPSYS" "1" "March 19, 2004" "zsh 4\&.2\&.0"
+.TH "ZSHCOMPSYS" "1" "August 13, 2004" "zsh 4\&.2\&.1"
 .SH "NAME"
 zshcompsys \- zsh completion system
 .\" Yodl file: Zsh/compsys.yo
@@ -218,20 +218,12 @@ Functions with the \fB#autoload\fP tag are marked for autoloading but
 are not otherwise treated specially\&.  Typically they are to be called
 from within one of the completion functions\&.  Any \fIoptions\fP supplied
 will be passed to the \fBautoload\fP builtin; a typical use is \fB+X\fP to
-force the function to be loaded immediately\&.  Note that the \fB\-U\fP flag is
-always added implicitly\&.
+force the function to be loaded immediately\&.  Note that the \fB\-U\fP and
+\fB\-z\fP flags are always added implicitly\&.
 .PP
 The \fB#\fP is part of the tag name and no white space is allowed after it\&.
 The \fB#compdef\fP tags use the \fBcompdef\fP function described below; the
 main difference is that the name of the function is supplied implicitly\&.
-.PP
-Note also that the functions for the completion system assume that the
-\fBKSH_AUTOLOAD\fP option is not set\&.  They cannot be loaded if it is
-set\&.  To avoid having to unset \fBKSH_AUTOLOAD\fP, you can instead use one or
-more \fBzwc\fP file(s) that have been created with the command \fBzcompile
-\-z\fP to load the functions for the completion system; see
-\fIzshbuiltins\fP(1)\&.  This forces the functions to be autoloaded the way zsh normally
-loads functions\&.
 .PP
 The special contexts for which completion functions can be defined are:
 .PP
@@ -1083,6 +1075,10 @@ command for each attempt to generate the completion list\&.  Hence
 care should be taken to specify only commands that take a short
 time to run, and in particular to avoid any that may never terminate\&.
 .RE
+.TP
+\fBcommand\-path\fP
+This is a list of directories to search for commands to complete\&.  The
+default for this style is the value of the special parameter \fBpath\fP\&.
 .TP
 \fBcommands\fP
 This is used by the function completing sub\-commands for the system

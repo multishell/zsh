@@ -234,6 +234,9 @@
 /* Define to 1 if you have the <grp.h> header file. */
 #undef HAVE_GRP_H
 
+/* Define to 1 if you have the `htons' function. */
+#undef HAVE_HTONS
+
 /* Define to 1 if you have the `iconv' function. */
 #undef HAVE_ICONV
 
@@ -350,6 +353,9 @@
 
 /* Define to 1 if you have the `nl_langinfo' function. */
 #undef HAVE_NL_LANGINFO
+
+/* Define to 1 if you have the `ntohs' function. */
+#undef HAVE_NTOHS
 
 /* Define if you have the termcap numcodes symbol. */
 #undef HAVE_NUMCODES

@@ -580,6 +580,10 @@ struct eccstr {
 #define WC_COND    17
 #define WC_ARITH   18
 #define WC_AUTOFN  19
+#define WC_TRY     20
+
+/* increment as necessary */
+#define WC_COUNT   21
 
 #define WCB_END()           wc_bld(WC_END, 0)
 
@@ -656,6 +660,9 @@ struct eccstr {
 
 #define WC_REPEAT_SKIP(C)   wc_data(C)
 #define WCB_REPEAT(O)       wc_bld(WC_REPEAT, (O))
+
+#define WC_TRY_SKIP(C)	    wc_data(C)
+#define WCB_TRY(O)	    wc_bld(WC_TRY, (O))
 
 #define WC_CASE_TYPE(C)     (wc_data(C) & 3)
 #define WC_CASE_HEAD        0
@@ -1197,6 +1204,9 @@ struct tieddata {
 #define PM_HIDEVAL	(1<<15)	/* Value not shown in `typeset' commands    */
 #define PM_TIED 	(1<<16)	/* array tied to colon-path or v.v.         */
 
+#define PM_KSHSTORED	(1<<17) /* function stored in ksh form              */
+#define PM_ZSHSTORED	(1<<18) /* function stored in zsh form              */
+
 /* Remaining flags do not correspond directly to command line arguments */
 #define PM_LOCAL	(1<<21) /* this parameter will be made local        */
 #define PM_SPECIAL	(1<<22) /* special builtin parameter                */
@@ -1210,7 +1220,7 @@ struct tieddata {
 #define PM_NAMEDDIR     (1<<30) /* has a corresponding nameddirtab entry    */
 
 /* The option string corresponds to the first of the variables above */
-#define TYPESET_OPTSTR "aiEFALRZlurtxUhHT"
+#define TYPESET_OPTSTR "aiEFALRZlurtxUhHTkz"
 
 /* These typeset options take an optional numeric argument */
 #define TYPESET_OPTNUM "LRZiEF"
@@ -1523,6 +1533,7 @@ enum {
     SINGLELINEZLE,
     SUNKEYBOARDHACK,
     TRANSIENTRPROMPT,
+    TRAPSASYNC,
     TYPESETSILENT,
     UNSET,
     VERBOSE,
@@ -1691,6 +1702,10 @@ struct ttyinfo {
 #define CS_HEREDOCD    28
 #define CS_BRACE       29
 #define CS_BRACEPAR    30
+#define CS_ALWAYS      31
+
+/* Increment as necessary */
+#define CS_COUNT       32
 
 /*********************
  * Memory management *
@@ -1785,7 +1800,7 @@ typedef int (*CompctlReadFn) _((char *, char **, Options, char *));
 
 typedef void (*ZleVoidFn) _((void));
 typedef void (*ZleVoidIntFn) _((int));
-typedef unsigned char * (*ZleReadFn) _((char *, char *, int, int));
+typedef unsigned char * (*ZleReadFn) _((char **, char **, int, int));
 
 /***************************************/
 /* Hooks in core.                      */

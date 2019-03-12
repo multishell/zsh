@@ -32,7 +32,7 @@
 #include <time.h>
 
 static int
-bin_strftime(char *nam, char **argv, Options ops, int func)
+bin_strftime(char *nam, char **argv, Options ops, UNUSED(int func))
 {
     int bufsize, x;
     char *endptr = NULL, *scalar = NULL, *buffer;
@@ -48,7 +48,7 @@ bin_strftime(char *nam, char **argv, Options ops, int func)
     }
 
     secs = (time_t)strtoul(argv[1], &endptr, 10);
-    if (secs == ULONG_MAX) {
+    if (secs == (time_t)ULONG_MAX) {
 	zwarnnam(nam, "%s: %e", argv[1], errno);
 	return 1;
     } else if (*endptr != '\0') {
@@ -61,7 +61,7 @@ bin_strftime(char *nam, char **argv, Options ops, int func)
     buffer = zalloc(bufsize);
 
     for (x=0; x < 4; x++) {
-        if (ztrftime(buffer, bufsize, argv[0], t))
+        if (ztrftime(buffer, bufsize, argv[0], t) >= 0)
 	    break;
 	buffer = zrealloc(buffer, bufsize *= 2);
     }
@@ -93,7 +93,7 @@ static struct paramdef patab[] = {
 
 /**/
 int
-setup_(Module m)
+setup_(UNUSED(Module m))
 {
     return 0;
 }
@@ -124,7 +124,7 @@ cleanup_(Module m)
 
 /**/
 int
-finish_(Module m)
+finish_(UNUSED(Module m))
 {
     return 0;
 }

@@ -110,6 +110,19 @@ zwarnnam(const char *cmd, const char *fmt, const char *str, int num)
     zerrmsg(fmt, str, num);
 }
 
+#ifdef __CYGWIN__
+/*
+ * This works around an occasional problem with dllwrap on Cygwin, seen
+ * on at least two installations.  It fails to find the last symbol
+ * exported in alphabetical order (in our case zwarnnam).  Until this is
+ * properly categorised and fixed we add a dummy symbol at the end.
+ */
+mod_export void
+zz_plural_z_alpha(void)
+{
+}
+#endif
+
 /**/
 void
 zerrmsg(const char *fmt, const char *str, int num)
@@ -463,7 +476,7 @@ static int finddir_best;
 
 /**/
 static void
-finddir_scan(HashNode hn, int flags)
+finddir_scan(HashNode hn, UNUSED(int flags))
 {
     Nameddir nd = (Nameddir) hn;
 
@@ -502,7 +515,7 @@ finddir(char *s)
     if(!strcmp(s, finddir_full) && *finddir_full)
 	return finddir_last;
 
-    if(strlen(s) >= ffsz) {
+    if ((int)strlen(s) >= ffsz) {
 	free(finddir_full);
 	finddir_full = zalloc(ffsz = strlen(s) * 2);
     }
@@ -1538,7 +1551,7 @@ static char *guess, *best;
 
 /**/
 static void
-spscan(HashNode hn, int scanflags)
+spscan(HashNode hn, UNUSED(int scanflags))
 {
     int nd;
 
@@ -1706,6 +1719,11 @@ ztrftimebuf(int *bufsizeptr, int decr)
  * Like the system function, this returns the number of characters
  * copied, not including the terminating NUL.  This may be zero
  * if the string didn't fit.
+ *
+ * As an extension, try to detect an error in strftime --- typically
+ * not enough memory --- and return -1.  Not guaranteed to be portable,
+ * since the strftime() interface doesn't make any guarantees about
+ * the state of the buffer if it returns zero.
  */
 
 /**/
@@ -1816,10 +1834,16 @@ ztrftime(char *buf, int bufsize, char *fmt, struct tm *tm)
 		 * Remember we've already allowed for two characters
 		 * in the accounting in bufsize (but nowhere else).
 		 */
-		*buf = '\0';
+		*buf = '\1';
 		tmp[1] = fmt[-1];
 		if (!strftime(buf, bufsize + 2, tmp, tm))
+		{
+		    if (*buf) {
+			buf[0] = '\0';
+			return -1;
+		    }
 		    return 0;
+		}
 		decr = strlen(buf);
 		buf += decr;
 		bufsize -= decr - 2;
@@ -1884,7 +1908,7 @@ colonsplit(char *s, int uniq)
 	for (; *t && *t != ':'; t++);
 	if (uniq)
 	    for (p = ret; p < ptr; p++)
-		if (strlen(*p) == t - s && ! strncmp(*p, s, t - s))
+		if ((int)strlen(*p) == t - s && ! strncmp(*p, s, t - s))
 		    goto cont;
 	*ptr = (char *) zalloc((t - s) + 1);
 	ztrncpy(*ptr++, s, t - s);

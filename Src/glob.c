@@ -1322,6 +1322,9 @@ zglob(LinkList list, LinkNode np, int nountok)
 		    func = qualmodeflags;
 		    data = qgetmodespec(&s);
 		    break;
+		case 'F':
+		    func = qualnonemptydir;
+		    break;
 		case 'M':
 		    /* Mark directories with a / */
 		    if ((gf_markdirs = !(sense & 1)))
@@ -2557,16 +2560,16 @@ remnulargs(char *s)
 
 /**/
 static int
-qualdev(char *name, struct stat *buf, off_t dv, char *dummy)
+qualdev(UNUSED(char *name), struct stat *buf, off_t dv, UNUSED(char *dummy))
 {
-    return buf->st_dev == dv;
+    return (off_t)buf->st_dev == dv;
 }
 
 /* number of hard links to file */
 
 /**/
 static int
-qualnlink(char *name, struct stat *buf, off_t ct, char *dummy)
+qualnlink(UNUSED(char *name), struct stat *buf, off_t ct, UNUSED(char *dummy))
 {
     return (g_range < 0 ? buf->st_nlink < ct :
 	    g_range > 0 ? buf->st_nlink > ct :
@@ -2577,7 +2580,7 @@ qualnlink(char *name, struct stat *buf, off_t ct, char *dummy)
 
 /**/
 static int
-qualuid(char *name, struct stat *buf, off_t uid, char *dummy)
+qualuid(UNUSED(char *name), struct stat *buf, off_t uid, UNUSED(char *dummy))
 {
     return buf->st_uid == uid;
 }
@@ -2586,7 +2589,7 @@ qualuid(char *name, struct stat *buf, off_t uid, char *dummy)
 
 /**/
 static int
-qualgid(char *name, struct stat *buf, off_t gid, char *dummy)
+qualgid(UNUSED(char *name), struct stat *buf, off_t gid, UNUSED(char *dummy))
 {
     return buf->st_gid == gid;
 }
@@ -2595,7 +2598,7 @@ qualgid(char *name, struct stat *buf, off_t gid, char *dummy)
 
 /**/
 static int
-qualisdev(char *name, struct stat *buf, off_t junk, char *dummy)
+qualisdev(UNUSED(char *name), struct stat *buf, UNUSED(off_t junk), UNUSED(char *dummy))
 {
     return S_ISBLK(buf->st_mode) || S_ISCHR(buf->st_mode);
 }
@@ -2604,7 +2607,7 @@ qualisdev(char *name, struct stat *buf, off_t junk, char *dummy)
 
 /**/
 static int
-qualisblk(char *name, struct stat *buf, off_t junk, char *dummy)
+qualisblk(UNUSED(char *name), struct stat *buf, UNUSED(off_t junk), UNUSED(char *dummy))
 {
     return S_ISBLK(buf->st_mode);
 }
@@ -2613,7 +2616,7 @@ qualisblk(char *name, struct stat *buf, off_t junk, char *dummy)
 
 /**/
 static int
-qualischr(char *name, struct stat *buf, off_t junk, char *dummy)
+qualischr(UNUSED(char *name), struct stat *buf, UNUSED(off_t junk), UNUSED(char *dummy))
 {
     return S_ISCHR(buf->st_mode);
 }
@@ -2622,7 +2625,7 @@ qualischr(char *name, struct stat *buf, off_t junk, char *dummy)
 
 /**/
 static int
-qualisdir(char *name, struct stat *buf, off_t junk, char *dummy)
+qualisdir(UNUSED(char *name), struct stat *buf, UNUSED(off_t junk), UNUSED(char *dummy))
 {
     return S_ISDIR(buf->st_mode);
 }
@@ -2631,7 +2634,7 @@ qualisdir(char *name, struct stat *buf, off_t junk, char *dummy)
 
 /**/
 static int
-qualisfifo(char *name, struct stat *buf, off_t junk, char *dummy)
+qualisfifo(UNUSED(char *name), struct stat *buf, UNUSED(off_t junk), UNUSED(char *dummy))
 {
     return S_ISFIFO(buf->st_mode);
 }
@@ -2640,7 +2643,7 @@ qualisfifo(char *name, struct stat *buf, off_t junk, char *dummy)
 
 /**/
 static int
-qualislnk(char *name, struct stat *buf, off_t junk, char *dummy)
+qualislnk(UNUSED(char *name), struct stat *buf, UNUSED(off_t junk), UNUSED(char *dummy))
 {
     return S_ISLNK(buf->st_mode);
 }
@@ -2649,7 +2652,7 @@ qualislnk(char *name, struct stat *buf, off_t junk, char *dummy)
 
 /**/
 static int
-qualisreg(char *name, struct stat *buf, off_t junk, char *dummy)
+qualisreg(UNUSED(char *name), struct stat *buf, UNUSED(off_t junk), UNUSED(char *dummy))
 {
     return S_ISREG(buf->st_mode);
 }
@@ -2658,7 +2661,7 @@ qualisreg(char *name, struct stat *buf, off_t junk, char *dummy)
 
 /**/
 static int
-qualissock(char *name, struct stat *buf, off_t junk, char *dummy)
+qualissock(UNUSED(char *name), struct stat *buf, UNUSED(off_t junk), UNUSED(char *dummy))
 {
     return S_ISSOCK(buf->st_mode);
 }
@@ -2667,7 +2670,7 @@ qualissock(char *name, struct stat *buf, off_t junk, char *dummy)
 
 /**/
 static int
-qualflags(char *name, struct stat *buf, off_t mod, char *dummy)
+qualflags(UNUSED(char *name), struct stat *buf, off_t mod, UNUSED(char *dummy))
 {
     return mode_to_octal(buf->st_mode) & mod;
 }
@@ -2676,7 +2679,7 @@ qualflags(char *name, struct stat *buf, off_t mod, char *dummy)
 
 /**/
 static int
-qualmodeflags(char *name, struct stat *buf, off_t mod, char *dummy)
+qualmodeflags(UNUSED(char *name), struct stat *buf, off_t mod, UNUSED(char *dummy))
 {
     long v = mode_to_octal(buf->st_mode), y = mod & 07777, n = mod >> 12;
 
@@ -2687,7 +2690,7 @@ qualmodeflags(char *name, struct stat *buf, off_t mod, char *dummy)
 
 /**/
 static int
-qualiscom(char *name, struct stat *buf, off_t mod, char *dummy)
+qualiscom(UNUSED(char *name), struct stat *buf, UNUSED(off_t mod), UNUSED(char *dummy))
 {
     return S_ISREG(buf->st_mode) && (buf->st_mode & S_IXUGO);
 }
@@ -2696,7 +2699,7 @@ qualiscom(char *name, struct stat *buf, off_t mod, char *dummy)
 
 /**/
 static int
-qualsize(char *name, struct stat *buf, off_t size, char *dummy)
+qualsize(UNUSED(char *name), struct stat *buf, off_t size, UNUSED(char *dummy))
 {
 #if defined(LONG_IS_64_BIT) || defined(OFF_T_IS_64_BIT)
 # define QS_CAST_SIZE()
@@ -2731,7 +2734,7 @@ qualsize(char *name, struct stat *buf, off_t size, char *dummy)
 
 /**/
 static int
-qualtime(char *name, struct stat *buf, off_t days, char *dummy)
+qualtime(UNUSED(char *name), struct stat *buf, off_t days, UNUSED(char *dummy))
 {
     time_t now, diff;
 
@@ -2766,7 +2769,7 @@ qualtime(char *name, struct stat *buf, off_t days, char *dummy)
 
 /**/
 static int
-qualsheval(char *name, struct stat *buf, off_t days, char *str)
+qualsheval(char *name, UNUSED(struct stat *buf), UNUSED(off_t days), char *str)
 {
     Eprog prog;
 
@@ -2797,5 +2800,32 @@ qualsheval(char *name, struct stat *buf, off_t days, char *str)
 	}
 	return !ret;
     }
+    return 0;
+}
+
+/**/
+static int
+qualnonemptydir(char *name, struct stat *buf, UNUSED(off_t days), UNUSED(char *str))
+{
+    DIR *dirh;
+    struct dirent *de;
+
+    if (!S_ISDIR(buf->st_mode))
+	return 0;
+
+    if (buf->st_nlink > 2)
+	return 1;
+
+    if (!(dirh = opendir(name)))
+	return 0;
+
+    while ((de = readdir(dirh))) {
+	if (strcmp(de->d_name, ".") && strcmp(de->d_name, "..")) {
+	    closedir(dirh);
+	    return 1;
+	}
+    }
+
+    closedir(dirh);
     return 0;
 }

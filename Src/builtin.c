@@ -53,7 +53,7 @@ static struct builtin builtins[] =
     BUILTIN("cd", BINF_SKIPINVALID | BINF_SKIPDASH | BINF_DASHDASHVALID, bin_cd, 0, 2, BIN_CD, "sPL", NULL),
     BUILTIN("chdir", BINF_SKIPINVALID | BINF_SKIPDASH | BINF_DASHDASHVALID, bin_cd, 0, 2, BIN_CD, "sPL", NULL),
     BUILTIN("continue", BINF_PSPECIAL, bin_break, 0, 1, BIN_CONTINUE, NULL, NULL),
-    BUILTIN("declare", BINF_PLUSOPTS | BINF_MAGICEQUALS | BINF_PSPECIAL, bin_typeset, 0, -1, 0, "AE:%F:%HL:%R:%TUZ:%afghi:%lprtux", NULL),
+    BUILTIN("declare", BINF_PLUSOPTS | BINF_MAGICEQUALS | BINF_PSPECIAL, bin_typeset, 0, -1, 0, "AE:%F:%HL:%R:%TUZ:%afghi:%klmprtuxz", NULL),
     BUILTIN("dirs", 0, bin_dirs, 0, -1, 0, "clpv", NULL),
     BUILTIN("disable", 0, bin_enable, 0, -1, BIN_DISABLE, "afmrs", NULL),
     BUILTIN("disown", 0, bin_fg, 0, -1, BIN_DISOWN, NULL, NULL),
@@ -69,11 +69,10 @@ static struct builtin builtins[] =
      * But that's actually not useful, so it's more consistent to
      * cause an error.
      */
-    BUILTIN("fc", 0, bin_fc, 0, -1, BIN_FC, "nlre:IRWAdDfEim",
-	    NULL),
+    BUILTIN("fc", 0, bin_fc, 0, -1, BIN_FC, "nlre:IRWAdDfEimpPa", NULL),
     BUILTIN("fg", 0, bin_fg, 0, -1, BIN_FG, NULL, NULL),
     BUILTIN("float", BINF_PLUSOPTS | BINF_MAGICEQUALS | BINF_PSPECIAL, bin_typeset, 0, -1, 0, "E:%F:%Hghlprtux", "E"),
-    BUILTIN("functions", BINF_PLUSOPTS, bin_functions, 0, -1, 0, "mtuU", NULL),
+    BUILTIN("functions", BINF_PLUSOPTS, bin_functions, 0, -1, 0, "kmtuUz", NULL),
     BUILTIN("getln", 0, bin_read, 0, -1, 0, "ecnAlE", "zr"),
     BUILTIN("getopts", 0, bin_getopts, 2, -1, 0, NULL, NULL),
     BUILTIN("hash", BINF_MAGICEQUALS, bin_hash, 0, -1, 0, "Ldfmrv", NULL),
@@ -82,7 +81,7 @@ static struct builtin builtins[] =
     BUILTIN("hashinfo", 0, bin_hashinfo, 0, 0, 0, NULL, NULL),
 #endif
 
-    BUILTIN("history", 0, bin_fc, 0, -1, BIN_FC, "nrdDfEim", "l"),
+    BUILTIN("history", 0, bin_fc, 0, -1, BIN_FC, "nrdDfEimpPa", "l"),
     BUILTIN("integer", BINF_PLUSOPTS | BINF_MAGICEQUALS | BINF_PSPECIAL, bin_typeset, 0, -1, 0, "Hghi:%lprtux", "i"),
     BUILTIN("jobs", 0, bin_fg, 0, -1, BIN_JOBS, "dlpZrs", NULL),
     BUILTIN("kill", 0, bin_kill, 0, -1, 0, NULL, NULL),
@@ -121,7 +120,7 @@ static struct builtin builtins[] =
     BUILTIN("trap", BINF_PSPECIAL, bin_trap, 0, -1, 0, NULL, NULL),
     BUILTIN("true", 0, bin_true, 0, -1, 0, NULL, NULL),
     BUILTIN("type", 0, bin_whence, 0, -1, 0, "ampfsw", "v"),
-    BUILTIN("typeset", BINF_PLUSOPTS | BINF_MAGICEQUALS | BINF_PSPECIAL, bin_typeset, 0, -1, 0, "AE:%F:%HL:%R:%TUZ:%afghi:%lprtuxm", NULL),
+    BUILTIN("typeset", BINF_PLUSOPTS | BINF_MAGICEQUALS | BINF_PSPECIAL, bin_typeset, 0, -1, 0, "AE:%F:%HL:%R:%TUZ:%afghi:%klprtuxmz", NULL),
     BUILTIN("umask", 0, bin_umask, 0, 1, 0, "S", NULL),
     BUILTIN("unalias", 0, bin_unhash, 1, -1, 0, "ms", "a"),
     BUILTIN("unfunction", 0, bin_unhash, 1, -1, 0, "m", "f"),
@@ -529,7 +528,7 @@ bin_enable(char *name, char **argv, Options ops, int func)
 
 /**/
 int
-bin_set(char *nam, char **args, Options ops, int func)
+bin_set(char *nam, char **args, UNUSED(Options ops), UNUSED(int func))
 {
     int action, optno, array = 0, hadopt = 0,
 	hadplus = 0, hadend = 0, sort = 0;
@@ -657,7 +656,7 @@ int doprintdir = 0;		/* set in exec.c (for autocd) */
 
 /**/
 int
-bin_pwd(char *name, char **argv, Options ops, int func)
+bin_pwd(UNUSED(char *name), UNUSED(char **argv), Options ops, UNUSED(int func))
 {
     if (OPT_ISSET(ops,'r') || OPT_ISSET(ops,'P') ||
 	(isset(CHASELINKS) && !OPT_ISSET(ops,'L')))
@@ -678,7 +677,7 @@ mod_export LinkList dirstack;
 
 /**/
 int
-bin_dirs(char *name, char **argv, Options ops, int func)
+bin_dirs(UNUSED(char *name), char **argv, Options ops, UNUSED(int func))
 {
     LinkList l;
 
@@ -751,15 +750,11 @@ set_pwd_env(void)
     setsparam("OLDPWD", ztrdup(oldpwd));
 
     pm = (Param) paramtab->getnode(paramtab, "PWD");
-    if (!(pm->flags & PM_EXPORTED)) {
-	pm->flags |= PM_EXPORTED;
-	pm->env = addenv("PWD", pwd, pm->flags);
-    }
+    if (!(pm->flags & PM_EXPORTED))
+	addenv(pm, pwd);
     pm = (Param) paramtab->getnode(paramtab, "OLDPWD");
-    if (!(pm->flags & PM_EXPORTED)) {
-	pm->flags |= PM_EXPORTED;
-	pm->env = addenv("OLDPWD", oldpwd, pm->flags);
-    }
+    if (!(pm->flags & PM_EXPORTED))
+	addenv(pm, oldpwd);
 }
 
 /* set if we are resolving links to their true paths */
@@ -927,7 +922,9 @@ cd_do_chdir(char *cnam, char *dest, int hard)
      * DOS style names with drives in them
      */
     static char buf[PATH_MAX];
+#ifndef _SYS_CYGWIN_H
     void cygwin_conv_to_posix_path(const char *, char *);
+#endif
 
     cygwin_conv_to_posix_path(dest, buf);
     dest = buf;
@@ -1031,7 +1028,15 @@ cd_try_chdir(char *pfix, char *dest, int hard)
     /* handle directory prefix */
     if (pfix && *pfix) {
 	if (*pfix == '/')
+#ifdef __CYGWIN__
+/* NB: Don't turn "/"+"bin" into "//"+"bin" by mistake!  "//bin" may *
+ * not be what user really wants (probably wants "/bin"), but        *
+ * "//bin" could be valid too (see fixdir())!  This is primarily for *
+ * handling CDPATH correctly.                                        */
+	    buf = tricat(pfix, ( pfix[1] == '\0' ? "" : "/" ), dest);
+#else
 	    buf = tricat(pfix, "/", dest);
+#endif
 	else {
 	    int pfl = strlen(pfix);
 	    dlen = strlen(pwd);
@@ -1297,6 +1302,44 @@ bin_fc(char *nam, char **argv, Options ops, int func)
     if (!interact) {
 	zwarnnam(nam, "not interactive shell", NULL, 0);
 	return 1;
+    }
+    if (OPT_ISSET(ops,'p')) {
+	char *hf = "";
+	int hs = DEFAULT_HISTSIZE;
+	int shs = 0;
+	int level = OPT_ISSET(ops,'a') ? locallevel : -1;
+	if (*argv) {
+	    hf = *argv++;
+	    if (*argv) {
+		hs = atoi(*argv++);
+		if (*argv)
+		    shs = atoi(*argv++);
+		else
+		    shs = hs;
+		if (*argv) {
+		    zwarnnam("fc", "too many arguments", NULL, 0);
+		    return 1;
+		}
+	    } else {
+		hs = histsiz;
+		shs = savehistsiz;
+	    }
+	}
+	if (!pushhiststack(hf, hs, shs, level))
+	    return 1;
+	if (*hf) {
+	    struct stat st;
+	    if (stat(hf, &st) >= 0 || errno != ENOENT)
+		readhistfile(hf, 1, HFILE_USE_OPTIONS);
+	}
+	return 0;
+    }
+    if (OPT_ISSET(ops,'P')) {
+	if (*argv) {
+	    zwarnnam("fc", "too many arguments", NULL, 0);
+	    return 1;
+	}
+	return !saveandpophiststack(-1);
     }
     /* with the -m option, the first argument is taken *
      * as a pattern that history lines have to match   */
@@ -1675,7 +1718,7 @@ enum {
 
 /**/
 static Param
-typeset_single(char *cname, char *pname, Param pm, int func,
+typeset_single(char *cname, char *pname, Param pm, UNUSED(int func),
 	       int on, int off, int roff, char *value, Param altpm,
 	       Options ops, int auxlen, int joinchar)
 {
@@ -1836,11 +1879,9 @@ typeset_single(char *cname, char *pname, Param pm, int func,
 	if (!(pm->flags & (PM_ARRAY|PM_HASHED))) {
 	    if (pm->flags & PM_EXPORTED) {
 		if (!(pm->flags & PM_UNSET) && !pm->env && !value)
-		    pm->env = addenv(pname, getsparam(pname), pm->flags);
-	    } else if (pm->env && !(pm->flags & PM_HASHELEM)) {
-		delenv(pm->env);
-		pm->env = NULL;
-	    }
+		    addenv(pm, getsparam(pname));
+	    } else if (pm->env && !(pm->flags & PM_HASHELEM))
+		delenv(pm);
 	    if (value && !(pm = setsparam(pname, ztrdup(value))))
 		return NULL;
 	} else if (value) {
@@ -1891,7 +1932,7 @@ typeset_single(char *cname, char *pname, Param pm, int func,
 	 * Maybe it would be easier to create a new struct but copy
 	 * the get/set methods.
 	 */
-	tpm = (Param) zalloc(sizeof *tpm);
+	tpm = (Param) zshcalloc(sizeof *tpm);
 
 	tpm->nam = pm->nam;
 	if (pm->ename &&
@@ -1915,10 +1956,9 @@ typeset_single(char *cname, char *pname, Param pm, int func,
 	tpm->old = pm->old;
 	tpm->level = pm->level;
 	tpm->ct = pm->ct;
-	if (pm->env) {
-	    delenv(pm->env);
-	}
-	tpm->env = pm->env = NULL;
+	if (pm->env)
+	    delenv(pm);
+	tpm->env = NULL;
 
 	pm->old = tpm;
 	/*
@@ -2396,9 +2436,18 @@ bin_functions(char *name, char **argv, Options ops, int func)
 	on |= PM_TAGGED;
     else if (OPT_PLUS(ops,'t'))
 	off |= PM_TAGGED;
+    if (OPT_MINUS(ops,'z')) {
+	on |= PM_ZSHSTORED;
+	off |= PM_KSHSTORED;
+    } else if (OPT_PLUS(ops,'z'))
+	off |= PM_ZSHSTORED;
+    if (OPT_MINUS(ops,'k')) {
+	on |= PM_KSHSTORED;
+	off |= PM_ZSHSTORED;
+    } else if (OPT_PLUS(ops,'k'))
+	off |= PM_KSHSTORED;
 
     if ((off & PM_UNDEFINED) || (OPT_ISSET(ops,'k') && OPT_ISSET(ops,'z')) ||
-	(!OPT_PLUS(ops,'X') && (OPT_ISSET(ops,'k') || OPT_ISSET(ops,'z'))) ||
 	(OPT_MINUS(ops,'X') && (OPT_ISSET(ops,'m') || *argv || !scriptname))) {
 	zwarnnam(name, "invalid option(s)", NULL, 0);
 	return 1;
@@ -2489,13 +2538,29 @@ bin_functions(char *name, char **argv, Options ops, int func)
 		/* no flags, so just print */
 		shfunctab->printnode((HashNode) shf, pflags);
 	} else if (on & PM_UNDEFINED) {
+	    int signum, ok = 1;
+
 	    /* Add a new undefined (autoloaded) function to the *
 	     * hash table with the corresponding flags set.     */
 	    shf = (Shfunc) zshcalloc(sizeof *shf);
 	    shf->flags = on;
 	    shf->funcdef = mkautofn(shf);
 	    shfunctab->addnode(shfunctab, ztrdup(*argv), shf);
-	    if (OPT_ISSET(ops,'X') && eval_autoload(shf, shf->nam, ops, func))
+
+	    if (!strncmp(*argv, "TRAP", 4) &&
+		(signum = getsignum(*argv + 4)) != -1) {
+		if (settrap(signum, shf->funcdef)) {
+		    shfunctab->removenode(shfunctab, *argv);
+		    shfunctab->freenode((HashNode)shf);
+		    returnval = 1;
+		    ok = 0;
+		}
+		else
+		    sigtrapped[signum] |= ZSIG_FUNC;
+	    }
+
+	    if (ok && OPT_ISSET(ops,'X') &&
+		eval_autoload(shf, shf->nam, ops, func))
 		returnval = 1;
 	} else
 	    returnval = 1;
@@ -2842,7 +2907,7 @@ bin_whence(char *nam, char **argv, Options ops, int func)
 
 /**/
 int
-bin_hash(char *name, char **argv, Options ops, int func)
+bin_hash(char *name, char **argv, Options ops, UNUSED(int func))
 {
     HashTable ht;
     Patprog pprog;
@@ -2945,7 +3010,7 @@ bin_hash(char *name, char **argv, Options ops, int func)
 
 /**/
 int
-bin_unhash(char *name, char **argv, Options ops, int func)
+bin_unhash(char *name, char **argv, Options ops, UNUSED(int func))
 {
     HashTable ht;
     HashNode hn, nhn;
@@ -3017,7 +3082,7 @@ bin_unhash(char *name, char **argv, Options ops, int func)
 
 /**/
 int
-bin_alias(char *name, char **argv, Options ops, int func)
+bin_alias(char *name, char **argv, Options ops, UNUSED(int func))
 {
     Alias a;
     Patprog pprog;
@@ -3117,7 +3182,7 @@ bin_alias(char *name, char **argv, Options ops, int func)
 
 /**/
 int
-bin_true(char *name, char **argv, Options ops, int func)
+bin_true(UNUSED(char *name), UNUSED(char **argv), UNUSED(Options ops), UNUSED(int func))
 {
     return 0;
 }
@@ -3126,7 +3191,7 @@ bin_true(char *name, char **argv, Options ops, int func)
 
 /**/
 int
-bin_false(char *name, char **argv, Options ops, int func)
+bin_false(UNUSED(char *name), UNUSED(char **argv), UNUSED(Options ops), UNUSED(int func))
 {
     return 1;
 }
@@ -3757,7 +3822,7 @@ bin_print(char *name, char **args, Options ops, int func)
 
 /**/
 int
-bin_shift(char *name, char **argv, Options ops, int func)
+bin_shift(char *name, char **argv, UNUSED(Options ops), UNUSED(int func))
 {
     int num = 1, l, ret = 0;
     char **s;
@@ -3808,7 +3873,7 @@ int optcind;
 
 /**/
 int
-bin_getopts(char *name, char **argv, Options ops, int func)
+bin_getopts(UNUSED(char *name), char **argv, UNUSED(Options ops), UNUSED(int func))
 {
     int lenstr, lenoptstr, quiet, lenoptbuf;
     char *optstr = unmetafy(*argv++, &lenoptstr), *var = *argv++;
@@ -3915,7 +3980,7 @@ exit_pending;
 
 /**/
 int
-bin_break(char *name, char **argv, Options ops, int func)
+bin_break(char *name, char **argv, UNUSED(Options ops), int func)
 {
     int num = lastval, nump = 0;
 
@@ -4038,8 +4103,10 @@ zexit(int val, int from_where)
 	killrunjobs(from_where == 1);
     }
     if (isset(RCS) && interact) {
-	if (!nohistsave)
+	if (!nohistsave) {
+	    saveandpophiststack(1);
 	    savehistfile(NULL, 1, HFILE_USE_OPTIONS);
+	}
 	if (islogin && !subsh) {
 	    sourcehome(".zlogout");
 #ifdef GLOBAL_ZLOGOUT
@@ -4064,7 +4131,7 @@ zexit(int val, int from_where)
 
 /**/
 int
-bin_dot(char *name, char **argv, Options ops, int func)
+bin_dot(char *name, char **argv, UNUSED(Options ops), UNUSED(int func))
 {
     char **old, *old0 = NULL;
     int ret, diddot = 0, dotdot = 0;
@@ -4142,7 +4209,7 @@ bin_dot(char *name, char **argv, Options ops, int func)
 
 /**/
 int
-bin_emulate(char *nam, char **argv, Options ops, int func)
+bin_emulate(UNUSED(char *nam), char **argv, Options ops, UNUSED(int func))
 {
     emulate(*argv, OPT_ISSET(ops,'R'));
     if (OPT_ISSET(ops,'L'))
@@ -4154,7 +4221,7 @@ bin_emulate(char *nam, char **argv, Options ops, int func)
 
 /**/
 int
-bin_eval(char *nam, char **argv, Options ops, int func)
+bin_eval(UNUSED(char *nam), char **argv, UNUSED(Options ops), UNUSED(int func))
 {
     Eprog prog;
     char *oscriptname = scriptname;
@@ -4192,7 +4259,7 @@ file/buffer. */
 
 /**/
 int
-bin_read(char *name, char **args, Options ops, int func)
+bin_read(char *name, char **args, Options ops, UNUSED(int func))
 {
     char *reply, *readpmpt;
     int bsiz, c = 0, gotnl = 0, al = 0, first, nchars = 1, bslash, keys = 0;
@@ -4717,7 +4784,7 @@ testlex(void)
 
 /**/
 int
-bin_test(char *name, char **argv, Options ops, int func)
+bin_test(char *name, char **argv, UNUSED(Options ops), int func)
 {
     char **s;
     Eprog prog;
@@ -4772,7 +4839,7 @@ bin_test(char *name, char **argv, Options ops, int func)
 
 /**/
 int
-bin_times(char *name, char **argv, Options ops, int func)
+bin_times(UNUSED(char *name), UNUSED(char **argv), UNUSED(Options ops), UNUSED(int func))
 {
     struct tms buf;
 
@@ -4794,7 +4861,7 @@ bin_times(char *name, char **argv, Options ops, int func)
 
 /**/
 int
-bin_trap(char *name, char **argv, Options ops, int func)
+bin_trap(char *name, char **argv, UNUSED(Options ops), UNUSED(int func))
 {
     Eprog prog;
     char *arg, *s;
@@ -4870,7 +4937,7 @@ bin_trap(char *name, char **argv, Options ops, int func)
 
 /**/
 int
-bin_ttyctl(char *name, char **argv, Options ops, int func)
+bin_ttyctl(UNUSED(char *name), UNUSED(char **argv), Options ops, UNUSED(int func))
 {
     if (OPT_ISSET(ops,'f'))
 	ttyfrozen = 1;
@@ -4885,7 +4952,7 @@ bin_ttyctl(char *name, char **argv, Options ops, int func)
 
 /**/
 int
-bin_let(char *name, char **argv, Options ops, int func)
+bin_let(UNUSED(char *name), char **argv, UNUSED(Options ops), UNUSED(int func))
 {
     mnumber val = zero_mnumber;
 
@@ -4904,7 +4971,7 @@ bin_let(char *name, char **argv, Options ops, int func)
 
 /**/
 int
-bin_umask(char *nam, char **args, Options ops, int func)
+bin_umask(char *nam, char **args, Options ops, UNUSED(int func))
 {
     mode_t um;
     char *s = *args;
@@ -5015,7 +5082,7 @@ bin_umask(char *nam, char **args, Options ops, int func)
 
 /**/
 mod_export int
-bin_notavail(char *nam, char **argv, Options ops, int func)
+bin_notavail(char *nam, UNUSED(char **argv), UNUSED(Options ops), UNUSED(int func))
 {
     zwarnnam(nam, "not available on this system", NULL, 0);
     return 1;

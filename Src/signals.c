@@ -55,6 +55,13 @@ mod_export int signal_queue[MAX_QUEUE_SIZE];
 /**/
 mod_export sigset_t signal_mask_queue[MAX_QUEUE_SIZE];
 
+/* Variables used by trap queueing */
+
+/**/
+mod_export int trap_queueing_enabled, trap_queue_front, trap_queue_rear;
+/**/
+mod_export int trap_queue[MAX_QUEUE_SIZE];
+
 /* This is only used on machines that don't understand signal sets.  *
  * On SYSV machines this will represent the signals that are blocked *
  * (held) using sighold.  On machines which can't block signals at   *
@@ -343,11 +350,15 @@ signal_suspend(int sig, int sig2)
     sigset_t oset;
 #endif /* BROKEN_POSIX_SIGSUSPEND */
 
-    sigfillset(&set);
-    sigdelset(&set, sig);
-    sigdelset(&set, SIGHUP);  /* still don't know why we add this? */
-    if (sig2)
-        sigdelset(&set, sig2);
+    if (isset(TRAPSASYNC)) {
+	sigemptyset(&set);
+    } else {
+	sigfillset(&set);
+	sigdelset(&set, sig);
+	sigdelset(&set, SIGHUP);  /* still don't know why we add this? */
+	if (sig2)
+	    sigdelset(&set, sig2);
+    }
 #ifdef BROKEN_POSIX_SIGSUSPEND
     sigprocmask(SIG_SETMASK, &set, &oset);
     pause();
@@ -359,11 +370,15 @@ signal_suspend(int sig, int sig2)
 # ifdef BSD_SIGNALS
     sigset_t set;
 
-    sigfillset(&set);
-    sigdelset(&set, sig);
-    if (sig2)
-      sigdelset(&set, sig2);
-    ret = sigpause(set);
+    if (isset(TRAPSASYNC)) {
+	sigemptyset(&set);
+    } else {
+	sigfillset(&set);
+	sigdelset(&set, sig);
+	if (sig2)
+	    sigdelset(&set, sig2);
+	ret = sigpause(set);
+    }
 # else
 #  ifdef SYSV_SIGNALS
     ret = sigpause(sig);
@@ -419,13 +434,14 @@ zhandler(int sig)
     do_jump = suspend_longjmp;              /* do we need to longjmp to signal_suspend */
     suspend_longjmp = 0;                    /* In case a SIGCHLD somehow arrives       */
 
-    if (sig == SIGCHLD) {                   /* Traps can cause nested child_suspend()  */
+    if (sig == SIGCHLD) {                   /* Traps can cause nested signal_suspend()  */
         if (do_jump)
             jump_to = suspend_jmp_buf;      /* Copy suspend_jmp_buf                    */
     }
 #endif
 
-    if (queueing_enabled) {           /* Are we queueing signals now?      */
+    /* Are we queueing signals now?      */
+    if (queueing_enabled) {
         int temp_rear = ++queue_rear % MAX_QUEUE_SIZE;
 
 	DPUTS(temp_rear == queue_front, "BUG: signal queue full");
@@ -923,6 +939,15 @@ endtrapscope(void)
  * with non-standard sigtrapped & sigfuncs values
  */
 
+/* Are we already executing a trap? */
+/**/
+int intrap;
+
+/* Is the current trap a function? */
+
+/**/
+int trapisfunc;
+
 /**/
 void
 dotrapargs(int sig, int *sigtr, void *sigfn)
@@ -932,7 +957,7 @@ dotrapargs(int sig, int *sigtr, void *sigfn)
     int trapret = 0;
     int obreaks = breaks;
     int isfunc;
- 
+
     /* if signal is being ignored or the trap function		      *
      * is NULL, then return					      *
      *								      *
@@ -946,6 +971,24 @@ dotrapargs(int sig, int *sigtr, void *sigfn)
     if ((*sigtr & ZSIG_IGNORED) || !sigfn || errflag)
         return;
 
+    /*
+     * Never execute special (synchronous) traps inside other traps.
+     * This can cause unexpected code execution when more than one
+     * of these is set.
+     *
+     * The down side is that it's harder to debug traps.  I don't think
+     * that's a big issue.
+     */
+    if (intrap) {
+	switch (sig) {
+	case SIGEXIT:
+	case SIGDEBUG:
+	case SIGZERR:
+	    return;
+	}
+    }
+
+    intrap++;
     *sigtr |= ZSIG_IGNORED;
 
     lexsave();
@@ -963,19 +1006,19 @@ dotrapargs(int sig, int *sigtr, void *sigfn)
 	zaddlinknode(args, num);
 
 	trapreturn = -1;	/* incremented by doshfunc */
+	trapisfunc = isfunc = 1;
+
 	sfcontext = SFC_SIGNAL;
 	doshfunc(name, sigfn, args, 0, 1);
 	sfcontext = osc;
 	freelinklist(args, (FreeFunc) NULL);
 	zsfree(name);
 
-	isfunc = 1;
     } else {
 	trapreturn = -2;	/* not incremented, used at current level */
+	trapisfunc = isfunc = 0;
 
 	execode(sigfn, 1, 0);
-
-	isfunc = 0;
     }
     runhookdef(AFTERTRAPHOOK, NULL);
 
@@ -1023,6 +1066,7 @@ dotrapargs(int sig, int *sigtr, void *sigfn)
 
     if (*sigtr != ZSIG_IGNORED)
 	*sigtr &= ~ZSIG_IGNORED;
+    intrap--;
 }
 
 /* Standard call to execute a trap for a given signal. */

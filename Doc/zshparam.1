@@ -1,4 +1,4 @@
-.TH "ZSHPARAM" "1" "March 19, 2004" "zsh 4\&.2\&.0"
+.TH "ZSHPARAM" "1" "August 13, 2004" "zsh 4\&.2\&.1"
 .SH "NAME"
 zshparam \- zsh parameters
 .\" Yodl file: Zsh/params.yo
@@ -231,14 +231,14 @@ word (if the parameter is an array, if it is a scalar, or if it is a
 scalar and the `\fBw\fP' flag is given, respectively)\&.  The subscript used
 is the number of the matching element, so that pairs of subscripts such as
 `\fB$foo[(r)\fP\fI??\fP\fB,3]\fP' and `\fB$foo[(r)\fP\fI??\fP\fB,(r)f*]\fP' are
-possible\&.  If the parameter is an associative array, only the value part
-of each pair is compared to the pattern, and the result is that value\&.
-Reverse subscripts may be used for assigning to ordinary array elements,
-but not for assigning to associative arrays\&.
+possible if the parameter is not an associative array\&.  If the
+parameter is an associative array, only the value part of each pair is
+compared to the pattern, and the result is that value\&.
 .TP
 \fBR\fP
 Like `\fBr\fP', but gives the last match\&.  For associative arrays, gives
-all possible matches\&.
+all possible matches\&. May be used for assigning to ordinary array
+elements, but not for assigning to associative arrays\&.
 .TP
 \fBi\fP
 Like `\fBr\fP', but gives the index of the match instead; this may not be
@@ -624,6 +624,12 @@ Incremented by one each time a new shell is started\&.
 .TP
 \fBsignals\fP
 An array containing the names of the signals\&.
+.TP
+\fBTRY_BLOCK_ERROR\fP <S>
+In an \fBalways\fP block, indicates whether the preceding list of code
+caused an error\&.  The value is 1 to indicate an error, 0 otherwise\&.
+It may be reset, clearing the error condition\&.  See
+\fIComplex Commands\fP in \fIzshmisc\fP(1)
 .TP
 \fBTTY\fP
 The name of the tty associated with the shell, if any\&.

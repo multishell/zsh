@@ -1,4 +1,4 @@
-.TH "ZSHZLE" "1" "March 19, 2004" "zsh 4\&.2\&.0"
+.TH "ZSHZLE" "1" "August 13, 2004" "zsh 4\&.2\&.1"
 .SH "NAME"
 zshzle \- zsh command line editor
 .\" Yodl file: Zsh/zle.yo
@@ -302,7 +302,11 @@ are entirely distinct, although they are initialized to the same bindings
 by `\fBbindkey \-m\fP'\&.
 .RE
 .TP
-\fBvared\fP [ \fB\-Aache\fP ] [ \fB\-p\fP \fIprompt\fP ] [ \fB\-r\fP \fIrprompt\fP ] \fIname\fP
+.PD 0
+\fBvared\fP [ \fB\-Aache\fP ] [ \fB\-p\fP \fIprompt\fP ] [ \fB\-r\fP \fIrprompt\fP ]
+.TP
+.PD
+  [ \-M \fImain\-keymap\fP ] [ \-m \fIvicmd\-keymap\fP ] \fIname\fP
 The value of the parameter \fIname\fP is loaded into the edit
 buffer, and the line editor is invoked\&.  When the editor exits,
 \fIname\fP is set to the string value returned by the editor\&.
@@ -327,9 +331,16 @@ created automatically, even without \fB\-c\fP\&.
 If the \fB\-p\fP flag is given, the following string will be taken as
 the prompt to display at the left\&.  If the \fB\-r\fP flag is given,
 the following string gives the prompt to display at the right\&.  If the
-\fB\-h\fP flag is specified, the history can be accessed from ZLE\&. If the 
+\fB\-h\fP flag is specified, the history can be accessed from ZLE\&. If the
 \fB\-e\fP flag is given, typing \fB^D\fP (Control\-D) on an empty line
 causes \fBvared\fP to exit immediately with a non\-zero return value\&.
+.PP
+The \fB\-M\fP option gives a keymap to link to the \fBmain\fP keymap during
+editing, and the \fB\-m\fP option gives a keymap to link to the \fBvicmd\fP
+keymap during editing\&.  For vi\-style editing, this allows a pair of keymaps
+to override \fBviins\fP and \fBvicmd\fP\&.  For emacs\-style editing, only \fB\-M\fP
+is normally needed but the \fB\-m\fP option may still be used\&.  On exit, the
+previous keymaps will be restored\&.
 .RE
 .TP
 .PD 0
@@ -687,7 +698,10 @@ The last item to be cut using one of the `\fBkill\-\fP' commands; the
 string which the next yank would insert in the line\&.
 .TP
 \fBHISTNO\fP (integer)
-The current history number; read\-only\&.
+The current history number\&.  Setting this has the same effect as
+moving up or down in the history to the corresponding history line\&.
+An attempt to set it is ignored if the line is not stored in the
+history\&.
 .TP
 \fBKEYMAP\fP (scalar)
 The name of the currently selected keymap; read\-only\&.
@@ -1223,7 +1237,7 @@ Copy the area from the cursor to the mark to the kill buffer\&.
 \fBcopy\-prev\-word\fP (ESC\-^_) (unbound) (unbound)
 Duplicate the word to the left of the cursor\&.
 .TP
-\fBcopy\-prev\-shell\-word\fP (ESC\-^_) (unbound) (unbound)
+\fBcopy\-prev\-shell\-word\fP
 Like \fBcopy\-prev\-word\fP, but the word is found by using shell parsing, 
 whereas \fBcopy\-prev\-word\fP looks for blanks\&. This makes a difference
 when the word is quoted and contains spaces\&.
@@ -1652,6 +1666,21 @@ using the \fBsend\-break\fP widget\&.
 .TP
 \fBredisplay\fP (unbound) (^R) (^R)
 Redisplays the edit buffer\&.
+.TP
+\fBreset\-prompt\fP (unbound) (unbound) (unbound)
+Force the prompts on both the left and right of the screen to be
+re\-expanded, then redisplay the edit buffer\&.  This
+reflects changes both to the prompt variables themselves and changes
+in the expansion of the values (for example, changes in time or
+directory, or changes to the value of variables referred to by the
+prompt)\&.
+.RS
+.PP
+Otherwise, the prompt is only expanded each time zle starts, and
+when the display as been interrupted by output from another part of the
+shell (such as a job notification) which causes the command line to be
+reprinted\&.
+.RE
 .TP
 \fBsend\-break\fP (^G ESC\-^G) (unbound) (unbound)
 Abort the current editor function, e\&.g\&. \fBexecute\-named\-command\fP, or the

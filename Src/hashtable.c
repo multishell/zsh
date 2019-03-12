@@ -92,7 +92,7 @@ hasher(char *str)
 
 /**/
 mod_export HashTable
-newhashtable(int size, char const *name, PrintTableStats printinfo)
+newhashtable(int size, UNUSED(char const *name), UNUSED(PrintTableStats printinfo))
 {
     HashTable ht;
 
@@ -315,7 +315,7 @@ removehashnode(HashTable ht, char *nam)
 
 /**/
 void
-disablehashnode(HashNode hn, int flags)
+disablehashnode(HashNode hn, UNUSED(int flags))
 {
     hn->flags |= DISABLED;
 }
@@ -324,7 +324,7 @@ disablehashnode(HashNode hn, int flags)
 
 /**/
 void
-enablehashnode(HashNode hn, int flags)
+enablehashnode(HashNode hn, UNUSED(int flags))
 {
     hn->flags &= ~DISABLED;
 }
@@ -670,7 +670,7 @@ hashdir(char **dirp)
 
 /**/
 static void
-fillcmdnamtable(HashTable ht)
+fillcmdnamtable(UNUSED(HashTable ht))
 {
     char **pq;
  
@@ -794,7 +794,7 @@ createshfunctable(void)
 
 /**/
 static HashNode
-removeshfuncnode(HashTable ht, char *nam)
+removeshfuncnode(UNUSED(HashTable ht), char *nam)
 {
     HashNode hn;
     int signum;
@@ -813,7 +813,7 @@ removeshfuncnode(HashTable ht, char *nam)
 
 /**/
 static void
-disableshfuncnode(HashNode hn, int flags)
+disableshfuncnode(HashNode hn, UNUSED(int flags))
 {
     hn->flags |= DISABLED;
     if (!strncmp(hn->nam, "TRAP", 4)) {
@@ -830,7 +830,7 @@ disableshfuncnode(HashNode hn, int flags)
 
 /**/
 static void
-enableshfuncnode(HashNode hn, int flags)
+enableshfuncnode(HashNode hn, UNUSED(int flags))
 {
     Shfunc shf = (Shfunc) hn;
 
@@ -863,7 +863,7 @@ static void
 printshfuncnode(HashNode hn, int printflags)
 {
     Shfunc f = (Shfunc) hn;
-    char *t;
+    char *t = 0;
  
     if ((printflags & PRINT_NAMEONLY) ||
 	((printflags & PRINT_WHENCE_SIMPLE) &&
@@ -881,32 +881,35 @@ printshfuncnode(HashNode hn, int printflags)
 	return;
     }
  
-    if (f->flags & PM_UNDEFINED)
-	t = tricat("builtin autoload -X",
-		   ((f->flags & PM_UNALIASED)? "U" : ""),
-		   ((f->flags & PM_TAGGED)? "t" : ""));
-    else {
-	if (!f->funcdef)
-	    t = 0;
-	else
-	    t = getpermtext(f->funcdef, NULL);
-    }
-
     quotedzputs(f->nam, stdout);
-    if (t) {
+    if (f->funcdef || f->flags & PM_UNDEFINED) {
 	printf(" () {\n\t");
 	if (f->flags & PM_UNDEFINED)
 	    printf("%c undefined\n\t", hashchar);
+	else
+	    t = getpermtext(f->funcdef, NULL);
 	if (f->flags & PM_TAGGED)
 	    printf("%c traced\n\t", hashchar);
-	zputs(t, stdout);
-	if (f->funcdef && (f->funcdef->flags & EF_RUN)) {
-	    printf("\n\t");
-	    quotedzputs(f->nam, stdout);
-	    printf(" \"$@\"");
-	}
+	if (!t) {
+	    char *fopt = "Utkz";
+	    int flgs[] = {
+		PM_UNALIASED, PM_TAGGED, PM_KSHSTORED, PM_ZSHSTORED, 0
+	    };
+	    int fl;;
+
+	    zputs("builtin autoload -X", stdout);
+	    for (fl=0;fopt[fl];fl++)
+		if (f->flags & flgs[fl]) putchar(fopt[fl]);
+	} else {
+	    zputs(t, stdout);
+	    zsfree(t);
+	    if (f->funcdef->flags & EF_RUN) {
+		printf("\n\t");
+		quotedzputs(f->nam, stdout);
+		printf(" \"$@\"");
+	    }
+	}   
 	printf("\n}\n");
-	zsfree(t);
     } else {
 	printf(" () { }\n");
     }
@@ -943,7 +946,7 @@ static struct reswd reswds[] = {
     {NULL, "time", 0, TIME},
     {NULL, "until", 0, UNTIL},
     {NULL, "while", 0, WHILE},
-    {NULL, NULL}
+    {NULL, NULL, 0, 0}
 };
 
 /* hash table containing the reserved words */
@@ -1271,7 +1274,7 @@ add_userdir(int status, char *key, int keylen, char *val, int vallen, char *dumm
 
 /**/
 static void
-fillnameddirtable(HashTable ht)
+fillnameddirtable(UNUSED(HashTable ht))
 {
     if (!allusersadded) {
 #if defined(HAVE_NIS) || defined(HAVE_NIS_PLUS)

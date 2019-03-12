@@ -150,6 +150,8 @@ int kungetct;
 /**/
 mod_export char *zlenoargs[1] = { NULL };
 
+static char **raw_lp, **raw_rp;
+
 #ifdef FIONREAD
 static int delayzsetterm;
 #endif
@@ -678,8 +680,6 @@ zlecore(void)
     FD_ZERO(&foofd);
 #endif
 
-    zrefresh();
-
     while (!done && !errflag) {
 
 	statusline = NULL;
@@ -740,7 +740,7 @@ zlecore(void)
 
 /**/
 unsigned char *
-zleread(char *lp, char *rp, int flags, int context)
+zleread(char **lp, char **rp, int flags, int context)
 {
     unsigned char *s;
     int old_errno = errno;
@@ -759,7 +759,8 @@ zleread(char *lp, char *rp, int flags, int context)
 	char *pptbuf;
 	int pptlen;
 
-	pptbuf = unmetafy(promptexpand(lp, 0, NULL, NULL), &pptlen);
+	pptbuf = unmetafy(promptexpand(lp ? *lp : NULL, 0, NULL, NULL),
+			  &pptlen);
 	write(2, (WRITE_ARG_2_T)pptbuf, pptlen);
 	free(pptbuf);
 	return (unsigned char *)shingetline();
@@ -785,9 +786,11 @@ zleread(char *lp, char *rp, int flags, int context)
     insmode = unset(OVERSTRIKE);
     eofsent = 0;
     resetneeded = 0;
-    lpromptbuf = promptexpand(lp, 1, NULL, NULL);
+    raw_lp = lp;
+    lpromptbuf = promptexpand(lp ? *lp : NULL, 1, NULL, NULL);
     pmpt_attr = txtchange;
-    rpromptbuf = promptexpand(rp, 1, NULL, NULL);
+    raw_rp = rp;
+    rpromptbuf = promptexpand(rp ? *rp : NULL, 1, NULL, NULL);
     rpmpt_attr = txtchange;
     free_prepostdisplay();
 
@@ -829,12 +832,15 @@ zleread(char *lp, char *rp, int flags, int context)
     initmodifier(&zmod);
     prefixflag = 0;
 
+    zrefresh();
+
     if ((initthingy = rthingy_nocreate("zle-line-init"))) {
 	char *args[2];
 	args[0] = initthingy->nam;
 	args[1] = NULL;
 	execzlefunc(initthingy, args);
 	unrefthingy(initthingy);
+	errflag = retflag = 0;
     }
 
     zlecore();
@@ -986,6 +992,45 @@ handleprefixes(void)
 	initmodifier(&zmod);
 }
 
+/**/
+static int
+savekeymap(char *cmdname, char *oldname, char *newname, Keymap *savemapptr)
+{
+    Keymap km = openkeymap(newname);
+
+    if (km) {
+	*savemapptr = openkeymap(oldname);
+	/* I love special cases */
+	if (*savemapptr == km)
+	    *savemapptr = NULL;
+	else {
+	    /* make sure this doesn't get deleted. */
+	    if (*savemapptr)
+		refkeymap(*savemapptr);
+	    linkkeymap(km, oldname, 0);
+	}
+	return 0;
+    } else {
+	zwarnnam(cmdname, "no such keymap: %s", newname, 0);
+	return 1;
+    }
+}
+
+/**/
+static void
+restorekeymap(char *cmdname, char *oldname, char *newname, Keymap savemap)
+{
+    if (savemap) {
+	linkkeymap(savemap, oldname, 0);
+	/* we incremented the reference count above */
+	unrefkeymap(savemap);
+    } else if (newname) {
+	/* urr... can this happen? */
+	zwarnnam(cmdname,
+		 "keymap %s was not defined, not restored", oldname, 0);
+    }
+}
+
 /* this exports the argument we are currently vared'iting if != NULL */
 
 /**/
@@ -995,15 +1040,16 @@ mod_export char *varedarg;
 
 /**/
 static int
-bin_vared(char *name, char **args, Options ops, int func)
+bin_vared(char *name, char **args, Options ops, UNUSED(int func))
 {
     char *s, *t, *ova = varedarg;
     struct value vbuf;
     Value v;
     Param pm = 0;
-    int create = 0, ifl;
+    int ifl;
     int type = PM_SCALAR, obreaks = breaks, haso = 0;
-    char *p1 = NULL, *p2 = NULL;
+    char *p1, *p2, *main_keymapname, *vicmd_keymapname;
+    Keymap main_keymapsave = NULL, vicmd_keymapsave = NULL;
     FILE *oshout = NULL;
 
     if ((interact && unset(USEZLE)) || !strcmp(term, "emacs")) {
@@ -1015,75 +1061,32 @@ bin_vared(char *name, char **args, Options ops, int func)
 	return 1;
     }
 
-    /* all options are handled as arguments */
-    while (*args && **args == '-') {
-	while (*++(*args))
-	    switch (**args) {
-	    case 'c':
-		/* -c option -- allow creation of the parameter if it doesn't
-		yet exist */
-		create = 1;
-		break;
-	    case 'a':
-		type = PM_ARRAY;
-		break;
-	    case 'A':
-		type = PM_HASHED;
-		break;
-	    case 'p':
-		/* -p option -- set main prompt string */
-		if ((*args)[1])
-		    p1 = *args + 1, *args = "" - 1;
-		else if (args[1])
-		    p1 = *(++args), *args = "" - 1;
-		else {
-		    zwarnnam(name, "prompt string expected after -%c", NULL,
-			     **args);
-		    return 1;
-		}
-		break;
-	    case 'r':
-		/* -r option -- set right prompt string */
-		if ((*args)[1])
-		    p2 = *args + 1, *args = "" - 1;
-		else if (args[1])
-		    p2 = *(++args), *args = "" - 1;
-		else {
-		    zwarnnam(name, "prompt string expected after -%c", NULL,
-			     **args);
-		    return 1;
-		}
-		break;
-	    case 'h':
-		/* -h option -- enable history */
-		ops->ind['h'] = 1;
-		break;
-	    case 'e':
-		/* -e option -- enable EOF */
-		ops->ind['e'] = 1;
-		break;
-	    default:
-		/* unrecognised option character */
-		zwarnnam(name, "unknown option: %s", *args, 0);
-		return 1;
-	    }
-	args++;
+    if (OPT_ISSET(ops,'A'))
+    {
+	if (OPT_ISSET(ops, 'a'))
+	{
+	    zwarnnam(name, "specify only one of -a and -A", NULL, 0);
+	    return 1;
+	}
+	type = PM_HASHED;
     }
-    if (type && !create) {
+    else if (OPT_ISSET(ops,'a'))
+	type = PM_ARRAY;
+    p1 = OPT_ARG_SAFE(ops,'p');
+    p2 = OPT_ARG_SAFE(ops,'r');
+    main_keymapname = OPT_ARG_SAFE(ops,'M');
+    vicmd_keymapname = OPT_ARG_SAFE(ops,'m');
+
+    if (type != PM_SCALAR && !OPT_ISSET(ops,'c')) {
 	zwarnnam(name, "-%s ignored", type == PM_ARRAY ? "a" : "A", 0);
     }
 
-    /* check we have a parameter name */
-    if (!*args) {
-	zwarnnam(name, "missing variable", NULL, 0);
-	return 1;
-    }
     /* handle non-existent parameter */
     s = args[0];
     queue_signals();
-    v = fetchvalue(&vbuf, &s, (!create || type == PM_SCALAR),
+    v = fetchvalue(&vbuf, &s, (!OPT_ISSET(ops,'c') || type == PM_SCALAR),
 		   SCANPM_WANTKEYS|SCANPM_WANTVALS|SCANPM_MATCHMANY);
-    if (!v && !create) {
+    if (!v && !OPT_ISSET(ops,'c')) {
 	unqueue_signals();
 	zwarnnam(name, "no such variable: %s", args[0], 0);
 	return 1;
@@ -1155,17 +1158,28 @@ bin_vared(char *name, char **args, Options ops, int func)
     /* edit the parameter value */
     zpushnode(bufstack, s);
 
+    if (main_keymapname &&
+	savekeymap(name, "main", main_keymapname, &main_keymapsave))
+	main_keymapname = NULL;
+    if (vicmd_keymapname &&
+	savekeymap(name, "vicmd", vicmd_keymapname, &vicmd_keymapsave))
+	vicmd_keymapname = NULL;
+
     varedarg = *args;
     ifl = isfirstln;
     if (OPT_ISSET(ops,'h'))
 	hbegin(2);
     isfirstln = OPT_ISSET(ops,'e');
-    t = (char *) zleread(p1, p2, OPT_ISSET(ops,'h') ? ZLRF_HISTORY : 0,
+    t = (char *) zleread(&p1, &p2, OPT_ISSET(ops,'h') ? ZLRF_HISTORY : 0,
 			 ZLCON_VARED);
     if (OPT_ISSET(ops,'h'))
 	hend(NULL);
     isfirstln = ifl;
     varedarg = ova;
+
+    restorekeymap(name, "main", main_keymapname, main_keymapsave);
+    restorekeymap(name, "vicmd", vicmd_keymapname, vicmd_keymapsave);
+
     if (haso) {
 	fclose(shout);	/* close(SHTTY) */
 	shout = oshout;
@@ -1181,7 +1195,7 @@ bin_vared(char *name, char **args, Options ops, int func)
     if (t[strlen(t) - 1] == '\n')
 	t[strlen(t) - 1] = '\0';
     /* final assignment of parameter value */
-    if (create) {
+    if (OPT_ISSET(ops,'c')) {
 	unsetparam(args[0]);
 	createparam(args[0], type);
     }
@@ -1208,7 +1222,7 @@ bin_vared(char *name, char **args, Options ops, int func)
 
 /**/
 int
-describekeybriefly(char **args)
+describekeybriefly(UNUSED(char **args))
 {
     char *seq, *str, *msg, *is;
     Thingy func;
@@ -1246,7 +1260,7 @@ struct findfunc {
 
 /**/
 static void
-scanfindfunc(char *seq, Thingy func, char *str, void *magic)
+scanfindfunc(char *seq, Thingy func, UNUSED(char *str), void *magic)
 {
     struct findfunc *ff = magic;
 
@@ -1265,7 +1279,7 @@ scanfindfunc(char *seq, Thingy func, char *str, void *magic)
 
 /**/
 int
-whereis(char **args)
+whereis(UNUSED(char **args))
 {
     struct findfunc ff;
 
@@ -1285,16 +1299,35 @@ whereis(char **args)
 
 /**/
 int
-recursiveedit(char **args)
+recursiveedit(UNUSED(char **args))
 {
     int locerror;
 
+    zrefresh();
     zlecore();
 
     locerror = errflag;
     errflag = done = 0;
 
     return locerror;
+}
+
+/**/
+void
+reexpandprompt(void)
+{
+    free(lpromptbuf);
+    lpromptbuf = promptexpand(raw_lp ? *raw_lp : NULL, 1, NULL, NULL);
+    free(rpromptbuf);
+    rpromptbuf = promptexpand(raw_rp ? *raw_rp : NULL, 1, NULL, NULL);
+}
+
+/**/
+int
+resetprompt(UNUSED(char **args))
+{
+    reexpandprompt();
+    return redisplay(NULL);
 }
 
 /**/
@@ -1332,7 +1365,7 @@ trashzle(void)
  * active. */
 
 static int
-zlebeforetrap(Hookdef dummy, void *dat)
+zlebeforetrap(UNUSED(Hookdef dummy), UNUSED(void *dat))
 {
     if (zleactive) {
 	startparamscope();
@@ -1342,7 +1375,7 @@ zlebeforetrap(Hookdef dummy, void *dat)
 }
 
 static int
-zleaftertrap(Hookdef dummy, void *dat)
+zleaftertrap(UNUSED(Hookdef dummy), UNUSED(void *dat))
 {
     if (zleactive)
 	endparamscope();
@@ -1352,7 +1385,7 @@ zleaftertrap(Hookdef dummy, void *dat)
 
 static struct builtin bintab[] = {
     BUILTIN("bindkey", 0, bin_bindkey, 0, -1, 0, "evaM:ldDANmrsLRp", NULL),
-    BUILTIN("vared",   0, bin_vared,   1,  7, 0, NULL,             NULL),
+    BUILTIN("vared",   0, bin_vared,   1,  1, 0, "aAcehM:m:p:r:", NULL),
     BUILTIN("zle",     0, bin_zle,     0, -1, 0, "aAcCDFgGIKlLmMNRU", NULL),
 };
 
@@ -1372,7 +1405,7 @@ mod_export struct hookdef zlehooks[] = {
 
 /**/
 int
-setup_(Module m)
+setup_(UNUSED(Module m))
 {
     /* Set up editor entry points */
     trashzleptr = trashzle;
@@ -1435,7 +1468,7 @@ cleanup_(Module m)
 
 /**/
 int
-finish_(Module m)
+finish_(UNUSED(Module m))
 {
     int i;
 
