@@ -1,4 +1,4 @@
-.TH "ZSHEXPN" "1" "February 2, 2005" "zsh 4\&.2\&.4"
+.TH "ZSHEXPN" "1" "April 6, 2005" "zsh 4\&.2\&.5"
 .SH "NAME"
 zshexpn \- zsh expansion and substitution
 .\" Yodl file: Zsh/expn.yo
@@ -984,16 +984,24 @@ quoted and the option \fBSH_WORD_SPLIT\fP is set, the word is split on
 occurrences of any of the characters in \fB$IFS\fP\&.  Note this step, too,
 takes place at all levels of a nested substitution\&.
 .TP
-\fB10\&.\fP \fIRe\-Evaluation\fP
+\fB10\&.\fP \fIUniqueness\fP
+If the result is an array and the `\fB(u)\fP' flag was present, duplicate
+elements are removed from the array\&.
+.TP
+\fB11\&.\fP \fIOrdering\fP
+If the result is still an array and one of the `\fB(o)\fP' or `\fB(O)\fP' flags
+was present, the array is reordered\&.
+.TP
+\fB12\&.\fP \fIRe\-Evaluation\fP
 Any `\fB(e)\fP' flag is applied to the value, forcing it to be re\-examined
 for new parameter substitutions, but also for command and arithmetic
 substitutions\&.
 .TP
-\fB11\&.\fP \fIPadding\fP
+\fB13\&.\fP \fIPadding\fP
 Any padding of the value by the `\fB(l\&.\fP\fIfill\fP\fB\&.)\fP' or
 `\fB(r\&.\fP\fIfill\fP\fB\&.)\fP' flags is applied\&.
 .TP
-\fB12\&.\fP \fISemantic Joining\fP
+\fB14\&.\fP \fISemantic Joining\fP
 In contexts where expansion semantics requires a single word to
 result, all words are rejoined with the first character of \fBIFS\fP
 between\&.  So in `\fB${(P\fP\fB)${(f\fP\fB)lines}}\fP'

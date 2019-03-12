@@ -282,9 +282,6 @@
 /* Define to 1 if you have the `dl' library (-ldl). */
 #undef HAVE_LIBDL
 
-/* Define to 1 if you have the `iconv' library (-liconv). */
-#undef HAVE_LIBICONV
-
 /* Define to 1 if you have the `m' library (-lm). */
 #undef HAVE_LIBM
 
@@ -757,6 +754,9 @@
 /* Define to 1 if you want to use dynamically loaded modules on HPUX 10. */
 #undef HPUXDYNAMIC
 
+/* Define as const if the declaration of iconv() needs const. */
+#undef ICONV_CONST
+
 /* Define to 1 if ino_t is 64 bit (for large file support). */
 #undef INO_T_IS_64_BIT
 
@@ -830,6 +830,9 @@
 
 /* Define as the return type of signal handlers (`int' or `void'). */
 #undef RETSIGTYPE
+
+/* Define to 1 if RLIMIT_RSS and RLIMIT_AS both exist and are equal. */
+#undef RLIMIT_RSS_IS_AS
 
 /* Define to 1 if RLIMIT_VMEM and RLIMIT_AS both exist and are equal. */
 #undef RLIMIT_VMEM_IS_AS

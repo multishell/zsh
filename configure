@@ -7511,7 +7511,105 @@ fi
 
 
 
-echo "$as_me:$LINENO: checking for iconv in -liconv" >&5
+if test "x$ac_cv_header_iconv_h" = "xyes"; then
+  echo "$as_me:$LINENO: checking for iconv" >&5
+echo $ECHO_N "checking for iconv... $ECHO_C" >&6
+if test "${ac_cv_func_iconv+set}" = set; then
+  echo $ECHO_N "(cached) $ECHO_C" >&6
+else
+  cat >conftest.$ac_ext <<_ACEOF
+/* confdefs.h.  */
+_ACEOF
+cat confdefs.h >>conftest.$ac_ext
+cat >>conftest.$ac_ext <<_ACEOF
+/* end confdefs.h.  */
+/* Define iconv to an innocuous variant, in case <limits.h> declares iconv.
+   For example, HP-UX 11i <limits.h> declares gettimeofday.  */
+#define iconv innocuous_iconv
+
+/* System header to define __stub macros and hopefully few prototypes,
+    which can conflict with char iconv (); below.
+    Prefer <limits.h> to <assert.h> if __STDC__ is defined, since
+    <limits.h> exists even on freestanding compilers.  */
+
+#ifdef __STDC__
+# include <limits.h>
+#else
+# include <assert.h>
+#endif
+
+#undef iconv
+
+/* Override any gcc2 internal prototype to avoid an error.  */
+#ifdef __cplusplus
+extern "C"
+{
+#endif
+/* We use char because int might match the return type of a gcc2
+   builtin and then its argument prototype would still apply.  */
+char iconv ();
+/* The GNU C library defines this for functions which it implements
+    to always fail with ENOSYS.  Some functions are actually named
+    something starting with __ and the normal name is an alias.  */
+#if defined (__stub_iconv) || defined (__stub___iconv)
+choke me
+#else
+char (*f) () = iconv;
+#endif
+#ifdef __cplusplus
+}
+#endif
+
+int
+main ()
+{
+return f != iconv;
+  ;
+  return 0;
+}
+_ACEOF
+rm -f conftest.$ac_objext conftest$ac_exeext
+if { (eval echo "$as_me:$LINENO: \"$ac_link\"") >&5
+  (eval $ac_link) 2>conftest.er1
+  ac_status=$?
+  grep -v '^ *+' conftest.er1 >conftest.err
+  rm -f conftest.er1
+  cat conftest.err >&5
+  echo "$as_me:$LINENO: \$? = $ac_status" >&5
+  (exit $ac_status); } &&
+	 { ac_try='test -z "$ac_c_werror_flag"
+			 || test ! -s conftest.err'
+  { (eval echo "$as_me:$LINENO: \"$ac_try\"") >&5
+  (eval $ac_try) 2>&5
+  ac_status=$?
+  echo "$as_me:$LINENO: \$? = $ac_status" >&5
+  (exit $ac_status); }; } &&
+	 { ac_try='test -s conftest$ac_exeext'
+  { (eval echo "$as_me:$LINENO: \"$ac_try\"") >&5
+  (eval $ac_try) 2>&5
+  ac_status=$?
+  echo "$as_me:$LINENO: \$? = $ac_status" >&5
+  (exit $ac_status); }; }; then
+  ac_cv_func_iconv=yes
+else
+  echo "$as_me: failed program was:" >&5
+sed 's/^/| /' conftest.$ac_ext >&5
+
+ac_cv_func_iconv=no
+fi
+rm -f conftest.err conftest.$ac_objext \
+      conftest$ac_exeext conftest.$ac_ext
+fi
+echo "$as_me:$LINENO: result: $ac_cv_func_iconv" >&5
+echo "${ECHO_T}$ac_cv_func_iconv" >&6
+if test $ac_cv_func_iconv = yes; then
+  ac_found_iconv=yes
+else
+  ac_found_iconv=no
+fi
+
+  if test "x$ac_found_iconv" = "xno"; then
+    echo "$as_me:$LINENO: checking for iconv in -liconv" >&5
 echo $ECHO_N "checking for iconv in -liconv... $ECHO_C" >&6
 if test "${ac_cv_lib_iconv_iconv+set}" = set; then
   echo $ECHO_N "(cached) $ECHO_C" >&6
@@ -7576,18 +7674,11 @@ fi
 echo "$as_me:$LINENO: result: $ac_cv_lib_iconv_iconv" >&5
 echo "${ECHO_T}$ac_cv_lib_iconv_iconv" >&6
 if test $ac_cv_lib_iconv_iconv = yes; then
-  cat >>confdefs.h <<_ACEOF
-#define HAVE_LIBICONV 1
-_ACEOF
-
-  LIBS="-liconv $LIBS"
-
+  ac_found_iconv=yes
 fi
 
-
-if test "$host_os" = cygwin; then
-
-echo "$as_me:$LINENO: checking for libiconv in -liconv" >&5
+    if test "x$ac_found_iconv" = "xno"; then
+      echo "$as_me:$LINENO: checking for libiconv in -liconv" >&5
 echo $ECHO_N "checking for libiconv in -liconv... $ECHO_C" >&6
 if test "${ac_cv_lib_iconv_libiconv+set}" = set; then
   echo $ECHO_N "(cached) $ECHO_C" >&6
@@ -7652,13 +7743,89 @@ fi
 echo "$as_me:$LINENO: result: $ac_cv_lib_iconv_libiconv" >&5
 echo "${ECHO_T}$ac_cv_lib_iconv_libiconv" >&6
 if test $ac_cv_lib_iconv_libiconv = yes; then
-  cat >>confdefs.h <<_ACEOF
-#define HAVE_LIBICONV 1
+  ac_found_iconv=yes
+fi
+
+    fi
+    if test "x$ac_found_iconv" != "xno"; then
+      LIBS="-liconv $LIBS"
+    fi
+  fi
+fi
+if test "x$ac_found_iconv" = xyes; then
+
+cat >>confdefs.h <<\_ACEOF
+#define HAVE_ICONV 1
 _ACEOF
 
-  LIBS="-liconv $LIBS"
-
 fi
+
+if test "x$ac_found_iconv" = "xyes"; then
+  echo "$as_me:$LINENO: checking for iconv declaration" >&5
+echo $ECHO_N "checking for iconv declaration... $ECHO_C" >&6
+if test "${ac_cv_iconv_const+set}" = set; then
+  echo $ECHO_N "(cached) $ECHO_C" >&6
+else
+  cat >conftest.$ac_ext <<_ACEOF
+/* confdefs.h.  */
+_ACEOF
+cat confdefs.h >>conftest.$ac_ext
+cat >>conftest.$ac_ext <<_ACEOF
+/* end confdefs.h.  */
+#include <stdlib.h>
+        #include <iconv.h>
+int
+main ()
+{
+#ifdef __cplusplus
+          "C"
+          #endif
+          #if defined(__STDC__) || defined(__cplusplus)
+          size_t iconv (iconv_t cd, char * *inbuf, size_t *inbytesleft, char * *outbuf, size_t *outbytesleft);
+          #else
+          size_t iconv();
+          #endif
+  ;
+  return 0;
+}
+_ACEOF
+rm -f conftest.$ac_objext
+if { (eval echo "$as_me:$LINENO: \"$ac_compile\"") >&5
+  (eval $ac_compile) 2>conftest.er1
+  ac_status=$?
+  grep -v '^ *+' conftest.er1 >conftest.err
+  rm -f conftest.er1
+  cat conftest.err >&5
+  echo "$as_me:$LINENO: \$? = $ac_status" >&5
+  (exit $ac_status); } &&
+	 { ac_try='test -z "$ac_c_werror_flag"
+			 || test ! -s conftest.err'
+  { (eval echo "$as_me:$LINENO: \"$ac_try\"") >&5
+  (eval $ac_try) 2>&5
+  ac_status=$?
+  echo "$as_me:$LINENO: \$? = $ac_status" >&5
+  (exit $ac_status); }; } &&
+	 { ac_try='test -s conftest.$ac_objext'
+  { (eval echo "$as_me:$LINENO: \"$ac_try\"") >&5
+  (eval $ac_try) 2>&5
+  ac_status=$?
+  echo "$as_me:$LINENO: \$? = $ac_status" >&5
+  (exit $ac_status); }; }; then
+  ac_cv_iconv_const=
+else
+  echo "$as_me: failed program was:" >&5
+sed 's/^/| /' conftest.$ac_ext >&5
+
+ac_cv_iconv_const=const
+fi
+rm -f conftest.err conftest.$ac_objext conftest.$ac_ext
+fi
+echo "$as_me:$LINENO: result: $ac_cv_iconv_const" >&5
+echo "${ECHO_T}$ac_cv_iconv_const" >&6
+
+cat >>confdefs.h <<_ACEOF
+#define ICONV_CONST $ac_cv_iconv_const
+_ACEOF
 
 fi
 
@@ -11138,7 +11305,23 @@ echo $ECHO_N "checking where the RLIMIT macros are located... $ECHO_C" >&6
 if test "${zsh_cv_path_rlimit_h+set}" = set; then
   echo $ECHO_N "(cached) $ECHO_C" >&6
 else
-  for RESOURCE_H in /usr/include/bsd/sys/resource.h                      /usr/include/asm/resource.h	                        /usr/include/linux/resource.h                        /usr/include/sys/resource.h                          /usr/include/bits/resource.h                         /usr/include/resourcebits.h                          /dev/null;
+  echo "#include <sys/resource.h>" >restmp.c
+resourcefile_list="`$CPP restmp.c |
+sed -n -e 's/^#line[ 	].*\"\(.*\)\"/\1/p' \
+       -e 's/^#[ 	].*\"\(.*\)\"/\1/p' |
+sed 's/\\\\\\\\/\//g' |
+$AWK '{ if (\$1 ~ \"resource\") files[\$1] = \$1 }
+  END { for (var in files) print var }'`"
+rm -f restmp.c
+if test -z "$resourcefile_list"; then
+    resourcefile_list="/usr/include/bsd/sys/resource.h
+/usr/include/asm/resource.h
+/usr/include/linux/resource.h
+/usr/include/sys/resource.h
+/usr/include/bits/resource.h
+/usr/include/resourcebits.h"
+fi
+for RESOURCE_H in $resourcefile_list /dev/null;
 do
   test -f $RESOURCE_H && \
   grep '#[ 	]*define[ 	][ 	]*RLIMIT_[A-Z]*[ 	]*[0-9A-Z][0-9]*' $RESOURCE_H > /dev/null && \
@@ -12466,6 +12649,71 @@ echo "${ECHO_T}$zsh_cv_rlimit_vmem_is_as" >&6
 if test $zsh_cv_rlimit_vmem_is_as = yes; then
   cat >>confdefs.h <<\_ACEOF
 #define RLIMIT_VMEM_IS_AS 1
+_ACEOF
+
+fi
+
+
+
+
+echo "$as_me:$LINENO: checking if RLIMIT_RSS and RLIMIT_AS are the same" >&5
+echo $ECHO_N "checking if RLIMIT_RSS and RLIMIT_AS are the same... $ECHO_C" >&6
+if test "${zsh_cv_rlimit_rss_is_as+set}" = set; then
+  echo $ECHO_N "(cached) $ECHO_C" >&6
+else
+  if test "$cross_compiling" = yes; then
+  zsh_cv_rlimit_rss_is_as=no
+else
+  cat >conftest.$ac_ext <<_ACEOF
+/* confdefs.h.  */
+_ACEOF
+cat confdefs.h >>conftest.$ac_ext
+cat >>conftest.$ac_ext <<_ACEOF
+/* end confdefs.h.  */
+
+#include <sys/types.h>
+#ifdef HAVE_SYS_TIME_H
+#include <sys/time.h>
+#endif
+#include <sys/resource.h>
+int main()
+{
+int ret = 1;
+#if defined(HAVE_RLIMIT_RSS) && defined(HAVE_RLIMIT_AS)
+if (RLIMIT_AS == RLIMIT_RSS) ret = 0;
+#endif
+return ret;
+}
+_ACEOF
+rm -f conftest$ac_exeext
+if { (eval echo "$as_me:$LINENO: \"$ac_link\"") >&5
+  (eval $ac_link) 2>&5
+  ac_status=$?
+  echo "$as_me:$LINENO: \$? = $ac_status" >&5
+  (exit $ac_status); } && { ac_try='./conftest$ac_exeext'
+  { (eval echo "$as_me:$LINENO: \"$ac_try\"") >&5
+  (eval $ac_try) 2>&5
+  ac_status=$?
+  echo "$as_me:$LINENO: \$? = $ac_status" >&5
+  (exit $ac_status); }; }; then
+  zsh_cv_rlimit_rss_is_as=yes
+else
+  echo "$as_me: program exited with status $ac_status" >&5
+echo "$as_me: failed program was:" >&5
+sed 's/^/| /' conftest.$ac_ext >&5
+
+( exit $ac_status )
+zsh_cv_rlimit_rss_is_as=no
+fi
+rm -f core *.core gmon.out bb.out conftest$ac_exeext conftest.$ac_objext conftest.$ac_ext
+fi
+fi
+echo "$as_me:$LINENO: result: $zsh_cv_rlimit_rss_is_as" >&5
+echo "${ECHO_T}$zsh_cv_rlimit_rss_is_as" >&6
+
+if test $zsh_cv_rlimit_rss_is_as = yes; then
+  cat >>confdefs.h <<\_ACEOF
+#define RLIMIT_RSS_IS_AS 1
 _ACEOF
 
 fi
@@ -14997,7 +15245,7 @@ fi;
 if test "x$ac_cv_func_tcsetpgrp" = xyes; then
 case "x$zsh_working_tcsetpgrp" in
   xcheck)
-    trap "" SIGTTOU > /dev/null 2>&1 || :
+    ( trap "" SIGTTOU > /dev/null 2>&1 ) && trap "" SIGTTOU > /dev/null 2>&1
     echo "$as_me:$LINENO: checking if tcsetpgrp() actually works" >&5
 echo $ECHO_N "checking if tcsetpgrp() actually works... $ECHO_C" >&6
 if test "${zsh_cv_sys_tcsetpgrp+set}" = set; then
@@ -15073,7 +15321,7 @@ Try running configure with --with-tcsetpgrp or --without-tcsetpgrp" >&2;}
 echo "$as_me: error: unexpected return status" >&2;}
    { (exit 1); exit 1; }; };;
     esac
-    trap - SIGTTOU > /dev/null 2>&1 || :
+    ( trap - SIGTTOU > /dev/null 2>&1 ) && trap - SIGTTOU > /dev/null 2>&1
     ;;
   xyes) :;;
   xno)  cat >>confdefs.h <<\_ACEOF

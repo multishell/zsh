@@ -1,6 +1,6 @@
 DISTFILES_SRC='
 .distfiles
-_a2ps         _bittorrent   _darcs        _larch
+_a2ps         _bittorrent   _darcs
 _dvi          _gzip         _man          _rcs          _w3m
 _apachectl    _enscript     _iconv        _mh           _rlogin       _webbrowser
 _cdrecord     _fakeroot     _imagemagick  _mount        _sh           _wget
@@ -22,10 +22,11 @@ _aap          _ant          _antiword     _apm          _attr
 _baz          _bogofilter
 _cal          _chmod        _du           _ecasound     _elinks       _figlet
 _getent       _global       _gpg          _gphoto2      _less         _lsof
-_mencal       _mt           _mtr          _netcat       _nice         _nmap
+_mencal       _mpc          _mt           _mtr
+_netcat       _nice         _nmap
 _perforce     _php          _postfix      _printenv     _python
 _raggle       _rar	    _renice
 _sablotron    _screen       _sed          _subversion
 _texinfo      _tla          _tidy
-_uniq         _vorbis       _vux          _wiggle       _xmlsoft
+_unace        _uniq         _vorbis       _vux          _wiggle       _xmlsoft
 '

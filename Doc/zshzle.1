@@ -1,4 +1,4 @@
-.TH "ZSHZLE" "1" "February 2, 2005" "zsh 4\&.2\&.4"
+.TH "ZSHZLE" "1" "April 6, 2005" "zsh 4\&.2\&.5"
 .SH "NAME"
 zshzle \- zsh command line editor
 .\" Yodl file: Zsh/zle.yo
@@ -1598,10 +1598,16 @@ possibilities if the \fBAUTO_LIST\fP option is set\&.
 Any other character that is not bound to \fBself\-insert\fP or
 \fBself\-insert\-unmeta\fP will beep and be ignored\&.
 The bindings of the current insert mode will be used\&.
+.PP
+Currently this command may not be redefined or called by name\&.
 .RE
 .TP
 \fBexecute\-last\-named\-cmd\fP (ESC\-z) (unbound) (unbound)
 Redo the last function executed with \fBexecute\-named\-cmd\fP\&.
+.RS
+.PP
+Currently this command may not be redefined or called by name\&.
+.RE
 .TP
 \fBget\-line\fP (ESC\-G ESC\-g) (unbound) (unbound)
 Pop the top line off the buffer stack and insert it at the

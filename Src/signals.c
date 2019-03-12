@@ -704,6 +704,8 @@ dosavetrap(int sig, int level)
 	    newshf->nam = ztrdup(shf->nam);
 	    newshf->flags = shf->flags;
 	    newshf->funcdef = dupeprog(shf->funcdef, 0);
+	    if (shf->flags & PM_UNDEFINED)
+		newshf->funcdef->shf = newshf;
 	}
 #ifdef DEBUG
 	else dputs("BUG: no function present with function trap flag set.");

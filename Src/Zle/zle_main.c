@@ -933,6 +933,8 @@ execzlefunc(Thingy func, char **args)
 		ret = completecall(args);
 		if (atcurhist)
 		    histline = curhist;
+	    } else if (!w->u.fn) {
+		handlefeep(zlenoargs);
 	    } else {
 		queue_signals();
 		ret = w->u.fn(args);
@@ -1331,7 +1333,7 @@ recursiveedit(UNUSED(char **args))
     zlecore();
 
     locerror = errflag;
-    errflag = done = 0;
+    errflag = done = eofsent = 0;
 
     return locerror;
 }

@@ -1,4 +1,4 @@
-.TH "ZSHCONTRIB" "1" "February 2, 2005" "zsh 4\&.2\&.4"
+.TH "ZSHCONTRIB" "1" "April 6, 2005" "zsh 4\&.2\&.5"
 .SH "NAME"
 zshcontrib \- user contributions to zsh
 .\" Yodl file: Zsh/contrib.yo
@@ -44,7 +44,7 @@ distribution in your home directory, you would use the commands:
 \fBmkdir ~/zsh_help
 cd ~/zsh_help
 man zshall | colcrt \- | \e 
-perl ~/zsh\-4\&.2\&.4/Util/helpfiles\fP
+perl ~/zsh\-4\&.2\&.5/Util/helpfiles\fP
 .fi
 .RE
 .PP
@@ -179,7 +179,7 @@ Run \fBzkbd\fP either as an autoloaded function, or as a shell script:
 .PP
 .RS
 .nf
-\fBzsh \-f ~/zsh\-4\&.2\&.4/Functions/Misc/zkbd\fP
+\fBzsh \-f ~/zsh\-4\&.2\&.5/Functions/Misc/zkbd\fP
 .fi
 .RE
 .PP
@@ -235,7 +235,7 @@ command and redirect the output into a file:
 .PP
 .RS
 .nf
-\fB\&. ~/zsh\-4\&.2\&.4/Util/reporter > zsh\&.report\fP
+\fB\&. ~/zsh\-4\&.2\&.5/Util/reporter > zsh\&.report\fP
 .fi
 .RE
 .PP
@@ -730,8 +730,8 @@ Typing the keystrokes for this widget with the cursor placed on or to the
 left of an integer causes that integer to be incremented by one\&.  With a
 numeric prefix argument, the number is incremented by the amount of the
 argument (decremented if the prefix argument is negative)\&.  The shell
-parameter \fBincarg\fP may be set to change the default increment something
-other than one\&.
+parameter \fBincarg\fP may be set to change the default increment to
+something other than one\&.
 .RS
 .PP
 .RS
@@ -1225,7 +1225,7 @@ mapping between suffixes and executable files unless the option \fB\-f\fP
 is given\&.  Note, however, that this does not override existing suffix
 aliases assigned to handlers other than \fBzsh\-mime\-handler\fP\&.
 Calling \fBzsh\-mime\-setup\fP with the option \fB\-l\fP lists the existing
-mapping without altering it\&.  Calling \fBzsh\-mime\-setup\fP with the option
+mappings without altering them\&.  Calling \fBzsh\-mime\-setup\fP with the option
 \fB\-v\fP causes verbose output to be shown during the setup operation\&.
 .PP
 The system respects the \fBmailcap\fP flags \fBneedsterminal\fP and
@@ -1278,8 +1278,8 @@ Examples:
 .RS
 .nf
 \fBzstyle ':mime:*' mailcap ~/\&.mailcap /usr/local/etc/mailcap
-zstyle ':mime:\&.txt' handler less %s
-zstyle ':mime:\&.txt' flags needsterminal\fP
+zstyle ':mime:\&.txt:' handler less %s
+zstyle ':mime:\&.txt:' flags needsterminal\fP
 .fi
 .RE
 .PP
@@ -1292,8 +1292,11 @@ terminal\&.
 As there are several steps to dispatching a command, the following
 should be checked if attempting to execute a file by extension
 \fB\&.\fP\fIext\fP does not have the expected effect\&.
-starteit()
-eit()(
+.PP
+.PD 0
+.TP
+.PD
+
 The command `\fBalias \-s\fP \fIext\fP' should show
 `\fBps=zsh\-mime\-handler\fP'\&.  If it shows something else, another suffix
 alias was already installed and was not overwritten\&.  If it shows
@@ -1301,8 +1304,8 @@ nothing, no handler was installed:  this is most likely because no
 handler was found in the \fB\&.mime\&.types\fP and \fBmailcap\fP combination for
 \fB\&.ext\fP files\&.  In that case, appropriate handling should be added to
 \fB~/\&.mime\&.types\fP and \fBmailcap\fP\&.
-)
-eit()(
+.TP
+
 If the extension is handled by \fBzsh\-mime\-handler\fP but the file is
 not opened correctly, either the handler defined for the type is
 incorrect, or the flags associated with it are in appropriate\&.  Running
@@ -1313,14 +1316,15 @@ be run in the way shown\&.  Also check that the flags \fBneedsterminal\fP or
 \fBcopiousoutput\fP are set if the handler needs to be run under a
 terminal; the second flag is used if the output should be sent to a pager\&.
 An example of a suitable \fBmailcap\fP entry for such a program is:
+.RS
 .PP
 .RS
 .nf
 \fBtext/html; /usr/bin/lynx '%s'; needsterminal\fP
 .fi
 .RE
-)
-endeit()
+.RE
+.RE
 .RE
 .TP
 \fBpick\-web\-browser\fP

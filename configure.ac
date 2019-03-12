@@ -727,11 +727,44 @@ fi
 
 AC_CHECK_LIB(socket, socket)
 
-AC_CHECK_LIB(iconv, iconv)
+dnl ---------------
+dnl CHECK FOR ICONV
+dnl ---------------
 
-if test "$host_os" = cygwin; then
-dnl cygwin iconv() is really libiconv()
-AC_CHECK_LIB(iconv, libiconv)
+dnl Find iconv. It may be in libiconv and may be iconv() or libiconv()
+if test "x$ac_cv_header_iconv_h" = "xyes"; then
+  AC_CHECK_FUNC(iconv, ac_found_iconv=yes, ac_found_iconv=no)
+  if test "x$ac_found_iconv" = "xno"; then
+    AC_CHECK_LIB(iconv, iconv, ac_found_iconv=yes)
+    if test "x$ac_found_iconv" = "xno"; then
+      AC_CHECK_LIB(iconv, libiconv, ac_found_iconv=yes)
+    fi
+    if test "x$ac_found_iconv" != "xno"; then
+      LIBS="-liconv $LIBS"
+    fi
+  fi
+fi
+if test "x$ac_found_iconv" = xyes; then
+  AC_DEFINE(HAVE_ICONV, 1, [Define if you have the iconv() function.])
+fi
+
+dnl Check if iconv uses const in prototype declaration
+if test "x$ac_found_iconv" = "xyes"; then
+  AC_CACHE_CHECK(for iconv declaration, ac_cv_iconv_const,
+    [AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[#include <stdlib.h>
+        #include <iconv.h>]],
+        [[#ifdef __cplusplus
+          "C"
+          #endif
+          #if defined(__STDC__) || defined(__cplusplus)
+          size_t iconv (iconv_t cd, char * *inbuf, size_t *inbytesleft, char * *outbuf, size_t *outbytesleft);
+          #else
+          size_t iconv();
+          #endif]])],
+      [ac_cv_iconv_const=],
+      [ac_cv_iconv_const=const])])
+  AC_DEFINE_UNQUOTED([ICONV_CONST], $ac_cv_iconv_const,
+    [Define as const if the declaration of iconv() needs const.])
 fi
 
 if test x$enable_pcre = xyes; then
@@ -1273,13 +1306,26 @@ dnl Look for the file containing the RLIMIT_* definitions
 dnl -----------------------------------------------------
 dnl CALL FOR MORE (FEWER?) LOCATIONS:  I've just copied the signal checking.
 AC_CACHE_CHECK(where the RLIMIT macros are located,zsh_cv_path_rlimit_h,
-[for RESOURCE_H in /usr/include/bsd/sys/resource.h   dnl
-                   /usr/include/asm/resource.h	     dnl
-                   /usr/include/linux/resource.h     dnl
-                   /usr/include/sys/resource.h       dnl
-                   /usr/include/bits/resource.h      dnl
-                   /usr/include/resourcebits.h       dnl
-                   /dev/null;
+[dnl Look at the output from the preprocessor.
+dnl Copied from the search for the signal names above.
+echo "#include <sys/resource.h>" >restmp.c
+resourcefile_list="`$CPP restmp.c |
+sed -n -e 's/^#line[ 	].*\"\(.*\)\"/\1/p' \
+       -e 's/^#[ 	].*\"\(.*\)\"/\1/p' |
+sed 's/\\\\\\\\/\//g' |
+$AWK '{ if (\$1 ~ \"resource\") files[[\$1]] = \$1 }
+  END { for (var in files) print var }'`"
+rm -f restmp.c
+if test -z "$resourcefile_list"; then
+  dnl No list: look at standard places.
+  resourcefile_list="/usr/include/bsd/sys/resource.h
+/usr/include/asm/resource.h
+/usr/include/linux/resource.h
+/usr/include/sys/resource.h
+/usr/include/bits/resource.h
+/usr/include/resourcebits.h"
+fi
+for RESOURCE_H in $resourcefile_list /dev/null;
 do
   test -f $RESOURCE_H && \
   grep '#[ 	]*define[ 	][ 	]*RLIMIT_[A-Z]*[ 	]*[0-9A-Z][0-9]*' $RESOURCE_H > /dev/null && \
@@ -1452,6 +1498,33 @@ return ret;
 
 if test $zsh_cv_rlimit_vmem_is_as = yes; then
   AC_DEFINE(RLIMIT_VMEM_IS_AS)
+fi
+
+
+AH_TEMPLATE([RLIMIT_RSS_IS_AS],
+[Define to 1 if RLIMIT_RSS and RLIMIT_AS both exist and are equal.])
+AC_CACHE_CHECK(if RLIMIT_RSS and RLIMIT_AS are the same,
+zsh_cv_rlimit_rss_is_as,
+[AC_TRY_RUN([
+#include <sys/types.h>
+#ifdef HAVE_SYS_TIME_H
+#include <sys/time.h>
+#endif
+#include <sys/resource.h>
+int main()
+{
+int ret = 1;
+#if defined(HAVE_RLIMIT_RSS) && defined(HAVE_RLIMIT_AS)
+if (RLIMIT_AS == RLIMIT_RSS) ret = 0;
+#endif
+return ret;
+}],
+  zsh_cv_rlimit_rss_is_as=yes,
+  zsh_cv_rlimit_rss_is_as=no,
+  zsh_cv_rlimit_rss_is_as=no)])
+
+if test $zsh_cv_rlimit_rss_is_as = yes; then
+  AC_DEFINE(RLIMIT_RSS_IS_AS)
 fi
 
 
@@ -1816,7 +1889,7 @@ esac],[zsh_working_tcsetpgrp=check])
 if test "x$ac_cv_func_tcsetpgrp" = xyes; then
 case "x$zsh_working_tcsetpgrp" in
   xcheck)
-    trap "" SIGTTOU > /dev/null 2>&1 || :
+    ( trap "" SIGTTOU > /dev/null 2>&1 ) && trap "" SIGTTOU > /dev/null 2>&1 
     AC_CACHE_CHECK(if tcsetpgrp() actually works,
     zsh_cv_sys_tcsetpgrp,
     [AC_TRY_RUN([
@@ -1847,7 +1920,7 @@ esac
 Try running configure with --with-tcsetpgrp or --without-tcsetpgrp]);;
       *)      AC_MSG_ERROR([unexpected return status]);;
     esac
-    trap - SIGTTOU > /dev/null 2>&1 || :
+    ( trap - SIGTTOU > /dev/null 2>&1 ) && trap - SIGTTOU > /dev/null 2>&1 
     ;;
   xyes) :;;
   xno)  AC_DEFINE(BROKEN_TCSETPGRP);;

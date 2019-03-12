@@ -4038,16 +4038,24 @@ quoted and the option @t{SH_WORD_SPLIT} is set, the word is split on
 occurrences of any of the characters in @t{$IFS}.  Note this step, too,
 takes place at all levels of a nested substitution.
 
-@item @t{10.} @emph{Re-Evaluation}
+@item @t{10.} @emph{Uniqueness}
+If the result is an array and the `@t{(u)}' flag was present, duplicate
+elements are removed from the array.
+
+@item @t{11.} @emph{Ordering}
+If the result is still an array and one of the `@t{(o)}' or `@t{(O)}' flags
+was present, the array is reordered.
+
+@item @t{12.} @emph{Re-Evaluation}
 Any `@t{(e)}' flag is applied to the value, forcing it to be re-examined
 for new parameter substitutions, but also for command and arithmetic
 substitutions.
 
-@item @t{11.} @emph{Padding}
+@item @t{13.} @emph{Padding}
 Any padding of the value by the `@t{(l.}@var{fill}@t{.)}' or
 `@t{(r.}@var{fill}@t{.)}' flags is applied.
 
-@item @t{12.} @emph{Semantic Joining}
+@item @t{14.} @emph{Semantic Joining}
 In contexts where expansion semantics requires a single word to
 result, all words are rejoined with the first character of @t{IFS}
 between.  So in `@t{$@{(P}@t{)$@{(f}@t{)lines@}@}}'
@@ -12075,9 +12083,15 @@ Any other character that is not bound to @t{self-insert} or
 @t{self-insert-unmeta} will beep and be ignored.
 The bindings of the current insert mode will be used.
 
+@noindent
+Currently this command may not be redefined or called by name.
+
 @tindex execute-last-named-cmd
 @item @t{execute-last-named-cmd} (ESC-z) (unbound) (unbound)
 Redo the last function executed with @t{execute-named-cmd}.
+
+@noindent
+Currently this command may not be redefined or called by name.
 
 @tindex get-line
 @item @t{get-line} (ESC-G ESC-g) (unbound) (unbound)
@@ -25042,8 +25056,8 @@ Typing the keystrokes for this widget with the cursor placed on or to the
 left of an integer causes that integer to be incremented by one.  With a
 numeric prefix argument, the number is incremented by the amount of the
 argument (decremented if the prefix argument is negative).  The shell
-parameter @t{incarg} may be set to change the default increment something
-other than one.
+parameter @t{incarg} may be set to change the default increment to
+something other than one.
 
 @noindent
 @example
@@ -25548,7 +25562,7 @@ mapping between suffixes and executable files unless the option @t{-f}
 is given.  Note, however, that this does not override existing suffix
 aliases assigned to handlers other than @t{zsh-mime-handler}.
 Calling @t{zsh-mime-setup} with the option @t{-l} lists the existing
-mapping without altering it.  Calling @t{zsh-mime-setup} with the option
+mappings without altering them.  Calling @t{zsh-mime-setup} with the option
 @t{-v} causes verbose output to be shown during the setup operation.
 
 @noindent
@@ -25604,8 +25618,8 @@ Examples:
 @noindent
 @example
 zstyle ':mime:*' mailcap ~/.mailcap /usr/local/etc/mailcap
-zstyle ':mime:.txt' handler less %s
-zstyle ':mime:.txt' flags needsterminal
+zstyle ':mime:.txt:' handler less %s
+zstyle ':mime:.txt:' flags needsterminal
 @end example
 
 @noindent
@@ -25619,8 +25633,10 @@ terminal.
 As there are several steps to dispatching a command, the following
 should be checked if attempting to execute a file by extension
 @t{.}@var{ext} does not have the expected effect.
-starteit()
-eit()(
+
+@noindent
+@table @asis
+@item 
 The command `@t{alias -s} @var{ext}' should show
 `@t{ps=zsh-mime-handler}'.  If it shows something else, another suffix
 alias was already installed and was not overwritten.  If it shows
@@ -25628,8 +25644,8 @@ nothing, no handler was installed:  this is most likely because no
 handler was found in the @t{.mime.types} and @t{mailcap} combination for
 @t{.ext} files.  In that case, appropriate handling should be added to
 @t{~/.mime.types} and @t{mailcap}.
-)
-eit()(
+
+@item 
 If the extension is handled by @t{zsh-mime-handler} but the file is
 not opened correctly, either the handler defined for the type is
 incorrect, or the flags associated with it are in appropriate.  Running
@@ -25645,8 +25661,8 @@ An example of a suitable @t{mailcap} entry for such a program is:
 @example
 text/html; /usr/bin/lynx '%s'; needsterminal
 @end example
-)
-endeit()
+
+@end table
 
 @item @t{pick-web-browser}
 This function is separate from the two MIME functions described above
