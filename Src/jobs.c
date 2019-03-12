@@ -961,8 +961,12 @@ clearjobtab(void)
     int i;
 
     for (i = 1; i < MAXJOB; i++)
+    {
 	if (jobtab[i].ty)
 	    zfree(jobtab[i].ty, sizeof(struct ttyinfo));
+	if (jobtab[i].pwd)
+	    zsfree(jobtab[i].pwd);
+    }
 
     memset(jobtab, 0, sizeof(jobtab)); /* zero out table */
 }
@@ -978,8 +982,10 @@ initjob(void)
     for (i = 1; i < MAXJOB; i++)
 	if (!jobtab[i].stat) {
 	    jobtab[i].stat = STAT_INUSE;
-	    if (jobtab[i].pwd)
+	    if (jobtab[i].pwd) {
 		zsfree(jobtab[i].pwd);
+		jobtab[i].pwd = NULL;
+	    }
 	    jobtab[i].gleader = 0;
 	    return i;
 	}

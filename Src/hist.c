@@ -100,7 +100,12 @@ mod_export Histent hist_ring;
  
 /**/
 int histsiz;
- 
+
+/* desired history-file size (in lines) */
+
+/**/
+int savehistsiz;
+
 /* if = 1, we have performed history substitution on the current line *
  * if = 2, we have used the 'p' modifier                              */
  
@@ -942,7 +947,7 @@ prepnexthistent(void)
     else {
 	he = hist_ring->down;
 	if (isset(HISTEXPIREDUPSFIRST) && !(he->flags & HIST_DUP)) {
-	    int max_unique_ct = getiparam("SAVEHIST");
+	    int max_unique_ct = savehistsiz;
 	    do {
 		if (max_unique_ct-- <= 0) {
 		    he = hist_ring->down;
@@ -1766,31 +1771,34 @@ static struct {
 
 static int histfile_linect;
 
-static int readhistline(int start, char **bufp, int *bufsiz, FILE *in)
+static int
+readhistline(int start, char **bufp, int *bufsiz, FILE *in)
 {
     char *buf = *bufp;
     if (fgets(buf + start, *bufsiz - start, in)) {
-	int l = strlen(buf);
-
-	if (start >= l)
+	int len = start + strlen(buf + start);
+	if (len == start)
 	    return -1;
-
-	if (l) {
-	    if (buf[l - 1] != '\n' && !feof(in)) {
+	if (buf[len - 1] != '\n') {
+	    if (!feof(in)) {
+		if (len < (*bufsiz) - 1)
+		    return -1;
 		*bufp = zrealloc(buf, 2 * (*bufsiz));
 		*bufsiz = 2 * (*bufsiz);
-		return readhistline(l, bufp, bufsiz, in);
-	    }
-	    buf[l - 1] = '\0';
-	    if (l > 1 && buf[l - 2] == '\\') {
-		buf[--l - 1] = '\n';
-		if (!feof(in))
-		    return readhistline(l, bufp, bufsiz, in);
+		return readhistline(len, bufp, bufsiz, in);
 	    }
 	}
-	return l;
-    } else
-	return 0;
+	else {
+	    buf[len - 1] = '\0';
+	    if (len > 1 && buf[len - 2] == '\\') {
+		buf[--len - 1] = '\n';
+		if (!feof(in))
+		    return readhistline(len, bufp, bufsiz, in);
+	    }
+	}
+	return len;
+    }
+    return 0;
 }
 
 /**/
@@ -1956,10 +1964,9 @@ savehistfile(char *fn, int err, int writeflags)
     FILE *out;
     Histent he;
     int xcurhist = curhist - !!(histactive & HA_ACTIVE);
-    int savehist = getiparam("SAVEHIST");
     int extended_history = isset(EXTENDEDHISTORY);
 
-    if (!interact || savehist <= 0 || !hist_ring
+    if (!interact || savehistsiz <= 0 || !hist_ring
      || (!fn && !(fn = getsparam("HISTFILE"))))
 	return;
     if (writeflags & HFILE_FAST) {
@@ -1970,7 +1977,7 @@ savehistfile(char *fn, int err, int writeflags)
 	}
 	if (!he || !lockhistfile(fn, 0))
 	    return;
-	if (histfile_linect > savehist + savehist / 5)
+	if (histfile_linect > savehistsiz + savehistsiz / 5)
 	    writeflags &= ~HFILE_FAST;
     }
     else {
@@ -2051,14 +2058,15 @@ savehistfile(char *fn, int err, int writeflags)
 
 	    hist_ring = NULL;
 	    curhist = histlinect = 0;
-	    histsiz = savehist;
+	    histsiz = savehistsiz;
 	    histactive = 0;
 	    createhisttable(); /* sets histtab */
 
 	    hist_ignore_all_dups |= isset(HISTSAVENODUPS);
 	    readhistfile(fn, err, 0);
 	    hist_ignore_all_dups = isset(HISTIGNOREALLDUPS);
-	    savehistfile(fn, err, 0);
+	    if (histlinect)
+		savehistfile(fn, err, 0);
 	    deletehashtable(histtab);
 
 	    curhist = remember_curhist;
@@ -2258,7 +2266,16 @@ bufferwords(LinkList list, char *buf, int *index)
 	}
     } while (tok != ENDINPUT && tok != LEXERR);
     if (buf && tok == LEXERR && tokstr && *tokstr) {
+	int plen;
 	untokenize((p = dupstring(tokstr)));
+	plen = strlen(p);
+	/*
+	 * Strip the space we added for lexing but which won't have
+	 * been swallowed by the lexer because we aborted early.
+	 * The test is paranoia.
+	 */
+	if (plen && p[plen-1] == ' ' && (plen == 1 || p[plen-2] != Meta))
+	    p[plen - 1] = '\0';
 	addlinknode(list, p);
 	num++;
     }

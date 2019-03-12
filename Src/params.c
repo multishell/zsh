@@ -139,6 +139,7 @@ IPDEF1("GID", gidgetfn, gidsetfn, PM_DONTIMPORT | PM_RESTRICTED),
 IPDEF1("EGID", egidgetfn, egidsetfn, PM_DONTIMPORT | PM_RESTRICTED),
 IPDEF1("HISTSIZE", histsizegetfn, histsizesetfn, PM_RESTRICTED),
 IPDEF1("RANDOM", randomgetfn, randomsetfn, 0),
+IPDEF1("SAVEHIST", savehistsizegetfn, savehistsizesetfn, PM_RESTRICTED),
 IPDEF1("SECONDS", secondsgetfn, secondssetfn, 0),
 IPDEF1("UID", uidgetfn, uidsetfn, PM_DONTIMPORT | PM_RESTRICTED),
 IPDEF1("EUID", euidgetfn, euidsetfn, PM_DONTIMPORT | PM_RESTRICTED),
@@ -222,7 +223,7 @@ IPDEF9("@", &pparams, NULL),
 #define IPDEF10(A,B,C) {NULL,A,PM_ARRAY|PM_SPECIAL,BR(NULL),SFN(C),GFN(B),stdunsetfn,10,NULL,NULL,NULL,0}
 
 /* The following parameters are not avaible in sh/ksh compatibility *
- * mode. All of these has sh compatible equivalents.                */
+ * mode. All of these have sh compatible equivalents.                */
 IPDEF1("ARGC", poundgetfn, nullintsetfn, PM_READONLY),
 IPDEF2("HISTCHARS", histcharsgetfn, histcharssetfn, PM_DONTIMPORT),
 IPDEF4("status", &lastval),
@@ -447,7 +448,7 @@ getvaluearr(Value v)
 }
 
 /*
- * Split environment string into (name, vlaue) pair.
+ * Split environment string into (name, value) pair.
  * this is used to avoid in-place editing of environment table
  * that results in core dump on some systems
  */
@@ -508,7 +509,7 @@ createparamtable(void)
 
     /* Add the standard non-special parameters which have to    *
      * be initialized before we copy the environment variables. *
-     * We don't want to override whatever values the users has  *
+     * We don't want to override whatever values the user has   *
      * given them in the environment.                           */
     opts[ALLEXPORT] = 0;
     setiparam("MAILCHECK", 60);
@@ -2138,6 +2139,7 @@ unsetparam_pm(Param pm, int altflag, int exp)
 	paramtab->addnode(paramtab, oldpm->nam, oldpm);
 	if ((PM_TYPE(oldpm->flags) == PM_SCALAR) &&
 	    !(pm->flags & PM_HASHELEM) &&
+	    (oldpm->flags & PM_NAMEDDIR) &&
 	    oldpm->sets.cfn == strsetfn)
 	    adduserdir(oldpm->nam, oldpm->u.str, 0, 0);
 	if (oldpm->flags & PM_EXPORTED) {
@@ -2164,7 +2166,11 @@ stdunsetfn(Param pm, int exp)
     switch (PM_TYPE(pm->flags)) {
 	case PM_SCALAR: pm->sets.cfn(pm, NULL); break;
 	case PM_ARRAY:  pm->sets.afn(pm, NULL); break;
-        case PM_HASHED: pm->sets.hfn(pm, NULL); break;
+	case PM_HASHED: pm->sets.hfn(pm, NULL); break;
+	default:
+	    if (!(pm->flags & PM_SPECIAL))
+		pm->u.str = NULL;
+	    break;
     }
     pm->flags |= PM_UNSET;
 }
@@ -2222,8 +2228,11 @@ strsetfn(Param pm, char *x)
 {
     zsfree(pm->u.str);
     pm->u.str = x;
-    if (!(pm->flags & PM_HASHELEM))
+    if (!(pm->flags & PM_HASHELEM) &&
+	((pm->flags & PM_NAMEDDIR) || isset(AUTONAMEDIRS))) {
+	pm->flags |= PM_NAMEDDIR;
 	adduserdir(pm->nam, x, 0, 0);
+    }
 }
 
 /* Function to get value of an array parameter */
@@ -2762,9 +2771,28 @@ histsizegetfn(Param pm)
 void
 histsizesetfn(Param pm, zlong v)
 {
-    if ((histsiz = v) <= 2)
-	histsiz = 2;
+    if ((histsiz = v) < 1)
+	histsiz = 1;
     resizehistents();
+}
+
+/* Function to get value for special parameter `SAVEHIST' */
+
+/**/
+zlong
+savehistsizegetfn(Param pm)
+{
+    return savehistsiz;
+}
+
+/* Function to set value of special parameter `SAVEHIST' */
+
+/**/
+void
+savehistsizesetfn(Param pm, zlong v)
+{
+    if ((savehistsiz = v) < 0)
+	savehistsiz = 0;
 }
 
 /* Function to get value for special parameter `ERRNO' */
@@ -3005,8 +3033,8 @@ findenv(char *name, int *pos)
     return 0;
 }
 
-/* Given *name = "foo", it searchs the environment for string *
- * "foo=bar", and returns a pointer to the beginning of "bar" */
+/* Given *name = "foo", it searches the environment for string *
+ * "foo=bar", and returns a pointer to the beginning of "bar"  */
 
 /**/
 mod_export char *
@@ -3061,7 +3089,7 @@ addenv(char *name, char *value, int flags)
     /*
      * Under Cygwin we must use putenv() to maintain consistency.
      * Unfortunately, current version (1.1.2) copies argument and may
-     * silently reuse exisiting environment string. This tries to
+     * silently reuse existing environment string. This tries to
      * check for both cases
      */
     if (findenv(name, &pos)) {
@@ -3164,7 +3192,7 @@ convbase(char *s, zlong v, int base)
 /*
  * Convert a floating point value for output.
  * Unlike convbase(), this has its own internal storage and returns
- * a value from the heap;
+ * a value from the heap.
  */
 
 /**/

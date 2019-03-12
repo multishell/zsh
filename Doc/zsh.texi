@@ -30,8 +30,8 @@
 @end iftex
 @titlepage
 @title The Z Shell Manual
-@subtitle Version 4.0.3
-@subtitle Updated October 24, 2001
+@subtitle Version 4.0.5
+@subtitle Updated August 9, 2002
 @author Original documentation by Paul Falstad
 @page
 This is a texinfo version of the documentation for the Z Shell, originally by 
@@ -61,7 +61,7 @@ This Info file documents Zsh, a freely available UNIX command interpreter
 (ksh), although it is not completely compatible.
 
 @noindent
-Version 4.0.3, last updated October 24, 2001.
+Version 4.0.5, last updated August 9, 2002.
 @end ifinfo
 
 @noindent
@@ -2057,7 +2057,7 @@ let "val = 2 + 1"
 @end example
 
 @noindent
-both assigning the value 3 to the shell variable @t{var} and returning a
+both assigning the value 3 to the shell variable @t{val} and returning a
 zero status.
 
 @noindent
@@ -4520,11 +4520,11 @@ If the qualifier `@t{f}' is followed by any other character anything
 up to the next matching character (`@t{[}', `@t{@{}', and `@t{<}' match 
 `@t{]}', `@t{@}}', and `@t{>}' respectively, any other character
 matches itself) is taken as a list of comma-separated
-@var{sub-spec}s. Each @var{sub-spec} may be either a octal number as
+@var{sub-spec}s. Each @var{sub-spec} may be either an octal number as
 described above or a list of any of the characters `@t{u}', `@t{g}',
 `@t{o}', and `@t{a}', followed by a `@t{=}', a `@t{+}', or a
 `@t{-}', followed by a list of any of the characters `@t{r}', `@t{w}', 
-`@t{x}', `@t{s}', and `@t{t}', or a octal digit. The first list of
+`@t{x}', `@t{s}', and `@t{t}', or an octal digit. The first list of
 characters specify which access rights are to be checked. If a `@t{u}'
 is given, those for the owner of the file are used, if a `@t{g}' is
 given, those of the group are checked, a `@t{o}' means to test those
@@ -5541,9 +5541,8 @@ The default editor for the @t{fc} builtin.
 @item @t{fignore} <S> <Z> (@t{FIGNORE} <S>)
 An array (colon separated list)
 containing the suffixes of files to be ignored
-during filename completion.  However, if the completion generates only files
-which would match if this variable would be ignored, than these files are
-completed anyway.
+during filename completion.  However, if completion only generates files
+with suffixes in this list, then these files are completed anyway.
 
 @vindex fpath
 @vindex FPATH
@@ -8186,7 +8185,7 @@ If the @t{PUSHD_MINUS} option is set, the meanings of `@t{+}' and
 
 @findex print
 @item @t{print} [ @t{-bnrslzpNDPoOicm} ] [ @t{-u}@var{n} ] [ @t{-R} [ @t{-en} ]] [ @var{arg} ... ]
-With no flags or with flag `@t{-}', the arguments are printed on
+With no flags or with the flag `@t{-}', the arguments are printed on
 the standard output as described by @t{echo}, with the following differences:
 the escape sequence `@t{\M-}@var{x}' metafies the character
 @var{x} (sets the highest bit),
@@ -8805,7 +8804,8 @@ compatibility with previous versions of zsh.
 @item @t{ulimit} [ @t{-SHacdflmnpstv} [ @var{limit} ] ... ]
 Set or display resource limits of the shell and the processes started by
 the shell.  The value of @var{limit} can be a number in the unit specified
-below or the value `@t{unlimited}'.  If the @t{-H} flag is given use
+below or the value `@t{unlimited}'.  By default, only soft limits are
+manipulated. If the @t{-H} flag is given use
 hard limits instead of soft limits.  If the @t{-S} flag is given
 together with the @t{-H} flag set both hard and soft limits.  If no
 options are used, the file size limit (@t{-f}) is assumed.  If
@@ -12852,7 +12852,7 @@ for names of builtin commands
 @kindex characters, completion tag
 @item @t{characters}
 used for commands like @t{stty} when completing characters; also used
-when completing character classes after a opening bracket
+when completing character classes after an opening bracket
 
 @kindex colormapids, completion tag
 @item @t{colormapids}
@@ -14230,7 +14230,7 @@ matches.  E.g. for options this means that the `@t{-}', `@t{+}', or
 all.
 
 @noindent
-The default style for this style is `true'.
+The default value for this style is `true'.
 
 @kindex preserve-prefix, completion style
 @item @t{preserve-prefix}
@@ -14289,6 +14289,15 @@ half-screenfuls, a positive integer to scroll by that many lines and a
 negative number to scroll by the number of lines of the screen minus
 that number (or plus the number, since it is negative).  The default is to
 scroll by single lines.
+
+@kindex separate-sections, completion style
+@item @t{separate-sections}
+This style is used with the @t{manuals} tag when completing names of
+manual pages.  If it is `true', entries for different sections are
+added separately using tag names of the form `@t{manual.}@var{X}',
+where @var{X} is the section number.  This means that it is possible to
+make pages from different sections be listed separately by setting the
+@t{group-name} style.  The default for this style is `false'.
 
 @kindex single-ignored, completion style
 @item @t{single-ignored}
@@ -14720,7 +14729,7 @@ binding, for example:
 @example
 zle -C all-matches complete-word _generic
 bindkey '^Xa' all-matches
-zstyle ':completion:all-matches:*' old-matches only
+zstyle ':completion:all-matches::::' old-matches only
 zstyle ':completion:all-matches:*' completer _all_matches
 @end example
 
@@ -15397,7 +15406,7 @@ Like @t{_tags} this function supports the @t{-C} option to give a
 different name for the argument context field.
 
 @findex _arguments
-@item @t{_arguments} @var{spec} ...
+@item @t{_arguments} [ @t{-ACS} ] [ @t{-O} @var{name} ] [ @t{-M} @var{matchspec} ] @var{spec} ...
 This function can be used to complete words on the line by describing the
 options and arguments which may be passed to the command for which
 completion is being performed.  The description is given as arguments to
@@ -16708,7 +16717,7 @@ value whose argument is to be completed.
 
 @noindent
 Note also that @t{_values} normally adds the character used as the
-separator between values as a auto-removable suffix so that users don't
+separator between values as an auto-removable suffix so that users don't
 have to type it themselves.  But when using a `@t{->}@var{string}' action
 @t{_values} can't do that because the matches for the argument will be
 generated by the calling function.  To get the usual behaviour, the
@@ -20236,7 +20245,8 @@ Produce a long directory listing.  The arguments @var{dir-options} and
 @var{dir} are passed directly to the server and their effect is
 implementation dependent, but specifying a particular remote directory
 @var{dir} is usually possible.  The output is passed through a pager
-given by the environment variable @t{$PAGER} or defaulting to `@t{more}'.
+given by the environment variable @t{$PAGER}, or `@t{more}' if that is not
+set.
 
 @noindent
 The directory is usually cached for re-use.  In fact, two caches are
@@ -20446,7 +20456,7 @@ It is safest not to delete sessions while background commands using
 @item @t{zftransfer} @var{sess1}@t{:}@var{file1} @var{sess2}@t{:}@var{file2}
 Transfer files between two sessions; no local copy is made.  The file
 is read from the session @var{sess1} as @var{file1} and written to session
-@var{sess1} as file @var{file2}; @var{file1} and @var{file2} may be relative to
+@var{sess2} as file @var{file2}; @var{file1} and @var{file2} may be relative to
 the current directories of the session.  Either @var{sess1} or @var{sess2}
 may be omitted (though the colon should be retained if there is a
 possibility of a colon appearing in the file name) and defaults to the
@@ -20456,8 +20466,8 @@ which case the basename of @var{file1} will be added.  The sessions
 
 @noindent
 The operation is performed using pipes, so it is required that the
-connections still be valid in a subshell, which is not the case under some
-versions operating systems, presumably due to a system bug.
+connections still be valid in a subshell, which is not the case under 
+versions of some operating systems, presumably due to a system bug.
 
 @end table
 
@@ -20479,7 +20489,7 @@ directory where your zsh startup files live (usually @t{~}).
 If given an argument, mark the current host, user and directory under the
 name @var{bookmark} for later use by @t{zfgoto}.  If there is no connection
 open, use the values for the last connection immediately before it was
-closed; it is an error if there is none.  Any existing bookmark
+closed; it is an error if there was none.  Any existing bookmark
 under the same name will be silently replaced.
 
 @noindent
@@ -20628,8 +20638,8 @@ Various styles are available using the standard shell style mechanism,
 described in
 @ref{The zsh/zutil Module}. Briefly, the
 command `@t{zstyle ':zftp:*'} @var{style} @var{value} ...'.
-defines the @var{style} to have value @var{value} (more than one may be
-given, although that is not useful in the cases described here).  These
+defines the @var{style} to have value @var{value}; more than one value may be
+given, although that is not useful in the cases described here.  These
 values will then be used throughout the zftp function system.  For more
 precise control, the first argument, which gives a context in which the
 style applies, can be modified to include a particular function, as for
@@ -20869,7 +20879,7 @@ distribution in your home directory, you would use the commands:
 mkdir ~/zsh_help
 cd ~/zsh_help
 man zshall | colcrt - | \ 
-perl ~/zsh-4.0.3/Util/helpfiles
+perl ~/zsh-4.0.5/Util/helpfiles
 @end example
 
 @noindent
@@ -21025,7 +21035,7 @@ Run @t{zkbd} either as an autoloaded function, or as a shell script:
 
 @noindent
 @example
-zsh -f ~/zsh-4.0.3/Functions/Misc/zkbd
+zsh -f ~/zsh-4.0.5/Functions/Misc/zkbd
 @end example
 
 @noindent
@@ -21090,7 +21100,7 @@ command and redirect the output into a file:
 
 @noindent
 @example
-. ~/zsh-4.0.3/Util/reporter > zsh.report
+. ~/zsh-4.0.5/Util/reporter > zsh.report
 @end example
 
 @noindent
@@ -21274,6 +21284,33 @@ with a key sequence.  Suggested bindings are described below.
 
 @noindent
 @table @asis
+@tindex bash-forward-word
+@tindex bash-backward-word
+@tindex bash-kill-word
+@tindex bash-backward-kill-word
+@tindex bash-transpose-words
+@tindex bash-up-case-word
+@tindex bash-down-case-word
+@item @t{bash-forward-word}, @t{bash-backward-word}
+@itemx @t{bash-kill-word}, @t{bash-backward-kill-word}
+@itemx @t{bash-up-case-word}, @t{bash-down-case-word}
+@itemx @t{bash-transpose-words}
+These work similarly to the corresponding builtin zle functions without the
+`@t{bash-}' prefix, but a word is considered to consist of alphanumeric
+characters only.  If you wish to replace your existing bindings with these
+four widgets, the following is sufficient:
+
+@noindent
+@example
+for widget in kill-word backward-kill-word \ 
+forward-word backward-word \ 
+up-case-word down-case-word \ 
+transpose-words; do 
+  autoload bash-$widget 
+  zle -N $widget bash-$widget
+done
+@end example
+
 @tindex cycle-completion-positions
 @item @t{cycle-completion-positions}
 After inserting an unambiguous string into the command line, the new

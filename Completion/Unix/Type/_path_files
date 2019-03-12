@@ -220,20 +220,15 @@ elif [[ "$pre[1]" = \~ && -z "$compstate[quote]" ]]; then
     realpath="${HOME%/}/"
   elif [[ "$linepath" = ([-+]|)[0-9]## ]]; then
     if [[ "$linepath" != [-+]* ]]; then
-      if [[ -o pushdminus ]]; then
-        tmp1="-$linepath"
-      else
-        tmp1="+$linepath"
-      fi
-    else
       tmp1="$linepath"
-    fi
-    if [[ "$linepath" = -* ]]; then
-      tmp1=$(( $#dirstack $tmp1 ))
     else
-      tmp1=$tmp1[2,-1]
+      if [[ "$linepath" = -* ]]; then
+        tmp1=$(( $#dirstack $linepath ))
+      else
+        tmp1=$linepath[2,-1]
+      fi
+      [[ -o pushdminus ]] && tmp1=$(( $#dirstack - $tmp1 ))
     fi
-    [[ -o pushdminus ]] && tmp1=$(( $#dirstack - $tmp1 ))
     if (( ! tmp1 )); then
       realpath=$PWD/
     elif [[ tmp1 -le $#dirstack ]]; then
@@ -331,11 +326,11 @@ for prepath in "$prepaths[@]"; do
     tmp2=( "$tmp1[@]" )
 
     if [[ "$tpre$tsuf" = */* ]]; then
-      compfiles -P$cfopt tmp1 accex "$skipped" "$_matcher" "$sdirs" fake
+      compfiles -P$cfopt tmp1 accex "$skipped" "$_matcher $matcher[2]" "$sdirs" fake
     elif [[ "$sopt" = *[/f]* ]]; then
-      compfiles -p$cfopt tmp1 accex "$skipped" "$_matcher" "$sdirs" fake "$pats[@]"
+      compfiles -p$cfopt tmp1 accex "$skipped" "$_matcher $matcher[2]" "$sdirs" fake "$pats[@]"
     else
-      compfiles -p$cfopt tmp1 accex "$skipped" "$_matcher" '' fake "$pats[@]"
+      compfiles -p$cfopt tmp1 accex "$skipped" "$_matcher $matcher[2]" '' fake "$pats[@]"
     fi
     tmp1=( $~tmp1 )
 

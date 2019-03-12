@@ -1,4 +1,4 @@
-.TH "ZSHPARAM" "1" "October 26, 2001" "zsh 4\&.0\&.4"
+.TH "ZSHPARAM" "1" "August 14, 2002" "zsh 4\&.0\&.6"
 .SH "NAME"
 zshparam \- zsh parameters
 .\" Yodl file: Zsh/params.yo
@@ -672,9 +672,8 @@ The default editor for the \fBfc\fP builtin\&.
 \fBfignore\fP <S> <Z> (\fBFIGNORE\fP <S>)
 An array (colon separated list)
 containing the suffixes of files to be ignored
-during filename completion\&.  However, if the completion generates only files
-which would match if this variable would be ignored, than these files are
-completed anyway\&.
+during filename completion\&.  However, if completion only generates files
+with suffixes in this list, then these files are completed anyway\&.
 .TP
 \fBfpath\fP <S> <Z> (\fBFPATH\fP <S>)
 An array (colon separated list)

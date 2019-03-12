@@ -1,4 +1,4 @@
-.TH "ZSHCONTRIB" "1" "October 26, 2001" "zsh 4\&.0\&.4"
+.TH "ZSHCONTRIB" "1" "August 14, 2002" "zsh 4\&.0\&.6"
 .SH "NAME"
 zshcontrib \- user contributions to zsh
 .\" Yodl file: Zsh/contrib.yo
@@ -44,7 +44,7 @@ distribution in your home directory, you would use the commands:
 \fBmkdir ~/zsh_help
 cd ~/zsh_help
 man zshall | colcrt \- | \e 
-perl ~/zsh\-4\&.0\&.4/Util/helpfiles\fP
+perl ~/zsh\-4\&.0\&.6/Util/helpfiles\fP
 .fi
 .RE
 .PP
@@ -179,7 +179,7 @@ Run \fBzkbd\fP either as an autoloaded function, or as a shell script:
 .PP
 .RS
 .nf
-\fBzsh \-f ~/zsh\-4\&.0\&.4/Functions/Misc/zkbd\fP
+\fBzsh \-f ~/zsh\-4\&.0\&.6/Functions/Misc/zkbd\fP
 .fi
 .RE
 .PP
@@ -235,7 +235,7 @@ command and redirect the output into a file:
 .PP
 .RS
 .nf
-\fB\&. ~/zsh\-4\&.0\&.4/Util/reporter > zsh\&.report\fP
+\fB\&. ~/zsh\-4\&.0\&.6/Util/reporter > zsh\&.report\fP
 .fi
 .RE
 .PP
@@ -413,7 +413,36 @@ with a key sequence\&.  Suggested bindings are described below\&.
 .PP
 .PD 0
 .TP
+.PD 0
+\fBbash\-forward\-word\fP, \fBbash\-backward\-word\fP
+.TP
+.PD 0
+\fBbash\-kill\-word\fP, \fBbash\-backward\-kill\-word\fP
+.TP
+.PD 0
+\fBbash\-up\-case\-word\fP, \fBbash\-down\-case\-word\fP
+.TP
 .PD
+\fBbash\-transpose\-words\fP
+These work similarly to the corresponding builtin zle functions without the
+`\fBbash\-\fP' prefix, but a word is considered to consist of alphanumeric
+characters only\&.  If you wish to replace your existing bindings with these
+four widgets, the following is sufficient:
+.RS
+.PP
+.RS
+.nf
+\fBfor widget in kill\-word backward\-kill\-word \e 
+forward\-word backward\-word \e 
+up\-case\-word down\-case\-word \e 
+transpose\-words; do 
+  autoload bash\-$widget 
+  zle \-N $widget bash\-$widget
+done\fP
+.fi
+.RE
+.RE
+.TP
 \fBcycle\-completion\-positions\fP
 After inserting an unambiguous string into the command line, the new
 function based completion system may know about multiple places in

@@ -420,6 +420,18 @@ empty_eprog(Eprog p)
     return (!p || !p->prog || *p->prog == WCB_END());
 }
 
+static void
+clear_hdocs()
+{
+    struct heredocs *p, *n;
+
+    for (p = hdocs; p; p = n) {
+        n = p->next;
+        zfree(p, sizeof(struct heredocs));
+    }
+    hdocs = NULL;
+}
+
 /*
  * event	: ENDINPUT
  *			| SEPER
@@ -435,7 +447,12 @@ parse_event(void)
     aliasspaceflag = 0;
     yylex();
     init_parse();
-    return ((par_event()) ? bld_eprog() : NULL);
+
+    if (!par_event()) {
+        clear_hdocs();
+        return NULL;
+    }
+    return bld_eprog();
 }
 
 /**/
@@ -509,6 +526,7 @@ parse_list(void)
     init_parse();
     par_list(&c);
     if (tok != ENDINPUT) {
+        clear_hdocs();
 	tok = LEXERR;
 	yyerror(0);
 	return NULL;
@@ -522,9 +540,10 @@ parse_cond(void)
 {
     init_parse();
 
-    if (!par_cond())
+    if (!par_cond()) {
+        clear_hdocs();
 	return NULL;
-
+    }
     return bld_eprog();
 }
 
@@ -1547,6 +1566,8 @@ par_simple(int *complex, int nr)
 		pl = ecadd(WCB_PIPE(WC_PIPE_END, 0));
 
 		par_cmd(&c);
+		if (!c)
+		    YYERROR(oecused);
 
 		set_sublist_code(sl, WC_SUBLIST_END, 0, ecused - 1 - sl, c);
 		set_list_code(ll, (Z_SYNC | Z_END), c);
@@ -1566,6 +1587,8 @@ par_simple(int *complex, int nr)
 	    ecbuf[p] = WCB_FUNCDEF(ecused - 1 - p);
 
 	    isfunc = 1;
+	    isnull = 0;
+	    break;
 	} else
 	    break;
 	isnull = 0;

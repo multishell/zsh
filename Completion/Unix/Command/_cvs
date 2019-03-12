@@ -945,7 +945,11 @@ _cvs_strict_nonentried_files () {
     omitpats=(
       ${${${${(M)${(f)"$(<"$realdir"CVS/Entries)"}:#/*}#/}%%/*}//(#m)[][*?()<|^~#\\]/\\$MATCH}
     )
-    _path_files -g "*~(*/|)(${(j:|:)~omitpats})(D.)"
+    if (( $#omitpats )); then
+    	_path_files -g "*~(*/|)(${(j:|:)~omitpats})(D.)"
+    else
+    	_path_files -g "*~(*/|)(D.)"
+    fi
   }
 }
 
@@ -959,12 +963,13 @@ _cvs_nonentried_files () {
   realdir=${(e)~linedir}
   [[ -f "$realdir"CVS/Entries ]] && {
     omitpats=(
-      ${${${${(M)${(f)"$(<"$realdir"CVS/Entries)"}:#(D|)/*}#(D|)/}%%/*}//(#m)[][*?()<|^~#\\]/\\$MATCH}
+      ${${${${(M)${${(f)"$(<"$realdir"CVS/Entries)"}:#/*/-*/*/*/*}:#(D|)/*}#(D|)/}%%/*}//(#m)[][*?()<|^~#\\]/\\$MATCH}
       $_cvs_ignore_default
       ${=cvsignore}
     )
     [[ -r ~/.cvsignore ]] && omitpats=($omitpats $(<~/.cvsignore))
     [[ -r ${realdir}.cvsignore ]] && omitpats=($omitpats $(<${realdir}.cvsignore))
+    omitpats=($omitpats $=CVSIGNORE)
 
     _path_files -g "*~(*/|)(${(j:|:)~omitpats})(D.)"
   }

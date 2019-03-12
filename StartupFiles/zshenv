@@ -1,5 +1,5 @@
 #
-# Generic .zshenv file for zsh 2.7
+# Example .zshenv file for zsh 4.0
 #
 # .zshenv is sourced on all invocations of the
 # shell, unless the -f option is set.  It should

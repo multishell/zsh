@@ -1,4 +1,4 @@
-.TH "ZSHBUILTINS" "1" "October 26, 2001" "zsh 4\&.0\&.4"
+.TH "ZSHBUILTINS" "1" "August 14, 2002" "zsh 4\&.0\&.6"
 .SH "NAME"
 zshbuiltins \- zsh built\-in commands
 .\" Yodl file: Zsh/builtins.yo
@@ -681,7 +681,7 @@ If the \fBPUSHD_MINUS\fP option is set, the meanings of `\fB+\fP' and
 `\fB\-\fP' in this context are swapped\&.
 .TP
 \fBprint\fP [ \fB\-bnrslzpNDPoOicm\fP ] [ \fB\-u\fP\fIn\fP ] [ \fB\-R\fP [ \fB\-en\fP ]] [ \fIarg\fP \&.\&.\&. ]
-With no flags or with flag `\fB\-\fP', the arguments are printed on
+With no flags or with the flag `\fB\-\fP', the arguments are printed on
 the standard output as described by \fBecho\fP, with the following differences:
 the escape sequence `\fB\eM\-\fP\fIx\fP' metafies the character
 \fIx\fP (sets the highest bit),
@@ -1264,7 +1264,8 @@ compatibility with previous versions of zsh\&.
 \fBulimit\fP [ \fB\-SHacdflmnpstv\fP [ \fIlimit\fP ] \&.\&.\&. ]
 Set or display resource limits of the shell and the processes started by
 the shell\&.  The value of \fIlimit\fP can be a number in the unit specified
-below or the value `\fBunlimited\fP'\&.  If the \fB\-H\fP flag is given use
+below or the value `\fBunlimited\fP'\&.  By default, only soft limits are
+manipulated\&. If the \fB\-H\fP flag is given use
 hard limits instead of soft limits\&.  If the \fB\-S\fP flag is given
 together with the \fB\-H\fP flag set both hard and soft limits\&.  If no
 options are used, the file size limit (\fB\-f\fP) is assumed\&.  If
