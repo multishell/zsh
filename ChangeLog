@@ -1,3 +1,42 @@
+2016-12-21  Peter Stephenson  <p.w.stephenson@ntlworld.com>
+
+	* unposted: Config/version.mk, Etc/FAQ.yo, NEWS, README:
+	release 5.3.1:
+
+2016-12-18  Baptiste Daroussin  <bapt@FreeBSD.org>
+
+	* 40210: Completion/Unix/Command/_sysctl: Add support modern
+	FreeBSD and drop support for FreeBSD < 5
+
+2016-12-18  Baptiste Daroussin  <bapt@gandi.net>
+
+	* 40209: Completion/BSD/Command/_chflags: Fix typo in chflags
+	completion
+
+2016-12-16  Daniel Shahaf  <d.s@daniel.shahaf.name>
+
+	* 40149: Functions/VCS_Info/Backends/VCS_INFO_get_data_git:
+	vcs_info git: Avoid a fork.
+
+	* 40203: Test/B03print.ztst: Resolve 'printf --' question from
+	grandparent commit (thanks Chet).
+
+2016-12-15  Barton E. Schaefer  <schaefer@zsh.org>
+
+	* 40198: Test/V10private.ztst: output of B02typeset differs when
+	(( UID == 0 )) so do not attempt to redo that test in that case
+
+2016-12-14  Barton E. Schaefer  <schaefer@zsh.org>
+
+	* 40179: Src/builtin.c: fix handling of "printf -" and "printf --"
+
+	* unposted: Test/B03print.ztst: regression for 40179 / 37467
+
+2016-12-12  Peter Stephenson  <p.w.stephenson@ntlworld.com>
+
+	* unposted: Config/version.mk: update to 5.3-dev-0 to avoid
+	clash with installed 5.3.
+
 2016-12-10  Barton E. Schaefer  <schaefer@zsh.org>
 
 	* 40134: Src/builtin.c, Src/Zle/compmatch.c: silence spurious
