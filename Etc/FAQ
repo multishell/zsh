@@ -1,13 +1,9 @@
 
 Archive-Name: unix-faq/shell/zsh
-Last-Modified: 2000/05/24
+Last-Modified: 2000/06/05
 Submitted-By: pws@pwstephenson.fsnet.co.uk (Peter Stephenson)
 Posting-Frequency: Monthly
 Copyright: (C) P.W. Stephenson, 1995--2000 (see end of document)
-
-Changes since issue posted April 2000:
-
-2.5  Mention that ${var/old/new} is a little different from bash.
 
 This document contains a list of frequently-asked (or otherwise
 significant) questions concerning the Z-shell, a command interpreter
@@ -235,7 +231,7 @@ Chapter 1: Introducing zsh and how to install it
   incompatibilities at the end of 5.1.  This is longer than usual
   due to enhanced sh, ksh and POSIX compatibility.
 
-  The beta version 3.1.6 is also available.  Development of zsh is usually
+  The beta version 3.1.9 is also available.  Development of zsh is usually
   patch by patch, with each intermediate version publicly available.  Note
   that this `open' development system does mean bugs are sometimes
   introduced into the most recent archived version.  These are usually
@@ -986,7 +982,10 @@ Chapter 3: How to get various things to work
 
   (disable parity detection, don't strip high bit, use 8-bit characters).
   Make sure this comes _before_ any bindkey entries in your .zshrc which
-  redefine keys normally defined in the emacs/vi keymap.
+  redefine keys normally defined in the emacs/vi keymap.  You may also
+  need to set the eightBitOutput resource in your ~/.Xdefaults
+  file, although this is on by default and it's unlikely anybody will
+  have tinkered with it.
 
   You don't need the `bindkey' to be able to define your own sequences
   with the meta key, though you still need the `stty'.
