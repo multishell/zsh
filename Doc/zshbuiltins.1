@@ -1,4 +1,4 @@
-.TH "ZSHBUILTINS" "1" "January 13, 2005" "zsh 4\&.2\&.3"
+.TH "ZSHBUILTINS" "1" "February 2, 2005" "zsh 4\&.2\&.4"
 .SH "NAME"
 zshbuiltins \- zsh built\-in commands
 .\" Yodl file: Zsh/builtins.yo
@@ -731,8 +731,14 @@ Maximum amount of memory locked in RAM\&.
 \fBmemoryuse\fP
 Maximum resident set size\&.
 .TP
+\fBmsgqueue\fP
+Maximum number of bytes in POSIX message queues\&.
+.TP
 \fBresident\fP
 Maximum resident set size\&.
+.TP
+\fBsigpending\fP
+Maximum number of pending signals\&.
 .TP
 \fBsockbufsize\fP
 Maximum size of all socket buffers\&.
@@ -1497,7 +1503,7 @@ the parameter is not made local to the enclosing function\&.  This is for
 compatibility with previous versions of zsh\&.
 .RE
 .TP
-\fBulimit\fP [ [ \fB\-SHacdflmnpstv\fP | \fB\-N\fP \fIresource\fP [ \fIlimit\fP ] \&.\&.\&. ]
+\fBulimit\fP [ [ \fB\-SHacdfilmnpqstvx\fP | \fB\-N\fP \fIresource\fP [ \fIlimit\fP ] \&.\&.\&. ]
 Set or display resource limits of the shell and the processes started by
 the shell\&.  The value of \fIlimit\fP can be a number in the unit specified
 below or the value `\fBunlimited\fP'\&.  By default, only soft limits are
@@ -1528,6 +1534,9 @@ K\-bytes on the size of the data segment\&.
 \fB\-f\fP
 512\-byte blocks on the size of files written\&.
 .TP
+\fB\-i\fP
+The number of pending signals\&.
+.TP
 \fB\-l\fP
 K\-bytes on the size of locked\-in memory\&.
 .TP
@@ -1536,6 +1545,9 @@ K\-bytes on the size of physical memory\&.
 .TP
 \fB\-n\fP
 open file descriptors\&.
+.TP
+\fB\-q\fP
+Bytes in POSIX message queues\&.
 .TP
 \fB\-s\fP
 K\-bytes on the size of the stack\&.
@@ -1549,6 +1561,9 @@ processes available to the user\&.
 \fB\-v\fP
 K\-bytes on the size of virtual memory\&.  On some systems this
 refers to the limit called `address space'\&.
+.TP
+\fB\-x\fP
+The number of locks on files\&.
 .PD
 .PP
 A resource may also be specified by integer in the form `\fB\-N\fP

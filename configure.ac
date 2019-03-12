@@ -529,7 +529,7 @@ AC_CHECK_HEADERS(sys/time.h sys/times.h sys/select.h termcap.h termio.h \
 		 locale.h errno.h stdio.h stdlib.h unistd.h sys/capability.h \
 		 utmp.h utmpx.h sys/types.h pwd.h grp.h poll.h sys/mman.h \
 		 netinet/in_systm.h pcre.h langinfo.h wchar.h stddef.h \
-		 sys/stropts.h)
+		 sys/stropts.h iconv.h)
 if test $dynamic = yes; then
   AC_CHECK_HEADERS(dlfcn.h)
   AC_CHECK_HEADERS(dl.h)
@@ -729,9 +729,15 @@ AC_CHECK_LIB(socket, socket)
 
 AC_CHECK_LIB(iconv, iconv)
 
+if test "$host_os" = cygwin; then
+dnl cygwin iconv() is really libiconv()
+AC_CHECK_LIB(iconv, libiconv)
+fi
+
 if test x$enable_pcre = xyes; then
 dnl pcre-config should probably be employed here
-AC_SEARCH_LIBS(pcre_compile, pcre)
+dnl AC_SEARCH_LIBS(pcre_compile, pcre)
+  LIBS="`pcre-config --libs` $LIBS"
 fi
 
 dnl ---------------------
@@ -1392,6 +1398,8 @@ zsh_LIMIT_PRESENT(RLIMIT_RSS)
 zsh_LIMIT_PRESENT(RLIMIT_SBSIZE)
 zsh_LIMIT_PRESENT(RLIMIT_TCACHE)
 zsh_LIMIT_PRESENT(RLIMIT_VMEM)
+zsh_LIMIT_PRESENT(RLIMIT_SIGPENDING)
+zsh_LIMIT_PRESENT(RLIMIT_MSGQUEUE)
 
 AH_TEMPLATE([RLIMIT_VMEM_IS_RSS],
 [Define to 1 if RLIMIT_VMEM and RLIMIT_RSS both exist and are equal.])
@@ -1633,7 +1641,10 @@ dnl named FIFOs
 dnl -----------
 AC_CACHE_CHECK(if named FIFOs work,
 zsh_cv_sys_fifo,
-[AC_TRY_RUN([
+[if test "$host_os" = cygwin; then
+zsh_cv_sys_fifo=no
+else
+AC_TRY_RUN([
 #include <fcntl.h>
 #include <signal.h>
 main()
@@ -1663,7 +1674,8 @@ main()
 ],
   zsh_cv_sys_fifo=yes,
   zsh_cv_sys_fifo=no,
-  zsh_cv_sys_fifo=yes)])
+  zsh_cv_sys_fifo=yes)
+fi])
 AH_TEMPLATE([HAVE_FIFOS],
 [Define to 1 if system has working FIFOs.])
 if test $zsh_cv_sys_fifo = yes; then

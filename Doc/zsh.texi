@@ -30,8 +30,8 @@
 @end iftex
 @titlepage
 @title The Z Shell Manual
-@subtitle Version 4.2.3
-@subtitle Updated January 13, 2005
+@subtitle Version 4.2.4
+@subtitle Updated February 2, 2005
 @author Original documentation by Paul Falstad
 @page
 This is a texinfo version of the documentation for the Z Shell, originally by 
@@ -64,7 +64,7 @@ This Info file documents Zsh, a freely available UNIX command interpreter
 
 @noindent
 @cindex version
-Version 4.2.3, last updated January 13, 2005.
+Version 4.2.4, last updated February 2, 2005.
 @end ifinfo
 
 @noindent
@@ -8878,8 +8878,12 @@ Maximum number of threads per process.
 Maximum amount of memory locked in RAM.
 @item @t{memoryuse}
 Maximum resident set size.
+@item @t{msgqueue}
+Maximum number of bytes in POSIX message queues.
 @item @t{resident}
 Maximum resident set size.
+@item @t{sigpending}
+Maximum number of pending signals.
 @item @t{sockbufsize}
 Maximum size of all socket buffers.
 @item @t{stacksize}
@@ -9695,7 +9699,7 @@ compatibility with previous versions of zsh.
 @findex ulimit
 @cindex resource limits
 @cindex limits, resource
-@item @t{ulimit} [ [ @t{-SHacdflmnpstv} | @t{-N} @var{resource} [ @var{limit} ] ... ]
+@item @t{ulimit} [ [ @t{-SHacdfilmnpqstvx} | @t{-N} @var{resource} [ @var{limit} ] ... ]
 Set or display resource limits of the shell and the processes started by
 the shell.  The value of @var{limit} can be a number in the unit specified
 below or the value `@t{unlimited}'.  By default, only soft limits are
@@ -9722,12 +9726,16 @@ Lists all of the current resource limits.
 K-bytes on the size of the data segment.
 @item @t{-f}
 512-byte blocks on the size of files written.
+@item @t{-i}
+The number of pending signals.
 @item @t{-l}
 K-bytes on the size of locked-in memory.
 @item @t{-m}
 K-bytes on the size of physical memory.
 @item @t{-n}
 open file descriptors.
+@item @t{-q}
+Bytes in POSIX message queues.
 @item @t{-s}
 K-bytes on the size of the stack.
 @item @t{-t}
@@ -9737,6 +9745,8 @@ processes available to the user.
 @item @t{-v}
 K-bytes on the size of virtual memory.  On some systems this
 refers to the limit called `address space'.
+@item @t{-x}
+The number of locks on files.
 @end table
 
 @noindent
@@ -24302,7 +24312,7 @@ distribution in your home directory, you would use the commands:
 mkdir ~/zsh_help
 cd ~/zsh_help
 man zshall | colcrt - | \ 
-perl ~/zsh-4.2.3/Util/helpfiles
+perl ~/zsh-4.2.4/Util/helpfiles
 @end example
 
 @noindent
@@ -24458,7 +24468,7 @@ Run @t{zkbd} either as an autoloaded function, or as a shell script:
 
 @noindent
 @example
-zsh -f ~/zsh-4.2.3/Functions/Misc/zkbd
+zsh -f ~/zsh-4.2.4/Functions/Misc/zkbd
 @end example
 
 @noindent
@@ -24523,7 +24533,7 @@ command and redirect the output into a file:
 
 @noindent
 @example
-. ~/zsh-4.2.3/Util/reporter > zsh.report
+. ~/zsh-4.2.4/Util/reporter > zsh.report
 @end example
 
 @noindent

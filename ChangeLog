@@ -1,3 +1,40 @@
+2005-02-02  Peter Stephenson  <pws@csr.com>
+
+	* 20777: Test/A06assign.ztst, Test/C02cond.ztst: tests for
+	users/8422 and 20774.
+
+	* unposted: README, Config/version.mk, Etc/FAQ.yo: update version
+	number to 4.2.4.
+
+2005-02-01  Bart Schaefer  <schaefer@zsh.org>
+
+	* 20774: Src/exec.c: fix e.g. "FOO=BAR BAR=FOO echo" failure to
+	unset FOO after finishing.
+
+2005-02-01  Peter Stephenson  <pws@csr.com>
+
+	* Peter A. Castro: 20759 updated as 20760 and 20765: configure.ac,
+	Src/utils.c: Improve configuration of libiconv and pcre on Cygwin.
+
+2005-01-27  Peter Stephenson  <pws@csr.com>
+
+	* users/8433: configure.ac: Latest Cygwin hangs on FIFO test,
+	so tell it explicitly that FIFOs don't work.
+
+2005-01-24  Peter Stephenson  <pws@csr.com>
+
+	* users/8422: Src/cond.c: [[ ... -nt ... ]] and [[ ... -ot ... ]]
+	with non-existent files (or any failed state) were recorded
+	as errors, causing initialisation scripts, functions, etc., etc.
+	to exit.
+
+2005-01-19  Peter Stephenson  <pws@csr.com>
+
+	* 20728 (with typo fixed): configure.ac, Doc/Zsh/builtins.yo,
+	Src/Builtins/rlimits.awk, Src/Builtins/rlimits.c: Handle
+	RLIMIT_MSGQUEUE (-q), RLIMIT_SIGPENDING (-i), also use
+	-x for RLIMIT_LOCKS in ulimit.
+
 2005-01-13  Peter Stephenson  <pws@csr.com>
 
 	* unposted: README, Config/version.mk, Etc/FAQ.yo:
@@ -54,7 +91,7 @@
 
 	* 20687: NEWS: news for 4.2.2.
 
-2005-01-11  Bart Schaefer  <schaefer@brasslantern.com>
+2005-01-11  Bart Schaefer  <schaefer@zsh.org>
 
 	* 20666 (tweaked): Src/exec.c: In closemn(), discard the multio
 	structure when it has only one descriptor so far, to avoid

@@ -33,12 +33,12 @@
 #if defined(HAVE_WCHAR_H) && defined(HAVE_WCTOMB) && defined (__STDC_ISO_10646__)
 # include <wchar.h>
 #else
-# ifdef HAVE_LANGINFO_H 			       
-#   include <langinfo.h>			       
-#   if defined(HAVE_ICONV) || defined(HAVE_LIBICONV)   
-#     include <iconv.h> 			       
-#   endif					       
-# endif 					       
+# ifdef HAVE_LANGINFO_H
+#   include <langinfo.h>
+#   if defined(HAVE_ICONV_H) || defined(HAVE_ICONV) || defined(HAVE_LIBICONV)
+#     include <iconv.h>
+#   endif
+# endif
 #endif
 
 /* name of script being sourced */
@@ -3521,7 +3521,7 @@ getkeystring(char *s, int *len, int fromwhere, int *misc)
     size_t count;
 #else
     unsigned int wval;
-# if defined(HAVE_NL_LANGINFO) && defined(CODESET) && (defined(HAVE_ICONV) || defined(HAVE_LIBICONV))
+# if defined(HAVE_NL_LANGINFO) && defined(CODESET) && (defined(HAVE_ICONV_H) || defined(HAVE_ICONV) || defined(HAVE_LIBICONV))
     iconv_t cd;
     char inbuf[4];
     size_t inbytes, outbytes;
@@ -3642,7 +3642,7 @@ getkeystring(char *s, int *len, int fromwhere, int *misc)
 		    t += ucs4toutf8(t, wval);
 		    continue;
 		} else {
-#   if defined(HAVE_ICONV) || defined(HAVE_LIBICONV)
+#   if defined(HAVE_ICONV_H) || defined(HAVE_ICONV) || defined(HAVE_LIBICONV)
     	    	    inbytes = 4;
 		    outbytes = 6;
     	    	    inptr = inbuf;

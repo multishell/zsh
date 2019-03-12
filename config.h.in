@@ -243,6 +243,9 @@
 /* Define to 1 if you have the `iconv' function. */
 #undef HAVE_ICONV
 
+/* Define to 1 if you have the <iconv.h> header file. */
+#undef HAVE_ICONV_H
+
 /* Define to 1 if you have the `inet_aton' function. */
 #undef HAVE_INET_ATON
 
@@ -420,6 +423,9 @@
 /* Define to 1 if RLIMIT_MEMLOCK is present (whether or not as a macro). */
 #undef HAVE_RLIMIT_MEMLOCK
 
+/* Define to 1 if RLIMIT_MSGQUEUE is present (whether or not as a macro). */
+#undef HAVE_RLIMIT_MSGQUEUE
+
 /* Define to 1 if RLIMIT_NOFILE is present (whether or not as a macro). */
 #undef HAVE_RLIMIT_NOFILE
 
@@ -434,6 +440,9 @@
 
 /* Define to 1 if RLIMIT_SBSIZE is present (whether or not as a macro). */
 #undef HAVE_RLIMIT_SBSIZE
+
+/* Define to 1 if RLIMIT_SIGPENDING is present (whether or not as a macro). */
+#undef HAVE_RLIMIT_SIGPENDING
 
 /* Define to 1 if RLIMIT_TCACHE is present (whether or not as a macro). */
 #undef HAVE_RLIMIT_TCACHE
