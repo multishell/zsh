@@ -1,4 +1,4 @@
-.TH "ZSHMISC" "1" "August 28, 2014" "zsh 5\&.0\&.6"
+.TH "ZSHMISC" "1" "October 7, 2014" "zsh 5\&.0\&.7"
 .SH "NAME"
 zshmisc \- everything and then some
 .\" Yodl file: Zsh/grammar.yo
@@ -328,6 +328,19 @@ If the option \fBSH_GLOB\fP is set for compatibility with other shells, then
 whitespace may appear between between the left and right parentheses when
 there is a single \fIword\fP;  otherwise, the parentheses will be treated as
 forming a globbing pattern in that case\&.
+.PP
+In any of the forms above, a redirection may appear outside the
+function body, for example
+.PP
+.RS
+.nf
+\fBfunc() { \&.\&.\&. } 2>&1\fP
+.fi
+.RE
+.PP
+The redirection is stored with the function and applied whenever the
+function is executed\&.  Any variables in the redirection are expanded
+at the point the function is executed, but outside the function scope\&.
 .RE
 .TP
 \fBtime\fP [ \fIpipeline\fP ]
@@ -2284,6 +2297,12 @@ the name of the directory, but only if the result is shorter than
 the full path; 
 see \fIDynamic\fP and \fIStatic named directories\fP in \fIzshexpn\fP(1)\&.
 .TP
+\fB%e\fP
+Evaluation depth of the current sourced file, shell function, or \fBeval\fP\&.
+This is incremented or decremented every time the value of \fB%N\fP is
+set or reverted to a previous value, respectively\&.  This is most useful
+for debugging as part of \fB$PS4\fP\&.
+.TP
 .PD 0
 \fB%h\fP
 .TP
@@ -2516,6 +2535,9 @@ True if the month is equal to \fIn\fP (January = 0)\&.
 .TP
 \fBd\fP
 True if the day of the month is equal to \fIn\fP\&.
+.TP
+\fBe\fP
+True if the evaluation depth is at least \fIn\fP\&.
 .TP
 \fBg\fP
 True if the effective gid of the current process is \fIn\fP\&.

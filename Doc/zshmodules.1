@@ -1,4 +1,4 @@
-.TH "ZSHMODULES" "1" "August 28, 2014" "zsh 5\&.0\&.6"
+.TH "ZSHMODULES" "1" "October 7, 2014" "zsh 5\&.0\&.7"
 .SH "NAME"
 zshmodules \- zsh loadable modules
 .\" Yodl file: Zsh/modules.yo
@@ -695,12 +695,12 @@ arguments are like the definition arguments to \fB_describe\fP itself\&.
 .PP
 Once \fBcompdescribe\fP has been called with either the \fB\-i\fP or the
 \fB\-I\fP option, it can be repeatedly called with the \fB\-g\fP option and
-the names of five arrays as its arguments\&.  This will step through the
-different sets of matches and store the options in the first array,
-the strings with descriptions in the second, the matches for these in
-the third, the strings without descriptions in the fourth, and the
-matches for them in the fifth array\&.  These are then directly given to
-\fBcompadd\fP to register the matches with the completion code\&.
+the names of four parameters as its arguments\&.  This will step through
+the different sets of matches and store the value of \fBcompstate[list]\fP
+in the first scalar, the options for \fBcompadd\fP in the second array,
+the matches in the third array, and the strings to be displayed in the
+completion listing in the fourth array\&.  The arrays may then be directly
+given to \fBcompadd\fP to register the matches with the completion code\&.
 .RE
 .TP
 \fBcompfiles\fP
@@ -1755,6 +1755,16 @@ This array contains the names of the functions, sourced files,
 and (if \fBEVAL_LINENO\fP is set) \fBeval\fP commands\&. currently being
 executed\&. The first element is the name of the function using the
 parameter\&.
+.RS
+.PP
+The standard shell array \fBzsh_eval_context\fP can be used to
+determine the type of shell construct being executed at each depth:
+note, however, that is in the opposite order, with the most recent
+item last, and it is more detailed, for example including an
+entry for \fBtoplevel\fP, the main shell code being executed
+either interactively or from a script, which is not present
+in \fB$funcstack\fP\&.
+.RE
 .TP
 \fBfunctrace\fP
 This array contains the names and line numbers of the callers
@@ -3716,7 +3726,7 @@ string \fIarray\fP is interpreted as the name of another \fIspec\fP,
 which is used to choose where to store the values\&.  If no other \fIspec\fP
 is found, the values are stored as usual\&.  This changes only the way the
 values are stored, not the way \fB$*\fP is parsed, so results may be
-unpredicable if the `\fIname\fP\fB+\fP\&' specifier is used inconsistently\&.
+unpredictable if the `\fIname\fP\fB+\fP\&' specifier is used inconsistently\&.
 .TP
 \fB\-E\fP
 This changes the parsing rules to \fInot\fP stop at the first string

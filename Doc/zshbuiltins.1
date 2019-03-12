@@ -1,4 +1,4 @@
-.TH "ZSHBUILTINS" "1" "August 28, 2014" "zsh 5\&.0\&.6"
+.TH "ZSHBUILTINS" "1" "October 7, 2014" "zsh 5\&.0\&.7"
 .SH "NAME"
 zshbuiltins \- zsh built\-in commands
 .\" Yodl file: Zsh/builtins.yo
@@ -654,7 +654,7 @@ disabled with the \fBdisable\fP builtin command\&.
 that it does not override globbing options; for example, `\fBenable \-p
 "~"\fP\&' does not cause the pattern character \fB~\fP to be active unless
 the \fBEXTENDED_GLOB\fP option is also set\&.  To enable all possible
-patterns (so that they may be invidually disabled with \fBdisable \-p\fP),
+patterns (so that they may be individually disabled with \fBdisable \-p\fP),
 use `\fBsetopt EXTENDED_GLOB KSH_GLOB NO_SH_GLOB\fP\&'\&.
 .RE
 .TP
@@ -840,7 +840,7 @@ point numbers are not permitted\&.
 \fBfunctions \-M\fP [ \fB\-m\fP \fIpattern\fP \&.\&.\&. ]
 .TP
 .PD
-\fBfunctions +M\fP [ \fB\-m\fP ] \fImathfn\fP
+\fBfunctions +M\fP [ \fB\-m\fP ] \fImathfn\fP \&.\&.\&. 
 Equivalent to \fBtypeset \-f\fP, with the exception of the \fB\-M\fP option\&.
 Use of the \fB\-M\fP option may not be combined with any of the options
 handled by \fBtypeset \-f\fP\&.
@@ -1770,14 +1770,28 @@ users stick exclusively to one name or another\&.
 Do nothing and return an exit status of 0\&.
 .TP
 \fBttyctl\fP \fB\-fu\fP
-The \fB\-f\fP option freezes the tty, and \fB\-u\fP unfreezes it\&.
+The \fB\-f\fP option freezes the tty (i\&.e\&. terminal or terminal emulator), and
+\fB\-u\fP unfreezes it\&.
 When the tty is frozen, no changes made to the tty settings by
 external programs will be honored by the shell, except for changes in the
 size of the screen; the shell will
 simply reset the settings to their previous values as soon as each
 command exits or is suspended\&.  Thus, \fBstty\fP and similar programs have
-no effect when the tty is frozen\&.  Without options it reports whether the
-terminal is frozen or not\&.
+no effect when the tty is frozen\&.  Freezing the tty does not cause
+the current state to be remembered: instead, it causes future changes
+to the state to be blocked\&.
+.RS
+.PP
+Without options it reports whether the terminal is frozen or not\&.
+.PP
+Note that, regardless of whether the tty is frozen or not, the
+shell needs to change the settings when the line editor starts, so
+unfreezing the tty does not guarantee settings made on the
+command line are preserved\&.  Strings of commands run between
+editing the command line will see a consistent tty state\&.
+See also the shell variable \fBSTTY\fP for a means of initialising
+the tty before running external commands\&.
+.RE
 .TP
 \fBtype\fP [ \fB\-wfpams\fP ] \fIname\fP \&.\&.\&.
 Equivalent to \fBwhence \-v\fP\&.
@@ -2315,6 +2329,28 @@ the \fIname\fPs are used as patterns and all functions whose names
 match one of these patterns will be written\&. If no \fIname\fP is given,
 the definitions of all functions currently defined or marked as
 autoloaded will be written\&.
+.PP
+Note the second form cannot be used for compiling functions that
+include redirections as part of the definition rather than within
+the body of the function; for example
+.PP
+.RS
+.nf
+\fBfn1() { { \&.\&.\&. } >~/logfile }\fP
+.fi
+.RE
+.PP
+can be compiled but
+.PP
+.RS
+.nf
+\fBfn1() { \&.\&.\&. } >~/logfile\fP
+.fi
+.RE
+.PP
+cannot\&.  It is possible to use the first form of \fBzcompile\fP to compile
+autoloadable functions that include the full function definition instead
+of just the body of the function\&.
 .PP
 The third form, with the \fB\-t\fP option, examines an existing
 compiled file\&.  Without further arguments, the names of the original

@@ -29,8 +29,8 @@
 @end iftex
 @titlepage
 @title The Z Shell Manual
-@subtitle Version 5.0.6
-@subtitle Updated August 28, 2014
+@subtitle Version 5.0.7
+@subtitle Updated October 7, 2014
 @author Original documentation by Paul Falstad
 @page
 This is a texinfo version of the documentation for the Z Shell, originally by 
@@ -64,7 +64,7 @@ This Info file documents Zsh, a freely available UNIX command interpreter
 
 @noindent
 @cindex version
-Version 5.0.6, last updated August 28, 2014.
+Version 5.0.7, last updated October 7, 2014.
 @end ifinfo
 
 @menu
@@ -1488,6 +1488,20 @@ If the option @t{SH_GLOB} is set for compatibility with other shells, then
 whitespace may appear between between the left and right parentheses when
 there is a single @var{word};  otherwise, the parentheses will be treated as
 forming a globbing pattern in that case.
+
+@noindent
+In any of the forms above, a redirection may appear outside the
+function body, for example
+
+@noindent
+@example
+func() @{ ... @} 2>&1
+@end example
+
+@noindent
+The redirection is stored with the function and applied whenever the
+function is executed.  Any variables in the redirection are expanded
+at the point the function is executed, but outside the function scope.
 
 @cindex timing
 @findex time
@@ -3655,6 +3669,12 @@ the name of the directory, but only if the result is shorter than
 the full path; 
 @ref{Filename Expansion}.
 
+@item @t{%e}
+Evaluation depth of the current sourced file, shell function, or @t{eval}.
+This is incremented or decremented every time the value of @t{%N} is
+set or reverted to a previous value, respectively.  This is most useful
+for debugging as part of @t{$PS4}.
+
 @item @t{%h}
 @itemx @t{%!}
 Current history event number.
@@ -3873,6 +3893,8 @@ counted as 0 elements.
 True if the month is equal to @var{n} (January = 0).
 @item @t{d}
 True if the day of the month is equal to @var{n}.
+@item @t{e}
+True if the evaluation depth is at least @var{n}.
 @item @t{g}
 True if the effective gid of the current process is @var{n}.
 @item @t{j}
@@ -4314,7 +4336,7 @@ the same record of the last @var{l} and @var{r} is maintained across all
 forms of expansion.
 
 @noindent
-Note that if a `@t{&}' is used within glob qualifers an extra backslash
+Note that if a `@t{&}' is used within glob qualifiers an extra backslash
 is needed as a @t{&} is a special character in this case.
 
 @noindent
@@ -4504,7 +4526,7 @@ spawned from the parent shell which will wait for their completion.
 Another problem arises any time a job with a substitution that requires
 a temporary file is disowned by the shell, including the case where
 `@t{&!}' or `@t{&|}' appears at the end of a command containing a
-subsitution.  In that case the temporary file will not be cleaned up as
+substitution.  In that case the temporary file will not be cleaned up as
 the shell no longer has any memory of the job.  A workaround is to use
 a subshell, for example,
 
@@ -4679,7 +4701,7 @@ quoted, the elements of @var{arrayname} are instead tested against the
 entire expression.
 
 @item @t{$@{}@var{name}@t{:*}@var{arrayname}@t{@}}
-Similar to the preceding subsitution, but in the opposite sense,
+Similar to the preceding substitution, but in the opposite sense,
 so that entries present in both the original substitution and as
 elements of @var{arrayname} are retained and others removed.
 
@@ -4767,7 +4789,7 @@ print $@{foo:$(echo 1 + 2)@}
 
 @noindent
 all have the same effect, extracting the string starting at the fourth
-character of @t{$foo} if the substution would otherwise return a scalar,
+character of @t{$foo} if the substitution would otherwise return a scalar,
 or the array starting at the fourth element if @t{$foo} would return an
 array.  Note that with the option @t{KSH_ARRAYS} @t{$foo} always returns
 a scalar (regardless of the use of the offset syntax) and a form
@@ -5007,7 +5029,7 @@ that result from field splitting.
 @item @t{D}
 Assume the string or array elements contain directories and attempt
 to substitute the leading part of these by names.  The remainder of
-the path (the whole of it if the leading part was not subsituted)
+the path (the whole of it if the leading part was not substituted)
 is then quoted so that the whole string can be used as a shell
 argument.  This is the reverse of `@t{~}' substitution:  see
 @ref{Filename Expansion}.
@@ -5215,15 +5237,16 @@ in string arguments to any of the flags described below that
 follow this argument.
 
 @item @t{~}
-Force string arguments to any of the flags below that follow within
-the parentheses to be treated as patterns.  Compare with a @t{~}
+Strings inserted into the expansion by any of the flags below are to
+be treated as patterns.  This applies to the string arguments of flags
+that follow @t{~} within the same set of parentheses.  Compare with @t{~}
 outside parentheses, which forces the entire substituted string to
 be treated as a pattern.  Hence, for example,
 @example
 [[ "?" = $@{(~j.|.)array@} ]]
 @end example
-with the @t{EXTENDED_GLOB} option set succeeds if and only if @t{$array}
-contains the string `@t{?}' as an element.  The argument may be
+treats `@t{|}' as a pattern and succeeds if and only if @t{$array}
+contains the string `@t{?}' as an element.  The @t{~} may be
 repeated to toggle the behaviour; its effect only lasts to the
 end of the parenthesised group.
 
@@ -5246,6 +5269,11 @@ often as needed) or spaces if @var{string1} is not given.  If both
 @var{string1} and @var{string2} are given, @t{string2} is inserted once
 directly to the left of each word, truncated if necessary, before
 @var{string1} is used to produce any remaining padding.
+
+@noindent
+If either of @var{string1} or @t{string2} is present but empty,
+i.e. there are two delimiters together at that point, the first
+character of @t{$IFS} is used instead.
 
 @noindent
 If the @t{MULTIBYTE} option is in effect, the flag @t{m} may also
@@ -6909,6 +6937,13 @@ A typical use for this is to prepend an option before all occurrences
 of a file name; for example, the pattern `@t{*(P:-f:)}' produces the
 command line arguments `@t{-f} @var{file1} @t{-f} @var{file2} ...'
 
+@noindent
+If the modifier @t{^} is active, then @var{string} will be appended
+instead of prepended.  Prepending and appending is done independently
+so both can be used on the same glob expression; for example by writing
+`@t{*(P:foo:^P:bar:^P:baz:)}' which produces the command line arguments
+`@t{foo} @t{baz} @var{file1} @t{bar} ...'
+
 @end table
 
 @noindent
@@ -8157,7 +8192,7 @@ doublequote or backquote, there must also be an odd number of them
 on the command line for the last one to be removed.
 
 @noindent
-For backward compabitility, if the @t{SUNKEYBOARDHACK} option is
+For backward compatibility, if the @t{SUNKEYBOARDHACK} option is
 explicitly set, the value of @t{KEYBOARD_HACK} reverts to backquote.
 If the option is explicitly unset, this variable is set to empty.
 
@@ -10584,7 +10619,7 @@ Print shell input lines as they are read.
 @cindex commands, tracing
 @item @t{XTRACE} (@t{-x}, ksh: @t{-x})
 Print commands and their arguments as they are executed.  The
-output is proceded by the value of @t{$PS4}, formatted as described
+output is preceded by the value of @t{$PS4}, formatted as described
 in
 @ref{Prompt Expansion}.
 
@@ -10903,7 +10938,7 @@ variables, or in arguments to external programs.
 @noindent
 When this option is set, the @t{$'}@var{...}@t{'} expression is truncated at
 the null character.  Note that remaining parts of the same string
-beyond the termination of the quotes are not trunctated.
+beyond the termination of the quotes are not truncated.
 
 @noindent
 For example, the command line argument @t{a$'b\0c'd} is treated with
@@ -12141,7 +12176,7 @@ disabled with the @t{disable} builtin command.
 that it does not override globbing options; for example, `@t{enable -p
 "~"}' does not cause the pattern character @t{~} to be active unless
 the @t{EXTENDED_GLOB} option is also set.  To enable all possible
-patterns (so that they may be invidually disabled with @t{disable -p}),
+patterns (so that they may be individually disabled with @t{disable -p}),
 use `@t{setopt EXTENDED_GLOB KSH_GLOB NO_SH_GLOB}'.
 
 @findex eval
@@ -12323,7 +12358,7 @@ point numbers are not permitted.
 @item @t{functions} [ @{@t{+}|@t{-}@}@t{UXkmtTuz} ] [ @var{name} ... ]
 @itemx @t{functions -M} @var{mathfn} [ @var{min} [ @var{max} [ @var{shellfn} ] ] ]
 @itemx @t{functions -M} [ @t{-m} @var{pattern} ... ]
-@itemx @t{functions +M} [ @t{-m} ] @var{mathfn}
+@itemx @t{functions +M} [ @t{-m} ] @var{mathfn} ... 
 Equivalent to @t{typeset -f}, with the exception of the @t{-M} option.
 Use of the @t{-M} option may not be combined with any of the options
 handled by @t{typeset -f}.
@@ -13298,14 +13333,28 @@ Do nothing and return an exit status of 0.
 @findex ttyctl
 @cindex tty, freezing
 @item @t{ttyctl} @t{-fu}
-The @t{-f} option freezes the tty, and @t{-u} unfreezes it.
+The @t{-f} option freezes the tty (i.e. terminal or terminal emulator), and
+@t{-u} unfreezes it.
 When the tty is frozen, no changes made to the tty settings by
 external programs will be honored by the shell, except for changes in the
 size of the screen; the shell will
 simply reset the settings to their previous values as soon as each
 command exits or is suspended.  Thus, @t{stty} and similar programs have
-no effect when the tty is frozen.  Without options it reports whether the
-terminal is frozen or not.
+no effect when the tty is frozen.  Freezing the tty does not cause
+the current state to be remembered: instead, it causes future changes
+to the state to be blocked.
+
+@noindent
+Without options it reports whether the terminal is frozen or not.
+
+@noindent
+Note that, regardless of whether the tty is frozen or not, the
+shell needs to change the settings when the line editor starts, so
+unfreezing the tty does not guarantee settings made on the
+command line are preserved.  Strings of commands run between
+editing the command line will see a consistent tty state.
+See also the shell variable @t{STTY} for a means of initialising
+the tty before running external commands.
 
 @findex type
 @item @t{type} [ @t{-wfpams} ] @var{name} ...
@@ -13865,6 +13914,29 @@ the @var{name}s are used as patterns and all functions whose names
 match one of these patterns will be written. If no @var{name} is given,
 the definitions of all functions currently defined or marked as
 autoloaded will be written.
+
+@noindent
+Note the second form cannot be used for compiling functions that
+include redirections as part of the definition rather than within
+the body of the function; for example
+
+@noindent
+@example
+fn1() @{ @{ ... @} >~/logfile @}
+@end example
+
+@noindent
+can be compiled but
+
+@noindent
+@example
+fn1() @{ ... @} >~/logfile
+@end example
+
+@noindent
+cannot.  It is possible to use the first form of @t{zcompile} to compile
+autoloadable functions that include the full function definition instead
+of just the body of the function.
 
 @noindent
 The third form, with the @t{-t} option, examines an existing
@@ -16807,7 +16879,7 @@ These characters are described below.
 
 @cindex completion removable suffix, highlighting
 @cindex suffix, highlighting removable, in completion
-@cindex removable suffix, highlighting in completino
+@cindex removable suffix, highlighting in completion
 @item @t{suffix}
 This context is used in completion for characters that are
 marked as suffixes that will be removed if the completion ends
@@ -25511,12 +25583,12 @@ arguments are like the definition arguments to @t{_describe} itself.
 @noindent
 Once @t{compdescribe} has been called with either the @t{-i} or the
 @t{-I} option, it can be repeatedly called with the @t{-g} option and
-the names of five arrays as its arguments.  This will step through the
-different sets of matches and store the options in the first array,
-the strings with descriptions in the second, the matches for these in
-the third, the strings without descriptions in the fourth, and the
-matches for them in the fifth array.  These are then directly given to
-@t{compadd} to register the matches with the completion code.
+the names of four parameters as its arguments.  This will step through
+the different sets of matches and store the value of @t{compstate[list]}
+in the first scalar, the options for @t{compadd} in the second array,
+the matches in the third array, and the strings to be displayed in the
+completion listing in the fourth array.  The arrays may then be directly
+given to @t{compadd} to register the matches with the completion code.
 
 @findex compfiles
 @item @t{compfiles}
@@ -26685,6 +26757,15 @@ This array contains the names of the functions, sourced files,
 and (if @t{EVAL_LINENO} is set) @t{eval} commands. currently being
 executed. The first element is the name of the function using the
 parameter.
+
+@noindent
+The standard shell array @t{zsh_eval_context} can be used to
+determine the type of shell construct being executed at each depth:
+note, however, that is in the opposite order, with the most recent
+item last, and it is more detailed, for example including an
+entry for @t{toplevel}, the main shell code being executed
+either interactively or from a script, which is not present
+in @t{$funcstack}.
 
 @vindex functrace
 @item @t{functrace}
@@ -28828,7 +28909,7 @@ string @var{array} is interpreted as the name of another @var{spec},
 which is used to choose where to store the values.  If no other @var{spec}
 is found, the values are stored as usual.  This changes only the way the
 values are stored, not the way @t{$*} is parsed, so results may be
-unpredicable if the `@var{name}@t{+}' specifier is used inconsistently.
+unpredictable if the `@var{name}@t{+}' specifier is used inconsistently.
 
 @item @t{-E}
 This changes the parsing rules to @emph{not} stop at the first string
@@ -31799,7 +31880,7 @@ distribution in your home directory, you would use the commands:
 @noindent
 @example
 mkdir ~/zsh_help
-perl ~/zsh-5.0.6/Util/helpfiles ~/zsh_help
+perl ~/zsh-5.0.7/Util/helpfiles ~/zsh_help
 @end example
 
 @noindent
@@ -31960,7 +32041,7 @@ Run @t{zkbd} either as an autoloaded function, or as a shell script:
 
 @noindent
 @example
-zsh -f ~/zsh-5.0.6/Functions/Misc/zkbd
+zsh -f ~/zsh-5.0.7/Functions/Misc/zkbd
 @end example
 
 @noindent
@@ -32025,7 +32106,7 @@ command and redirect the output into a file:
 
 @noindent
 @example
-. ~/zsh-5.0.6/Util/reporter > zsh.report
+. ~/zsh-5.0.7/Util/reporter > zsh.report
 @end example
 
 @noindent
@@ -33196,8 +33277,8 @@ here. See @cite{Hooks in vcs_info} below for details.
 Remove hook-functions from a given hook. The hook needs to be given as the
 first non-option argument; what follows is a list of hook-function
 names to un-register from the hook. If `@t{-a}' is used as the first
-argument, @t{all} occurances of the functions are unregistered. Otherwise
-only the last occurance is removed (if a function was registered to a hook
+argument, @t{all} occurrences of the functions are unregistered. Otherwise
+only the last occurrence is removed (if a function was registered to a hook
 more than once) . The `@t{+vi-}' prefix needs to be left out here. See
 @cite{Hooks in vcs_info} below for details.
 
@@ -33361,14 +33442,14 @@ This hook gets the names of the Mercurial bookmarks that
 @noindent
 When setting @t{ret} to non-zero, the string in
 @t{$@{hook_com[hg-bookmark-string]@}} will be used in the @t{%m} escape in
-@t{formats} and @t{actionformats} and will be availabe in the global
+@t{formats} and @t{actionformats} and will be available in the global
 @t{backend_misc} array as @t{$@{backend_misc[bookmarks]@}}.
 
 @item @t{gen-applied-string}
-Called in the @t{git} (with @t{stgit}), and @t{hg} (with @t{mq}) backends
-and in @t{quilt} support when the @t{applied-string} is generated; the
-@t{use-quilt} zstyle must be true for @t{quilt} (the @t{mq} and @t{stgit}
-backends are active by default).
+Called in the @t{git} (with @t{stgit} or during rebase), and @t{hg}
+(with @t{mq}) backends and in @t{quilt} support when the @t{applied-string}
+is generated; the @t{use-quilt} zstyle must be true for @t{quilt} (the @t{mq}
+and @t{stgit} backends are active by default).
 
 @noindent
 This hook gets the names of all applied patches which @t{vcs_info} collected
@@ -33383,9 +33464,9 @@ When setting @t{ret} to non-zero, the string in
 available as @t{%p} in the @t{patch-format} and @t{nopatch-format} styles.
 
 @item @t{gen-unapplied-string}
-Called in the @t{git} (with @t{stgit}), and @t{hg} (with @t{mq}) backend
-and in @t{quilt} support when the @t{unapplied-string} is generated; the
-@t{get-unapplied} style must be true.
+Called in the @t{git} (with @t{stgit} or during rebase), and @t{hg} (with
+@t{mq}) backend and in @t{quilt} support when the @t{unapplied-string} is
+generated; the @t{get-unapplied} style must be true.
 
 @noindent
 This hook gets the names of all unapplied patches which @t{vcs_info}
