@@ -29,8 +29,8 @@
 @end iftex
 @titlepage
 @title The Z Shell Manual
-@subtitle Version 5.0.1
-@subtitle Updated December 20, 2012
+@subtitle Version 5.0.2
+@subtitle Updated December 21, 2012
 @author Original documentation by Paul Falstad
 @page
 This is a texinfo version of the documentation for the Z Shell, originally by 
@@ -63,7 +63,7 @@ This Info file documents Zsh, a freely available UNIX command interpreter
 
 @noindent
 @cindex version
-Version 5.0.1, last updated December 20, 2012.
+Version 5.0.2, last updated December 21, 2012.
 @end ifinfo
 
 @menu
@@ -31039,7 +31039,7 @@ distribution in your home directory, you would use the commands:
 mkdir ~/zsh_help
 cd ~/zsh_help
 man zshall | colcrt - | \ 
-perl ~/zsh-5.0.1/Util/helpfiles
+perl ~/zsh-5.0.2/Util/helpfiles
 @end example
 
 @noindent
@@ -31195,7 +31195,7 @@ Run @t{zkbd} either as an autoloaded function, or as a shell script:
 
 @noindent
 @example
-zsh -f ~/zsh-5.0.1/Functions/Misc/zkbd
+zsh -f ~/zsh-5.0.2/Functions/Misc/zkbd
 @end example
 
 @noindent
@@ -31260,7 +31260,7 @@ command and redirect the output into a file:
 
 @noindent
 @example
-. ~/zsh-5.0.1/Util/reporter > zsh.report
+. ~/zsh-5.0.2/Util/reporter > zsh.report
 @end example
 
 @noindent
