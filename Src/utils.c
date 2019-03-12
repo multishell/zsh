@@ -1834,8 +1834,9 @@ adjustlines(int signalled)
     else
 	shttyinfo.winsize.ws_row = zterm_lines;
 #endif /* TIOCGWINSZ */
-    if (zterm_lines < 0) {
-	DPUTS(signalled, "BUG: Impossible TIOCGWINSZ rows");
+    if (zterm_lines <= 0) {
+	DPUTS(signalled && zterm_lines < 0,
+	      "BUG: Impossible TIOCGWINSZ rows");
 	zterm_lines = tclines > 0 ? tclines : 24;
     }
 
@@ -1858,8 +1859,9 @@ adjustcolumns(int signalled)
     else
 	shttyinfo.winsize.ws_col = zterm_columns;
 #endif /* TIOCGWINSZ */
-    if (zterm_columns < 0) {
-	DPUTS(signalled, "BUG: Impossible TIOCGWINSZ cols");
+    if (zterm_columns <= 0) {
+	DPUTS(signalled && zterm_columns < 0,
+	      "BUG: Impossible TIOCGWINSZ cols");
 	zterm_columns = tccolumns > 0 ? tccolumns : 80;
     }
 
@@ -2775,10 +2777,11 @@ checkrmall(char *s)
     const int max_count = 100;
     if ((rmd = opendir(unmeta(s)))) {
 	int ignoredots = !isset(GLOBDOTS);
-	/* ### TODO: Passing ignoredots here is wrong.  See workers/41672
-	   aka <https://bugs.debian.org/875460>.
-	 */
-	while (zreaddir(rmd, ignoredots)) {
+	char *fname;
+
+	while ((fname = zreaddir(rmd, 1))) {
+	    if (ignoredots && *fname == '.')
+		continue;
 	    count++;
 	    if (count > max_count)
 		break;

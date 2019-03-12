@@ -1,6 +1,6 @@
 IFDEF(INCWSLEVEL)(INCWSLEVEL())(STARTDEF())
-def(version)(0)(5.5)
-def(date)(0)(April 8, 2018)
+def(version)(0)(5.5.1)
+def(date)(0)(April 16, 2018)
 def(zshenv)(0)(/etc/zshenv)
 def(zprofile)(0)(/etc/zprofile)
 def(zshrc)(0)(/etc/zshrc)
