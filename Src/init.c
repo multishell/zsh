@@ -376,12 +376,12 @@ parseopts(char *nam, char ***argvp, char *new_opts, char **cmdp,
 	    *argv = "--";
 	while (*++*argv) {
 	    if (**argv == '-') {
-		if(!argv[0][1]) {
+		if (!argv[0][1]) {
 		    /* The pseudo-option `--' signifies the end of options. */
 		    argv++;
 		    goto doneoptions;
 		}
-		if(*argv != args+1 || **argv != '-')
+		if (nam || *argv != args+1 || **argv != '-')
 		    goto badoptionstring;
 		/* GNU-style long options */
 		++*argv;
@@ -790,7 +790,7 @@ init_term(void)
 	    tcstr[TCCLEARSCREEN] = ztrdup("\14");
 	    tclen[TCCLEARSCREEN] = 1;
 	}
-	rprompt_indent = 1;
+	rprompt_indent = 1; /* If you change this, update rprompt_indent_unsetfn() */
 	/* The following is an attempt at a heuristic,
 	 * but it fails in some cases */
 	/* rprompt_indent = ((hasam && !hasbw) || hasye || !tccan(TCLEFT)); */

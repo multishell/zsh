@@ -975,9 +975,8 @@ entersubsh(int flags)
     int sig, monitor, job_control_ok;
 
     if (!(flags & ESUB_KEEPTRAP))
-	for (sig = 0; sig < VSIGCOUNT; sig++)
-	    if (!(sigtrapped[sig] & ZSIG_FUNC) &&
-		sig != SIGDEBUG && sig != SIGZERR)
+	for (sig = 0; sig < SIGCOUNT; sig++)
+	    if (!(sigtrapped[sig] & ZSIG_FUNC))
 		unsettrap(sig);
     monitor = isset(MONITOR);
     job_control_ok = monitor && (flags & ESUB_JOB_CONTROL) && isset(POSIXJOBS);
@@ -1068,6 +1067,18 @@ entersubsh(int flags)
     }
     if (!(sigtrapped[SIGQUIT] & ZSIG_IGNORED))
 	signal_default(SIGQUIT);
+    /*
+     * sigtrapped[sig] == ZSIG_IGNORED for signals that remain ignored,
+     * but other trapped signals are temporarily blocked when intrap,
+     * and must be unblocked before continuing into the subshell.  This
+     * is orthogonal to what the default handler for the signal may be.
+     *
+     * Start loop at 1 because 0 is SIGEXIT
+     */
+    if (intrap)
+	for (sig = 1; sig < SIGCOUNT; sig++)
+	    if (sigtrapped[sig] && sigtrapped[sig] != ZSIG_IGNORED)
+		signal_unblock(signal_mask(sig));
     if (!job_control_ok)
 	opts[MONITOR] = 0;
     opts[USEZLE] = 0;
@@ -1601,6 +1612,7 @@ execpline(Estate state, wordcode slcode, int how, int last1)
 	    zclose(opipe[0]);
 	}
 	if (how & Z_DISOWN) {
+	    pipecleanfilelist(jobtab[thisjob].filelist, 0);
 	    deletejob(jobtab + thisjob, 1);
 	    thisjob = -1;
 	}
@@ -1848,7 +1860,7 @@ execpline2(Estate state, wordcode pcode,
 	lineno = WC_PIPE_LINENO(pcode) - 1;
 
     if (pline_level == 1) {
-	if ((how & Z_ASYNC) || (!sfcontext && !sourcelevel))
+	if ((how & Z_ASYNC) || !sfcontext)
 	    strcpy(list_pipe_text,
 		   getjobtext(state->prog,
 			      state->pc + (WC_PIPE_TYPE(pcode) == WC_PIPE_END ?
@@ -2379,9 +2391,7 @@ addvars(Estate state, Wordcode pc, int addflags)
      * to be restored after the command, since then the assignment
      * is implicitly scoped.
      */
-    flags = (!(addflags & ADDVAR_RESTORE) &&
-	     locallevel > forklevel && isset(WARNCREATEGLOBAL)) ?
-	ASSPM_WARN_CREATE : 0;
+    flags = !(addflags & ADDVAR_RESTORE) ? ASSPM_WARN : 0;
     xtr = isset(XTRACE);
     if (xtr) {
 	printprompt4();
@@ -2633,6 +2643,27 @@ execcmd_analyse(Estate state, Execcmd_params eparams)
 }
 
 /*
+ * Transfer the first node of args to preargs, performing
+ * prefork expansion on the way if necessary.
+ */
+static void execcmd_getargs(LinkList preargs, LinkList args, int expand)
+{
+    if (!firstnode(args)) {
+	return;
+    } else if (expand) {
+	local_list0(svl);
+	init_list0(svl);
+	/* not init_list1, as we need real nodes */
+	addlinknode(&svl, uremnode(args, firstnode(args)));
+	/* Analysing commands, so vanilla options to prefork */
+	prefork(&svl, 0, NULL);
+	joinlists(preargs, &svl);
+    } else {
+        addlinknode(preargs, uremnode(args, firstnode(args)));
+    }
+}
+
+/*
  * Execute a command at the lowest level of the hierarchy.
  */
 
@@ -2649,7 +2680,7 @@ execcmd_exec(Estate state, Execcmd_params eparams,
     char *text;
     int save[10];
     int fil, dfil, is_cursh, do_exec = 0, redir_err = 0, i;
-    int nullexec = 0, assign = 0, forked = 0;
+    int nullexec = 0, magic_assign = 0, forked = 0;
     int is_shfunc = 0, is_builtin = 0, is_exec = 0, use_defpath = 0;
     /* Various flags to the command. */
     int cflags = 0, orig_cflags = 0, checked = 0, oautocont = -1;
@@ -2662,6 +2693,11 @@ execcmd_exec(Estate state, Execcmd_params eparams,
     LinkList redir = eparams->redir;
     Wordcode varspc = eparams->varspc;
     int type = eparams->type;
+    /*
+     * preargs comes from expanding the head of the args list
+     * in order to check for prefix commands.
+     */
+    LinkList preargs;
 
     doneps4 = 0;
 
@@ -2716,9 +2752,19 @@ execcmd_exec(Estate state, Execcmd_params eparams,
      * command if it contains some tokens (e.g. x=ex; ${x}port), so this *
      * only works in simple cases.  has_token() is called to make sure   *
      * this really is a simple case.                                     */
-    if (type == WC_SIMPLE || type == WC_TYPESET) {
-	while (args && nonempty(args)) {
-	    char *cmdarg = (char *) peekfirst(args);
+    if ((type == WC_SIMPLE || type == WC_TYPESET) && args) {
+	/*
+	 * preargs contains args that have been expanded by prefork.
+	 * Running execcmd_getargs() causes the any argument available
+	 * in args to be exanded where necessary and transferred to
+	 * preargs.  We call execcmd_getargs() every time we need to
+	 * analyse an argument not available in preargs, though there is
+	 * no guarantee a further argument will be available.
+	 */
+	preargs = newlinklist();
+	execcmd_getargs(preargs, args, eparams->htok);
+	while (nonempty(preargs)) {
+	    char *cmdarg = (char *) peekfirst(preargs);
 	    checked = !has_token(cmdarg);
 	    if (!checked)
 		break;
@@ -2732,6 +2778,12 @@ execcmd_exec(Estate state, Execcmd_params eparams,
 		 * Reserved words take precedence over shell functions.
 		 */
 		checked = 1;
+	    } else if (isset(POSIXBUILTINS) && (cflags & BINF_EXEC)) {
+		/*
+		 * POSIX doesn't allow "exec" to operate on builtins
+		 * or shell functions.
+		 */
+		break;
 	    } else {
 		if (!(cflags & (BINF_BUILTIN | BINF_COMMAND)) &&
 		    (hn = shfunctab->getnode(shfunctab, cmdarg))) {
@@ -2752,11 +2804,24 @@ execcmd_exec(Estate state, Execcmd_params eparams,
 		/* autoload the builtin if necessary */
 		if (!(hn = resolvebuiltin(cmdarg, hn)))
 		    return;
-		assign = (hn->flags & BINF_MAGICEQUALS);
+		if (type != WC_TYPESET)
+		    magic_assign = (hn->flags & BINF_MAGICEQUALS);
 		break;
 	    }
 	    checked = 0;
-	    if ((cflags & BINF_COMMAND) && nextnode(firstnode(args))) {
+	    /*
+	     * We usually don't need the argument containing the
+	     * precommand modifier itself.  Exception: when "command"
+	     * will implemented by a call to "whence", in which case
+	     * we'll simply re-insert the argument.
+	     */
+	    uremnode(preargs, firstnode(preargs));
+	    if (!firstnode(preargs)) {
+		execcmd_getargs(preargs, args, eparams->htok);
+		if (!firstnode(preargs))
+		    break;
+	    }
+	    if ((cflags & BINF_COMMAND)) {
 		/*
 		 * Check for options to "command".
 		 * If just -p, this is handled here: use the default
@@ -2766,13 +2831,15 @@ execcmd_exec(Estate state, Execcmd_params eparams,
 		 * Otherwise, just leave marked as BINF_COMMAND
 		 * modifier with no additional action.
 		 */
-		LinkNode argnode = nextnode(firstnode(args));
-		char *argdata = (char *) getdata(argnode);
-		char *cmdopt;
+		LinkNode argnode, oldnode, pnode = NULL;
+		char *argdata, *cmdopt;
 		int has_p = 0, has_vV = 0, has_other = 0;
-		while (*argdata == '-') {
+		argnode = firstnode(preargs);
+		argdata = (char *) getdata(argnode);
+		while (IS_DASH(*argdata)) {
 		    /* Just to be definite, stop on single "-", too, */
-		    if (!argdata[1] || (argdata[1] == '-' && !argdata[2]))
+		    if (!argdata[1] ||
+			(IS_DASH(argdata[1]) && !argdata[2]))
 			break;
 		    for (cmdopt = argdata+1; *cmdopt; cmdopt++) {
 			switch (*cmdopt) {
@@ -2785,6 +2852,7 @@ execcmd_exec(Estate state, Execcmd_params eparams,
 			     * also traditional behaviour.
 			     */
 			    has_p = 1;
+			    pnode = argnode;
 			    break;
 			case 'v':
 			case 'V':
@@ -2801,42 +2869,53 @@ execcmd_exec(Estate state, Execcmd_params eparams,
 			break;
 		    }
 
+		    oldnode = argnode;
 		    argnode = nextnode(argnode);
-		    if (!argnode)
-			break;
+		    if (!argnode) {
+			execcmd_getargs(preargs, args, eparams->htok);
+			if (!(argnode = nextnode(oldnode)))
+			    break;
+		    }
 		    argdata = (char *) getdata(argnode);
 		}
 		if (has_vV) {
-		    /* Leave everything alone, dispatch to whence */
+		    /*
+		     * Leave everything alone, dispatch to whence.
+		     * We need to put the name back in the list.
+		     */
+		    pushnode(preargs, "command");
 		    hn = &commandbn.node;
 		    is_builtin = 1;
 		    break;
 		} else if (has_p) {
-		    /* Use default path; absorb command and option. */
-		    uremnode(args, firstnode(args));
+		    /* Use default path */
 		    use_defpath = 1;
-		    if ((argnode = nextnode(firstnode(args))))
-			argdata = (char *) getdata(argnode);
+		    /*
+		     * We don't need this node as we're not treating
+		     * "command" as a builtin this time.
+		     */
+		    if (pnode)
+			uremnode(preargs, pnode);
 		}
 		/*
-		 * Else just absorb command and any trailing
+		 * Else just any trailing
 		 * end-of-options marker.  This can only occur
 		 * if we just had -p or something including more
 		 * than just -p, -v and -V, in which case we behave
 		 * as if this is command [non-option-stuff].  This
 		 * isn't a good place for standard option handling.
 		 */
-		if (!strcmp(argdata, "--"))
-		     uremnode(args, firstnode(args));
-	    }
-	    if ((cflags & BINF_EXEC) && nextnode(firstnode(args))) {
+		if (IS_DASH(argdata[0]) && IS_DASH(argdata[1]) && !argdata[2])
+		     uremnode(preargs, argnode);
+	    } else if (cflags & BINF_EXEC) {
 		/*
 		 * Check for compatibility options to exec builtin.
 		 * It would be nice to do these more generically,
 		 * but currently we don't have a mechanism for
 		 * precommand modifiers.
 		 */
-		char *next = (char *) getdata(nextnode(firstnode(args)));
+		LinkNode argnode = firstnode(preargs), oldnode;
+		char *argdata = (char *) getdata(argnode);
 		char *cmdopt, *exec_argv0 = NULL;
 		/*
 		 * Careful here: we want to make sure a final dash
@@ -2846,17 +2925,23 @@ execcmd_exec(Estate state, Execcmd_params eparams,
 		 * people aren't likely to mix the option style
 		 * with the zsh style.
 		 */
-		while (next && *next == '-' && strlen(next) >= 2) {
-		    if (!firstnode(args)) {
+		while (argdata && IS_DASH(*argdata) && strlen(argdata) >= 2) {
+		    oldnode = argnode;
+		    argnode = nextnode(oldnode);
+		    if (!argnode) {
+			execcmd_getargs(preargs, args, eparams->htok);
+			argnode = nextnode(oldnode);
+		    }
+		    if (!argnode) {
 			zerr("exec requires a command to execute");
 			lastval = 1;
 			errflag |= ERRFLAG_ERROR;
 			goto done;
 		    }
-		    uremnode(args, firstnode(args));
-		    if (!strcmp(next, "--"))
+		    uremnode(preargs, oldnode);
+		    if (IS_DASH(argdata[0]) && IS_DASH(argdata[1]) && !argdata[2])
 			break;
-		    for (cmdopt = &next[1]; *cmdopt; ++cmdopt) {
+		    for (cmdopt = &argdata[1]; *cmdopt; ++cmdopt) {
 			switch (*cmdopt) {
 			case 'a':
 			    /* argument is ARGV0 string */
@@ -2865,21 +2950,25 @@ execcmd_exec(Estate state, Execcmd_params eparams,
 				/* position on last non-NULL character */
 				cmdopt += strlen(cmdopt+1);
 			    } else {
-				if (!firstnode(args)) {
+				if (!argnode) {
 				    zerr("exec requires a command to execute");
 				    lastval = 1;
 				    errflag |= ERRFLAG_ERROR;
 				    goto done;
 				}
-				if (!nextnode(firstnode(args))) {
+				if (!nextnode(argnode))
+				    execcmd_getargs(preargs, args,
+						    eparams->htok);
+				if (!nextnode(argnode)) {
 				    zerr("exec flag -a requires a parameter");
 				    lastval = 1;
 				    errflag |= ERRFLAG_ERROR;
 				    goto done;
 				}
-				exec_argv0 = (char *)
-				    getdata(nextnode(firstnode(args)));
-				uremnode(args, firstnode(args));
+				exec_argv0 = (char *) getdata(argnode);
+				oldnode = argnode;
+				argnode = nextnode(argnode);
+				uremnode(args, oldnode);
 			    }
 			    break;
 			case 'c':
@@ -2895,8 +2984,9 @@ execcmd_exec(Estate state, Execcmd_params eparams,
 			    return;
 			}
 		    }
-		    if (firstnode(args) && nextnode(firstnode(args)))
-			next = (char *) getdata(nextnode(firstnode(args)));
+		    if (!argnode)
+			break;
+		    argdata = (char *) getdata(argnode);
 		}
 		if (exec_argv0) {
 		    char *str, *s;
@@ -2908,21 +2998,41 @@ execcmd_exec(Estate state, Execcmd_params eparams,
 		    zputenv(str);
 		}
 	    }
-	    uremnode(args, firstnode(args));
 	    hn = NULL;
 	    if ((cflags & BINF_COMMAND) && unset(POSIXBUILTINS))
 		break;
+	    if (!nonempty(preargs))
+		execcmd_getargs(preargs, args, eparams->htok);
 	}
-    }
+    } else
+	preargs = NULL;
 
     /* if we get this far, it is OK to pay attention to lastval again */
     if (noerrexit == 2 && !is_shfunc)
 	noerrexit = 0;
 
-    /* Do prefork substitutions */
-    esprefork = (assign || isset(MAGICEQUALSUBST)) ? PREFORK_TYPESET : 0;
-    if (args && eparams->htok)
-	prefork(args, esprefork, NULL);
+    /* Do prefork substitutions.
+     *
+     * Decide if we need "magic" handling of ~'s etc. in
+     * assignment-like arguments.
+     * - If magic_assign is set, we are using a builtin of the
+     *   tyepset family, but did not recognise this as a keyword,
+     *   so need guess-o-matic behaviour.
+     * - Otherwise, if we did recognise the keyword, we never need
+     *   guess-o-matic behaviour as the argument was properly parsed
+     *   as such.
+     * - Otherwise, use the behaviour specified by the MAGIC_EQUAL_SUBST
+     *   option.
+     */
+    esprefork = (magic_assign ||
+		 (isset(MAGICEQUALSUBST) && type != WC_TYPESET)) ?
+		 PREFORK_TYPESET : 0;
+    if (args) {
+	if (eparams->htok)
+	    prefork(args, esprefork, NULL);
+	if (preargs)
+	    args = joinlists(preargs, args);
+    }
 
     if (type == WC_SIMPLE || type == WC_TYPESET) {
 	int unglobbed = 0;
@@ -3019,10 +3129,14 @@ execcmd_exec(Estate state, Execcmd_params eparams,
 	     *   - we have determined there are options which would
 	     *     require us to use the "command" builtin); or
 	     * - we aren't using POSIX and so BINF_COMMAND indicates a zsh
-	     *   precommand modifier is being used in place of the builtin
+	     *   precommand modifier is being used in place of the
+	     *   builtin
+	     * - we are using POSIX and this is an EXEC, so we can't
+	     *   execute a builtin or function.
 	     */
 	    if (errflag || checked || is_builtin ||
-		(unset(POSIXBUILTINS) && (cflags & BINF_COMMAND)))
+		(isset(POSIXBUILTINS) ?
+		 (cflags & BINF_EXEC) : (cflags & BINF_COMMAND)))
 		break;
 
 	    cmdarg = (char *) peekfirst(args);
@@ -3065,7 +3179,7 @@ execcmd_exec(Estate state, Execcmd_params eparams,
 
     /* Get the text associated with this command. */
     if ((how & Z_ASYNC) ||
-	(!sfcontext && !sourcelevel && (jobbing || (how & Z_TIMED))))
+	(!sfcontext && (jobbing || (how & Z_TIMED))))
 	text = getjobtext(state->prog, eparams->beg);
     else
 	text = NULL;
@@ -3124,7 +3238,7 @@ execcmd_exec(Estate state, Execcmd_params eparams,
 	if (is_shfunc)
 	    shf = (Shfunc)hn;
 	else {
-	    shf = loadautofn(state->prog->shf, 1, 0);
+	    shf = loadautofn(state->prog->shf, 1, 0, 0);
 	    if (shf)
 		state->prog->shf = shf;
 	    else {
@@ -3700,7 +3814,7 @@ execcmd_exec(Estate state, Execcmd_params eparams,
 		     * Save if it's got "command" in front or it's
 		     * not a magic-equals assignment.
 		     */
-		    if ((cflags & (BINF_COMMAND|BINF_ASSIGN)) || !assign)
+		    if ((cflags & (BINF_COMMAND|BINF_ASSIGN)) || !magic_assign)
 			do_save = 1;
 		}
 		if (do_save && varspc)
@@ -3987,6 +4101,7 @@ execcmd_exec(Estate state, Execcmd_params eparams,
 	 * classify as a builtin) we treat all errors as fatal.
 	 * The "command" builtin is not special so resets this behaviour.
 	 */
+	forked |= zsh_subshell;
     fatal:
 	if (redir_err || errflag) {
 	    if (!isset(INTERACTIVE)) {
@@ -4465,7 +4580,7 @@ getoutputfile(char *cmd, char **eptr)
     }
     if (!(prog = parsecmd(cmd, eptr)))
 	return NULL;
-    if (!(nam = gettempname(NULL, 0)))
+    if (!(nam = gettempname(NULL, 1)))
 	return NULL;
 
     if ((s = simple_redir_name(prog, REDIR_HERESTR))) {
@@ -4496,7 +4611,7 @@ getoutputfile(char *cmd, char **eptr)
 	    suffix = dyncat(nam, unmeta(suffix));
 	    if (link(nam, suffix) == 0) {
 		addfilelist(nam, 0);
-		nam = ztrdup(suffix);
+		nam = suffix;
 	    }
 	}
     }
@@ -4902,6 +5017,7 @@ execfuncdef(Estate state, Eprog redir_prog)
 	shf = (Shfunc) zalloc(sizeof(*shf));
 	shf->funcdef = prog;
 	shf->node.flags = 0;
+	/* No dircache here, not a directory */
 	shf->filename = ztrdup(scriptfilename);
 	shf->lineno = lineno;
 	/*
@@ -4934,7 +5050,7 @@ execfuncdef(Estate state, Eprog redir_prog)
 		    freeeprog(shf->funcdef);
 		    if (shf->redir) /* shouldn't be */
 			freeeprog(shf->redir);
-		    zsfree(shf->filename);
+		    dircache_set(&shf->filename, NULL);
 		    zfree(shf, sizeof(*shf));
 		    state->pc = end;
 		    return 1;
@@ -4965,7 +5081,7 @@ execfuncdef(Estate state, Eprog redir_prog)
 	    freeeprog(shf->funcdef);
 	    if (shf->redir) /* shouldn't be */
 		freeeprog(shf->redir);
-	    zsfree(shf->filename);
+	    dircache_set(&shf->filename, NULL);
 	    zfree(shf, sizeof(*shf));
 	    break;
 	} else {
@@ -4974,7 +5090,7 @@ execfuncdef(Estate state, Eprog redir_prog)
 		(signum = getsignum(s + 4)) != -1) {
 		if (settrap(signum, NULL, ZSIG_FUNC)) {
 		    freeeprog(shf->funcdef);
-		    zsfree(shf->filename);
+		    dircache_set(&shf->filename, NULL);
 		    zfree(shf, sizeof(*shf));
 		    state->pc = end;
 		    return 1;
@@ -5123,12 +5239,12 @@ execautofn_basic(Estate state, UNUSED(int do_exec))
      * defined yet.
      */
     if (funcstack && !funcstack->filename)
-	funcstack->filename = dupstring(shf->filename);
+	funcstack->filename = getshfuncfile(shf);
 
     oldscriptname = scriptname;
     oldscriptfilename = scriptfilename;
     scriptname = dupstring(shf->node.nam);
-    scriptfilename = dupstring(shf->filename);
+    scriptfilename = getshfuncfile(shf);
     execode(shf->funcdef, 1, 0, "loadautofunc");
     scriptname = oldscriptname;
     scriptfilename = oldscriptfilename;
@@ -5142,25 +5258,71 @@ execautofn(Estate state, UNUSED(int do_exec))
 {
     Shfunc shf;
 
-    if (!(shf = loadautofn(state->prog->shf, 1, 0)))
+    if (!(shf = loadautofn(state->prog->shf, 1, 0, 0)))
 	return 1;
 
     state->prog->shf = shf;
     return execautofn_basic(state, 0);
 }
 
+/*
+ * Helper function to install the source file name of a shell function
+ * just autoloaded.
+ *
+ * We attempt to do this efficiently as the typical case is the
+ * directory part is a well-known directory, which is cached, and
+ * the non-directory part is the same as the node name.
+ */
+
+/**/
+static void
+loadautofnsetfile(Shfunc shf, char *fdir)
+{
+    /*
+     * If shf->filename is already the load directory ---
+     * keep it as we can still use it to get the load file.
+     * This makes autoload with an absolute path particularly efficient.
+     */
+    if (!(shf->node.flags & PM_LOADDIR) ||
+	strcmp(shf->filename, fdir) != 0) {
+	/* Old directory name not useful... */
+	dircache_set(&shf->filename, NULL);
+	if (fdir) {
+	    /* ...can still cache directory */
+	    shf->node.flags |= PM_LOADDIR;
+	    dircache_set(&shf->filename, fdir);
+	} else {
+	    /* ...no separate directory part to cache, for some reason. */
+	    shf->node.flags &= ~PM_LOADDIR;
+	    shf->filename = ztrdup(shf->node.nam);
+	}
+    }
+}
+
 /**/
 Shfunc
-loadautofn(Shfunc shf, int fksh, int autol)
+loadautofn(Shfunc shf, int fksh, int autol, int current_fpath)
 {
     int noalias = noaliases, ksh = 1;
     Eprog prog;
-    char *fname;
+    char *fdir;			/* Directory path where func found */
 
     pushheap();
 
     noaliases = (shf->node.flags & PM_UNALIASED);
-    prog = getfpfunc(shf->node.nam, &ksh, &fname);
+    if (shf->filename && shf->filename[0] == '/' &&
+	(shf->node.flags & PM_LOADDIR))
+    {
+	char *spec_path[2];
+	spec_path[0] = dupstring(shf->filename);
+	spec_path[1] = NULL;
+	prog = getfpfunc(shf->node.nam, &ksh, &fdir, spec_path, 0);
+	if (prog == &dummy_eprog &&
+	    (current_fpath || (shf->node.flags & PM_CUR_FPATH)))
+	    prog = getfpfunc(shf->node.nam, &ksh, &fdir, NULL, 0);
+    }
+    else
+	prog = getfpfunc(shf->node.nam, &ksh, &fdir, NULL, 0);
     noaliases = noalias;
 
     if (ksh == 1) {
@@ -5179,7 +5341,6 @@ loadautofn(Shfunc shf, int fksh, int autol)
 	return NULL;
     }
     if (!prog) {
-	zsfree(fname);
 	popheap();
 	return NULL;
     }
@@ -5193,7 +5354,7 @@ loadautofn(Shfunc shf, int fksh, int autol)
 	    else
 		shf->funcdef = dupeprog(prog, 0);
 	    shf->node.flags &= ~PM_UNDEFINED;
-	    shf->filename = fname;
+	    loadautofnsetfile(shf, fdir);
 	} else {
 	    VARARR(char, n, strlen(shf->node.nam) + 1);
 	    strcpy(n, shf->node.nam);
@@ -5205,7 +5366,6 @@ loadautofn(Shfunc shf, int fksh, int autol)
 		zwarn("%s: function not defined by file", n);
 		locallevel++;
 		popheap();
-		zsfree(fname);
 		return NULL;
 	    }
 	}
@@ -5216,7 +5376,7 @@ loadautofn(Shfunc shf, int fksh, int autol)
 	else
 	    shf->funcdef = dupeprog(stripkshdef(prog, shf->node.nam), 0);
 	shf->node.flags &= ~PM_UNDEFINED;
-	shf->filename = fname;
+	loadautofnsetfile(shf, fdir);
     }
     popheap();
 
@@ -5386,6 +5546,14 @@ doshfunc(Shfunc shfunc, LinkList doshargs, int noreturnval)
 	    else
 		opts[XTRACE] = 0;
 	}
+	if (flags & PM_WARNNESTED)
+	    opts[WARNNESTEDVAR] = 1;
+	else if (oflags & PM_WARNNESTED) {
+	    if (shfunc->node.nam == ANONYMOUS_FUNCTION_NAME)
+		flags |= PM_WARNNESTED;
+	    else
+		opts[WARNNESTEDVAR] = 0;
+	}
 	ooflags = oflags;
 	/*
 	 * oflags is static, because we compare it on the next recursive
@@ -5436,7 +5604,7 @@ doshfunc(Shfunc shfunc, LinkList doshargs, int noreturnval)
 	funcstack = &fstack;
 
 	fstack.flineno = shfunc->lineno;
-	fstack.filename = dupstring(shfunc->filename);
+	fstack.filename = getshfuncfile(shfunc);
 
 	prog = shfunc->funcdef;
 	if (prog->flags & EF_RUN) {
@@ -5504,6 +5672,7 @@ doshfunc(Shfunc shfunc, LinkList doshargs, int noreturnval)
 	    opts[PRINTEXITVALUE] = saveopts[PRINTEXITVALUE];
 	    opts[LOCALOPTIONS] = saveopts[LOCALOPTIONS];
 	    opts[LOCALLOOPS] = saveopts[LOCALLOOPS];
+	    opts[WARNNESTEDVAR] = saveopts[WARNNESTEDVAR];
 	}
 
 	if (opts[LOCALLOOPS]) {
@@ -5537,8 +5706,11 @@ doshfunc(Shfunc shfunc, LinkList doshargs, int noreturnval)
      * the only likely case where we need that second test is
      * when we have an "always" block.  The endparamscope() has
      * already happened, hence the "+1" here.
+     *
+     * If we are in an exit trap, finish it first... we wouldn't set
+     * exit_pending if we were already in one.
      */
-    if (exit_pending && exit_level >= locallevel+1) {
+    if (exit_pending && exit_level >= locallevel+1 && !in_exit_trap) {
 	if (locallevel > forklevel) {
 	    /* Still functions to return: force them to do so. */
 	    retflag = 1;
@@ -5602,12 +5774,21 @@ runshfunc(Eprog prog, FuncWrap wrap, char *name)
     unqueue_signals();
 }
 
-/* Search fpath for an undefined function.  Finds the file, and returns the *
- * list of its contents.                                                    */
+/*
+ * Search fpath for an undefined function.  Finds the file, and returns the
+ * list of its contents.
+ *
+ * If test is 0, load the function.
+ *
+ * If test_only is 1, don't load function, just test for it:
+ * Non-null return means function was found
+ *
+ * *fdir points to path at which found (as passed in, not duplicated)
+ */
 
 /**/
 Eprog
-getfpfunc(char *s, int *ksh, char **fname)
+getfpfunc(char *s, int *ksh, char **fdir, char **alt_path, int test_only)
 {
     char **pp, buf[PATH_MAX+1];
     off_t len;
@@ -5616,7 +5797,7 @@ getfpfunc(char *s, int *ksh, char **fname)
     Eprog r;
     int fd;
 
-    pp = fpath;
+    pp = alt_path ? alt_path : fpath;
     for (; *pp; pp++) {
 	if (strlen(*pp) + strlen(s) + 1 >= PATH_MAX)
 	    continue;
@@ -5624,9 +5805,9 @@ getfpfunc(char *s, int *ksh, char **fname)
 	    sprintf(buf, "%s/%s", *pp, s);
 	else
 	    strcpy(buf, s);
-	if ((r = try_dump_file(*pp, s, buf, ksh))) {
-	    if (fname)
-		*fname = ztrdup(buf);
+	if ((r = try_dump_file(*pp, s, buf, ksh, test_only))) {
+	    if (fdir)
+		*fdir = *pp;
 	    return r;
 	}
 	unmetafy(buf, NULL);
@@ -5634,6 +5815,12 @@ getfpfunc(char *s, int *ksh, char **fname)
 	    struct stat st;
 	    if (!fstat(fd, &st) && S_ISREG(st.st_mode) &&
 		(len = lseek(fd, 0, 2)) != -1) {
+		if (test_only) {
+		    close(fd);
+		    if (fdir)
+			*fdir = *pp;
+		    return &dummy_eprog;
+		}
 		d = (char *) zalloc(len + 1);
 		lseek(fd, 0, 0);
 		if ((rlen = read(fd, d, len)) >= 0) {
@@ -5647,8 +5834,8 @@ getfpfunc(char *s, int *ksh, char **fname)
 		    r = parse_string(d, 1);
 		    scriptname = oldscriptname;
 
-		    if (fname)
-			*fname = ztrdup(buf);
+		    if (fdir)
+			*fdir = *pp;
 
 		    zfree(d, len + 1);
 
@@ -5661,7 +5848,7 @@ getfpfunc(char *s, int *ksh, char **fname)
 		close(fd);
 	}
     }
-    return &dummy_eprog;
+    return test_only ? NULL : &dummy_eprog;
 }
 
 /* Handle the most common type of ksh-style autoloading, when doing a      *

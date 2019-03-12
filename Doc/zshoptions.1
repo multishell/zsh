@@ -1,4 +1,4 @@
-.TH "ZSHOPTIONS" "1" "December 21, 2016" "zsh 5\&.3\&.1"
+.TH "ZSHOPTIONS" "1" "August 8, 2017" "zsh 5\&.4\&.1"
 .SH "NAME"
 zshoptions \- zsh options
 .\" Yodl file: Zsh/options.yo
@@ -245,8 +245,9 @@ When there are no more matches, go back to the first one again\&.
 in the other direction\&. This option overrides \fBAUTO_MENU\fP\&.
 .TP
 \fBREC_EXACT\fP (\fB\-S\fP)
-In completion, recognize exact matches even
-if they are ambiguous\&.
+If the string on the command line exactly matches one of the possible
+completions, it is accepted, even if there is another completion (i\&.e\&. that
+string with something else added) that also matches\&.
 .PP
 .SS "Expansion and Globbing"
 .PD 0
@@ -450,9 +451,10 @@ Array expansions of the form
 `\fIfooa b cbar\fP\&'\&.  Note that an empty array will therefore cause
 all arguments to be removed\&.
 .TP
-\fBREMATCH_PCRE\fP <Z>
+\fBREMATCH_PCRE\fP
 If set, regular expression matching with the \fB=~\fP operator will use
-Perl\-Compatible Regular Expressions from the PCRE library, if available\&.
+Perl\-Compatible Regular Expressions from the PCRE library\&.
+(The \fBzsh/pcre\fP module must be available\&.)
 If not set, regular expressions will use the extended regexp syntax
 provided by the system libraries\&.
 .TP
@@ -479,6 +481,38 @@ declared local when it should have been\&.  Parameters explicitly declared
 global from within a function using \fBtypeset \-g\fP do not cause a warning\&.
 Note that there is no warning when a local parameter is assigned to in
 a nested function, which may also indicate an error\&.
+.TP
+\fBWARN_NESTED_VAR\fP
+Print a warning message when an existing parameter from an
+enclosing function scope, or global, is set in a function
+by an assignment or in math context\&.  Assignment to shell
+special parameters does not cause a warning\&.  This is the companion
+to \fBWARN_CREATE_GLOBAL\fP as in this case the warning is only
+printed when a parameter is \fInot\fP created\&.  Where possible,
+use of \fBtypeset \-g\fP to set the parameter suppresses the error,
+but note that this needs to be used every time the parameter is set\&.
+To restrict the effect of this option to a single function scope,
+use `\fBfunctions \-W\fP\&'\&.
+.RS
+.PP
+For example, the following code produces a warning for the assignment
+inside the function \fBnested\fP as that overrides the value within
+\fBtoplevel\fP
+.PP
+.RS
+.nf
+\fBtoplevel() {
+  local foo="in fn"
+  nested
+}
+nested() {
+     foo="in nested"
+}
+setopt warn_nested_var
+toplevel\fP
+.fi
+.RE
+.RE
 .PP
 .SS "History"
 .PD 0
@@ -965,6 +999,36 @@ line\&.  This may be useful with terminals with other cut/paste methods\&.
 .PD 0
 .TP
 .PD
+\fBALIAS_FUNC_DEF\fP <S>
+By default, zsh does not allow the definition of functions using
+the `\fIname\fP \fB()\fP\&' syntax if \fIname\fP was expanded as an
+alias: this causes an error\&.  This is usually the desired behaviour, as
+otherwise the combination of an alias and a function based on the same
+definition can easily cause problems\&.
+.RS
+.PP
+When this option is set, aliases can be used for defining functions\&.
+.PP
+For example, consider the following definitions as they might
+occur in a startup file\&.
+.PP
+.RS
+.nf
+\fBalias foo=bar
+foo() {
+  print This probably does not do what you expect\&.
+}\fP
+.fi
+.RE
+.PP
+Here, \fBfoo\fP is expanded as an alias to \fBbar\fP before the
+\fB()\fP is encountered, so the function defined would be named
+\fBbar\fP\&.  By default this is instead an error in native mode\&.  Note that
+quoting any part of the function name, or using the keyword
+\fBfunction\fP, avoids the problem, so is recommended when the function
+name can also be an alias\&.
+.RE
+.TP
 \fBC_BASES\fP
 Output hexadecimal numbers in the standard C format, for example `\fB0xFF\fP\&'
 instead of the usual `\fB16#FF\fP\&'\&.  If the option \fBOCTAL_ZEROES\fP is also
@@ -1339,6 +1403,10 @@ builtins are
 In addition, various error conditions associated with the above builtins
 or \fBexec\fP cause a non\-interactive shell to exit and an interactive
 shell to return to its top\-level processing\&.
+.PP
+Furthermore, functions and shell builtins are not executed after
+an \fBexec\fP prefix; the command to be executed must be an external
+command found in the path\&.
 .PP
 Furthermore, the \fBgetopts\fP builtin behaves in a POSIX\-compatible
 fashion in that the associated variable \fBOPTIND\fP is not made

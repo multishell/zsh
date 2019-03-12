@@ -394,9 +394,12 @@ ecdel(int p)
 static wordcode
 ecstrcode(char *s)
 {
-    int l, t = has_token(s);
+    int l, t;
+
+    unsigned val = hasher(s);
 
     if ((l = strlen(s) + 1) && l <= 4) {
+	t = has_token(s);
 	wordcode c = (t ? 3 : 2);
 	switch (l) {
 	case 4: c |= ((wordcode) STOUC(s[2])) << 19;
@@ -410,16 +413,21 @@ ecstrcode(char *s)
 	int cmp;
 
 	for (pp = &ecstrs; (p = *pp); ) {
-	    if (!(cmp = p->nfunc - ecnfunc) && !(cmp = strcmp(p->str, s)))
+	    if (!(cmp = p->nfunc - ecnfunc) && !(cmp = (((signed)p->hashval) - ((signed)val))) && !(cmp = strcmp(p->str, s))) {
 		return p->offs;
+            }
 	    pp = (cmp < 0 ? &(p->left) : &(p->right));
 	}
+
+        t = has_token(s);
+
 	p = *pp = (Eccstr) zhalloc(sizeof(*p));
 	p->left = p->right = 0;
 	p->offs = ((ecsoffs - ecssub) << 2) | (t ? 1 : 0);
 	p->aoffs = ecsoffs;
 	p->str = s;
 	p->nfunc = ecnfunc;
+        p->hashval = val;
 	ecsoffs += l;
 
 	return p->offs;
@@ -1738,6 +1746,7 @@ par_simple(int *cmplx, int nr)
 {
     int oecused = ecused, isnull = 1, r, argc = 0, p, isfunc = 0, sr = 0;
     int c = *cmplx, nrediradd, assignments = 0, ppost = 0, is_typeset = 0;
+    char *hasalias = input_hasalias();
     wordcode postassigns = 0;
 
     r = ecused;
@@ -1809,6 +1818,8 @@ par_simple(int *cmplx, int nr)
 	} else
 	    break;
 	zshlex();
+	if (!hasalias)
+	    hasalias = input_hasalias();
     }
     if (tok == AMPER || tok == AMPERBANG)
 	YYERROR(oecused);
@@ -1833,12 +1844,14 @@ par_simple(int *cmplx, int nr)
 
 		if (*ptr == Outbrace && ptr > tokstr + 1)
 		{
-		    if (itype_end(tokstr+1, IIDENT, 0) >= ptr - 1)
+		    if (itype_end(tokstr+1, IIDENT, 0) >= ptr)
 		    {
 			char *toksave = tokstr;
 			char *idstring = dupstrpfx(tokstr+1, eptr-tokstr-1);
 			redir_var = 1;
 			zshlex();
+			if (!hasalias)
+			    hasalias = input_hasalias();
 
 			if (IS_REDIROP(tok) && tokfd == -1)
 			{
@@ -1874,6 +1887,8 @@ par_simple(int *cmplx, int nr)
 		    argc++;
 		}
 		zshlex();
+		if (!hasalias)
+		    hasalias = input_hasalias();
 	    }
 	} else if (IS_REDIROP(tok)) {
 	    *cmplx = c = 1;
@@ -1902,6 +1917,8 @@ par_simple(int *cmplx, int nr)
 	    ecstr(name);
 	    ecstr(str);
 	    zshlex();
+	    if (!hasalias)
+		hasalias = input_hasalias();
 	} else if (tok == ENVARRAY) {
 	    int n, parr;
 
@@ -1936,6 +1953,11 @@ par_simple(int *cmplx, int nr)
 	    /* Error if preceding assignments */
 	    if (assignments || postassigns)
 		YYERROR(oecused);
+	    if (hasalias && !isset(ALIASFUNCDEF) && argc &&
+		hasalias != input_hasalias()) {
+		zwarn("defining function based on alias `%s'", hasalias);
+		YYERROR(oecused);
+	    }
 
 	    *cmplx = c;
 	    lineno = 0;
@@ -2016,10 +2038,21 @@ par_simple(int *cmplx, int nr)
 		/* Unnamed function */
 		int parg = ecadd(0);
 		ecadd(0);
-		while (tok == STRING) {
-		    ecstr(tokstr);
-		    argc++;
-		    zshlex();
+		while (tok == STRING || IS_REDIROP(tok)) {
+		    if (tok == STRING)
+		    {
+			ecstr(tokstr);
+			argc++;
+			zshlex();
+		    } else {
+			*cmplx = c = 1;
+			nrediradd = par_redir(&r, NULL);
+			p += nrediradd;
+			if (ppost)
+			    ppost += nrediradd;
+			sr += nrediradd;
+			parg += nrediradd;
+		    }
 		}
 		if (argc > 0)
 		    *cmplx = 1;
@@ -2129,7 +2162,7 @@ par_redir(int *rp, char *idstring)
 	 * the definition of WC_REDIR_WORDS. */
 	ecispace(r, ncodes);
 	*rp = r + ncodes;
-	ecbuf[r] = WCB_REDIR(type);
+	ecbuf[r] = WCB_REDIR(type | REDIR_FROM_HEREDOC_MASK);
 	ecbuf[r + 1] = fd1;
 
 	/*
@@ -2303,6 +2336,19 @@ par_cond_1(void)
 }
 
 /*
+ * Return 1 if condition matches.  This also works for non-elided options.
+ *
+ * input is test string, may begin - or Dash.
+ * cond is condition following the -.
+ */
+static int check_cond(const char *input, const char *cond)
+{
+    if (!IS_DASH(input[0]))
+	return 0;
+    return !strcmp(input + 1, cond);
+}
+
+/*
  * cond_2	: BANG cond_2
 				| INPAR { SEPER } cond_2 { SEPER } OUTPAR
 				| STRING STRING STRING
@@ -2328,7 +2374,7 @@ par_cond_2(void)
 	    s1 = tokstr;
 	    condlex();
 	    /* ksh behavior: [ -t ] means [ -t 1 ]; bash disagrees */
-	    if (unset(POSIXBUILTINS) && !strcmp(s1, "-t"))
+	    if (unset(POSIXBUILTINS) && check_cond(s1, "t"))
 		return par_cond_double(s1, dupstring("1"));
 	    return par_cond_double(dupstring("-n"), s1);
 	}
@@ -2338,7 +2384,7 @@ par_cond_2(void)
 	    if (!strcmp(*testargs, "=")  ||
 		!strcmp(*testargs, "==") ||
 		!strcmp(*testargs, "!=") ||
-		(**testargs == '-' && get_cond_num(*testargs + 1) >= 0)) {
+		(IS_DASH(**testargs) && get_cond_num(*testargs + 1) >= 0)) {
 		s1 = tokstr;
 		condlex();
 		s2 = tokstr;
@@ -2360,8 +2406,8 @@ par_cond_2(void)
 	 * In "test" compatibility mode, "! -a ..." and "! -o ..."
 	 * are treated as "[string] [and] ..." and "[string] [or] ...".
 	 */
-	if (!(n_testargs > 1 &&
-	      (!strcmp(*testargs, "-a") || !strcmp(*testargs, "-o"))))
+	if (!(n_testargs > 1 && (check_cond(*testargs, "a") ||
+				 check_cond(*testargs, "o"))))
 	{
 	    condlex();
 	    ecadd(WCB_COND(COND_NOT, 0));
@@ -2383,7 +2429,7 @@ par_cond_2(void)
 	return r;
     }
     s1 = tokstr;
-    dble = (s1 && *s1 == '-'
+    dble = (s1 && IS_DASH(*s1)
 	    && (!n_testargs
 		|| strspn(s1+1, "abcdefghknoprstuvwxzLONGS") == 1)
 	    && !s1[2]);
@@ -2397,7 +2443,7 @@ par_cond_2(void)
 	    YYERROR(ecused);
     }
     condlex();
-    if (n_testargs == 2 && tok != STRING && tokstr && s1[0] == '-') {
+    if (n_testargs == 2 && tok != STRING && tokstr && IS_DASH(s1[0])) {
 	/*
 	 * Something like "test -z" followed by a token.
 	 * We'll turn the token into a string (we've also
@@ -2432,9 +2478,9 @@ par_cond_2(void)
 	} else
 	    YYERROR(ecused);
     }
-    s2 = tokstr;   
+    s2 = tokstr;
     if (!n_testargs)
-	dble = (s2 && *s2 == '-' && !s2[2]);
+	dble = (s2 && IS_DASH(*s2) && !s2[2]);
     incond++;			/* parentheses do globbing */
     do condlex(); while (COND_SEP());
     incond--;			/* parentheses do grouping */
@@ -2462,7 +2508,7 @@ par_cond_2(void)
 static int
 par_cond_double(char *a, char *b)
 {
-    if (a[0] != '-' || !a[1])
+    if (!IS_DASH(a[0]) || !a[1])
 	COND_ERROR("parse error: condition expected: %s", a);
     else if (!a[2] && strspn(a+1, "abcdefgknoprstuvwxzhLONGS") == 1) {
 	ecadd(WCB_COND(a[1], 0));
@@ -2520,7 +2566,7 @@ par_cond_triple(char *a, char *b, char *c)
 	ecadd(WCB_COND(COND_REGEX, 0));
 	ecstr(a);
 	ecstr(c);
-    } else if (b[0] == '-') {
+    } else if (IS_DASH(b[0])) {
 	if ((t0 = get_cond_num(b + 1)) > -1) {
 	    ecadd(WCB_COND(t0 + COND_NT, 0));
 	    ecstr(a);
@@ -2531,7 +2577,7 @@ par_cond_triple(char *a, char *b, char *c)
 	    ecstr(a);
 	    ecstr(c);
 	}
-    } else if (a[0] == '-' && a[1]) {
+    } else if (IS_DASH(a[0]) && a[1]) {
 	ecadd(WCB_COND(COND_MOD, 2));
 	ecstr(a);
 	ecstr(b);
@@ -2546,7 +2592,7 @@ par_cond_triple(char *a, char *b, char *c)
 static int
 par_cond_multi(char *a, LinkList l)
 {
-    if (a[0] != '-' || !a[1])
+    if (!IS_DASH(a[0]) || !a[1])
 	COND_ERROR("condition expected: %s", a);
     else {
 	LinkNode n;
@@ -3242,10 +3288,10 @@ build_dump(char *nam, char *dump, char **files, int ali, int map, int flags)
     for (hlen = FD_PRELEN, tlen = 0; *files; files++) {
 	struct stat st;
 
-	if (!strcmp(*files, "-k")) {
+	if (check_cond(*files, "k")) {
 	    flags = (flags & ~(FDHF_KSHLOAD | FDHF_ZSHLOAD)) | FDHF_KSHLOAD;
 	    continue;
-	} else if (!strcmp(*files, "-z")) {
+	} else if (check_cond(*files, "z")) {
 	    flags = (flags & ~(FDHF_KSHLOAD | FDHF_ZSHLOAD)) | FDHF_ZSHLOAD;
 	    continue;
 	}
@@ -3324,7 +3370,7 @@ cur_add_func(char *nam, Shfunc shf, LinkList names, LinkList progs,
 	    return 1;
 	}
 	noaliases = (shf->node.flags & PM_UNALIASED);
-	if (!(prog = getfpfunc(shf->node.nam, NULL, NULL)) ||
+	if (!(prog = getfpfunc(shf->node.nam, NULL, NULL, NULL, 0)) ||
 	    prog == &dummy_eprog) {
 	    noaliases = ona;
 	    zwarnnam(nam, "can't load function: %s", shf->node.nam);
@@ -3399,6 +3445,7 @@ build_cur_dump(char *nam, char *dump, char **names, int match, int map,
 
 	for (; *names; names++) {
 	    tokenize(pat = dupstring(*names));
+	    /* Signal-safe here, caller queues signals */
 	    if (!(pprog = patcompile(pat, PAT_STATIC, NULL))) {
 		zwarnnam(nam, "bad pattern: %s", *names);
 		close(dfd);
@@ -3566,7 +3613,7 @@ load_dump_file(char *dump, struct stat *sbuf, int other, int len)
 
 /**/
 Eprog
-try_dump_file(char *path, char *name, char *file, int *ksh)
+try_dump_file(char *path, char *name, char *file, int *ksh, int test_only)
 {
     Eprog prog;
     struct stat std, stc, stn;
@@ -3575,7 +3622,7 @@ try_dump_file(char *path, char *name, char *file, int *ksh)
 
     if (strsfx(FD_EXT, path)) {
 	queue_signals();
-	prog = check_dump_file(path, NULL, name, ksh);
+	prog = check_dump_file(path, NULL, name, ksh, test_only);
 	unqueue_signals();
 	return prog;
     }
@@ -3594,14 +3641,14 @@ try_dump_file(char *path, char *name, char *file, int *ksh)
     if (!rd &&
 	(rc || std.st_mtime > stc.st_mtime) &&
 	(rn || std.st_mtime > stn.st_mtime) &&
-	(prog = check_dump_file(dig, &std, name, ksh))) {
+	(prog = check_dump_file(dig, &std, name, ksh, test_only))) {
 	unqueue_signals();
 	return prog;
     }
     /* No digest file. Now look for the per-function compiled file. */
     if (!rc &&
 	(rn || stc.st_mtime > stn.st_mtime) &&
-	(prog = check_dump_file(wc, &stc, name, ksh))) {
+	(prog = check_dump_file(wc, &stc, name, ksh, test_only))) {
 	unqueue_signals();
 	return prog;
     }
@@ -3629,7 +3676,7 @@ try_source_file(char *file)
 
     if (strsfx(FD_EXT, file)) {
 	queue_signals();
-	prog = check_dump_file(file, NULL, tail, NULL);
+	prog = check_dump_file(file, NULL, tail, NULL, 0);
 	unqueue_signals();
 	return prog;
     }
@@ -3640,7 +3687,7 @@ try_source_file(char *file)
 
     queue_signals();
     if (!rc && (rn || stc.st_mtime > stn.st_mtime) &&
-	(prog = check_dump_file(wc, &stc, tail, NULL))) {
+	(prog = check_dump_file(wc, &stc, tail, NULL, 0))) {
 	unqueue_signals();
 	return prog;
     }
@@ -3653,7 +3700,8 @@ try_source_file(char *file)
 
 /**/
 static Eprog
-check_dump_file(char *file, struct stat *sbuf, char *name, int *ksh)
+check_dump_file(char *file, struct stat *sbuf, char *name, int *ksh,
+		int test_only)
 {
     int isrec = 0;
     Wordcode d;
@@ -3695,6 +3743,11 @@ check_dump_file(char *file, struct stat *sbuf, char *name, int *ksh)
     if ((h = dump_find_func(d, name))) {
 	/* Found the name. If the file is already mapped, return the eprog,
 	 * otherwise map it and just go up. */
+	if (test_only)
+	{
+	    /* This is all we need.  Just return dummy. */
+	    return &dummy_eprog;
+	}
 
 #ifdef USE_MMAP
 
@@ -3731,7 +3784,7 @@ check_dump_file(char *file, struct stat *sbuf, char *name, int *ksh)
 
 #endif
 
-	    {
+	{
 	    Eprog prog;
 	    Patprog *pp;
 	    int np, fd, po = h->npats * sizeof(Patprog);

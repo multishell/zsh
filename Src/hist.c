@@ -253,6 +253,7 @@ hist_context_save(struct hist_stack *hs, int toplevel)
     hs->hwend = hwend;
     hs->addtoline = addtoline;
     hs->hlinesz = hlinesz;
+    hs->defev = defev;
     /*
      * We save and restore the command stack with history
      * as it's visible to the user interactively, so if
@@ -296,6 +297,7 @@ hist_context_restore(const struct hist_stack *hs, int toplevel)
     hwend = hs->hwend;
     addtoline = hs->addtoline;
     hlinesz = hs->hlinesz;
+    defev = hs->defev;
     if (cmdstack)
 	zfree(cmdstack, CMDSTACKSZ);
     cmdstack = hs->cstack;
@@ -1418,7 +1420,7 @@ hend(Eprog prog)
 	DPUTS(hptr < chline, "History end pointer off start of line");
 	*hptr = '\0';
     }
-    {
+    if (*chline) {
 	LinkList hookargs = newlinklist();
 	int save_errflag = errflag;
 	errflag = 0;
@@ -1427,6 +1429,7 @@ hend(Eprog prog)
 	addlinknode(hookargs, chline);
 	callhookfunc("zshaddhistory", hookargs, 1, &hookret);
 
+	errflag &= ~ERRFLAG_ERROR;
 	errflag |= save_errflag;
     }
     /* For history sharing, lock history file once for both read and write */

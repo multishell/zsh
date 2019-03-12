@@ -668,15 +668,9 @@ patcompile(char *exp, int inflags, char **endexp)
 			    if (imeta(*mtest))
 				nmeta++;
 			if (nmeta) {
-			    char *oldpatout = patout;
-			    ptrdiff_t pd;
 			    patadd(NULL, 0, nmeta, 0);
-			    /*
-			     * Yuk.
-			     */
 			    p = (Patprog)patout;
-			    pd = patout - oldpatout;
-			    opnd += pd;
+			    opnd = dupstring_wlen(opnd, oplen);
 			    dst = patout + startoff;
 			}
 
@@ -1527,7 +1521,7 @@ patcomppiece(int *flagp, int paren)
 		patparse = nptr;
 		len |= 1;
 	    }
-	    DPUTS(*patparse != '-', "BUG: - missing from numeric glob");
+	    DPUTS(!IS_DASH(*patparse), "BUG: - missing from numeric glob");
 	    patparse++;
 	    if (idigit(*patparse)) {
 		to = (zrange_t) zstrtol((char *)patparse,
@@ -3631,7 +3625,7 @@ mb_patmatchrange(char *range, wchar_t ch, int zmb_ind, wint_t *indptr, int *mtp)
 		    return 1;
 		break;
 	    case PP_PRINT:
-		if (iswprint(ch))
+		if (WC_ISPRINT(ch))
 		    return 1;
 		break;
 	    case PP_PUNCT:

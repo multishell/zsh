@@ -21,9 +21,12 @@ xitem(em(Parameter Expansion))
 xitem(em(Command Substitution))
 xitem(em(Arithmetic Expansion))
 item(em(Brace Expansion))(
-These five are performed in one step in left-to-right fashion.  After
-these expansions, all unquoted occurrences of the characters `tt(\)',
-`tt(')' and `tt(")' are removed.
+These five are performed in left-to-right fashion.  On each argument,
+any of the five steps that are needed are performed one after the other.
+Hence, for example, all the parts of parameter expansion are completed
+before command substitution is started.  After these expansions, all
+unquoted occurrences of the characters `tt(\)',`tt(')' and `tt(")' are
+removed.
 )
 item(em(Filename Expansion))(
 If the tt(SH_FILE_EXPANSION) option is set, the order of expansion is
@@ -856,8 +859,9 @@ all arguments to be removed.
 Internally, each such expansion is converted into the
 equivalent list for brace expansion.  E.g., tt(${^var}) becomes
 tt({$var[1],$var[2],)...tt(}), and is processed as described in
-noderef(Brace Expansion) below.
-If word splitting is also in effect the
+noderef(Brace Expansion) below: note, however, the expansion
+happens immediately, with any explicit brace expansion
+happening later.  If word splitting is also in effect the
 tt($var[)var(N)tt(]) may themselves be split into different list
 elements.
 )
@@ -955,15 +959,25 @@ This is distinct from em(field splitting) by the tt(f), tt(s)
 or tt(z) flags, which still applies within each array element.
 )
 item(tt(A))(
-Create an array parameter with `tt(${)...tt(=)...tt(})',
+Convert the substitution into an array expression, even if it otherwise
+would be scalar.  This has lower precedence than subscripting, so one
+level of nested expansion is required in order that subscripts apply
+to array elements.  Thus tt(${${LPAR()A)tt(RPAR())var(name)tt(}[1]})
+yields the full value of var(name) when var(name) is scalar.
+
+This assigns an array parameter with `tt(${)...tt(=)...tt(})',
 `tt(${)...tt(:=)...tt(})' or `tt(${)...tt(::=)...tt(})'.
-If this flag is repeated (as in `tt(AA)'), create an associative
+If this flag is repeated (as in `tt(AA)'), assigns an associative
 array parameter.  Assignment is made before sorting or padding;
 if field splitting is active, the var(word) part is split before
 assignment.  The var(name) part may be a subscripted range for
-ordinary arrays; the var(word) part em(must) be converted to
-an array, for example by using `tt(${(AA)=)var(name)tt(=)...tt(})'
-to activate field splitting, when creating an associative array.
+ordinary arrays; when assigning an associative array, the var(word)
+part em(must) be converted to an array, for example by using
+`tt(${(AA)=)var(name)tt(=)...tt(})' to activate field splitting.
+
+Surrounding context such as additional nesting or use of the value
+in a scalar assignment may cause the array to be joined back into
+a single string again.
 )
 item(tt(a))(
 Sort in array index order; when combined with `tt(O)' sort in reverse
@@ -1039,7 +1053,9 @@ If var(name) refers to an associative array, substitute the em(keys)
 (element names) rather than the values of the elements.  Used with
 subscripts (including ordinary arrays), force indices or keys to be
 substituted even if the subscript form refers to values.  However,
-this flag may not be combined with subscript ranges.
+this flag may not be combined with subscript ranges.  With the
+tt(KSH_ARRAYS) option a subscript `tt([*])' or `tt([@])' is needed
+to operate on the whole array, as usual.
 )
 item(tt(L))(
 Convert all letters in the result to lower case.
@@ -2100,6 +2116,7 @@ Matches either var(x) or var(y).
 This operator has lower precedence than any other.
 The `tt(|)' character
 must be within parentheses, to avoid interpretation as a pipeline.
+The alternatives are tried in order from left to right.
 )
 item(tt(^)var(x))(
 (Requires tt(EXTENDED_GLOB) to be set.)

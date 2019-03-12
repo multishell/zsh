@@ -46,7 +46,7 @@ static struct builtin builtins[] =
     BUILTIN(".", BINF_PSPECIAL, bin_dot, 1, -1, 0, NULL, NULL),
     BUILTIN(":", BINF_PSPECIAL, bin_true, 0, -1, 0, NULL, NULL),
     BUILTIN("alias", BINF_MAGICEQUALS | BINF_PLUSOPTS, bin_alias, 0, -1, 0, "Lgmrs", NULL),
-    BUILTIN("autoload", BINF_PLUSOPTS, bin_functions, 0, -1, 0, "mktTUwXz", "u"),
+    BUILTIN("autoload", BINF_PLUSOPTS, bin_functions, 0, -1, 0, "dmktrRTUwWXz", "u"),
     BUILTIN("bg", 0, bin_fg, 0, -1, BIN_BG, NULL, NULL),
     BUILTIN("break", BINF_PSPECIAL, bin_break, 0, 1, BIN_BREAK, NULL, NULL),
     BUILTIN("bye", 0, bin_break, 0, 1, BIN_EXIT, NULL, NULL),
@@ -72,7 +72,7 @@ static struct builtin builtins[] =
     BUILTIN("fc", 0, bin_fc, 0, -1, BIN_FC, "aAdDe:EfiIlLmnpPrRt:W", NULL),
     BUILTIN("fg", 0, bin_fg, 0, -1, BIN_FG, NULL, NULL),
     BUILTIN("float", BINF_PLUSOPTS | BINF_MAGICEQUALS | BINF_PSPECIAL | BINF_ASSIGN, (HandlerFunc)bin_typeset, 0, -1, 0, "E:%F:%HL:%R:%Z:%ghlprtux", "E"),
-    BUILTIN("functions", BINF_PLUSOPTS, bin_functions, 0, -1, 0, "kmMtTuUx:z", NULL),
+    BUILTIN("functions", BINF_PLUSOPTS, bin_functions, 0, -1, 0, "kmMstTuUWx:z", NULL),
     BUILTIN("getln", 0, bin_read, 0, -1, 0, "ecnAlE", "zr"),
     BUILTIN("getopts", 0, bin_getopts, 2, -1, 0, NULL, NULL),
     BUILTIN("hash", BINF_MAGICEQUALS, bin_hash, 0, -1, 0, "Ldfmrv", NULL),
@@ -131,7 +131,7 @@ static struct builtin builtins[] =
     BUILTIN("whence", 0, bin_whence, 0, -1, 0, "acmpvfsSwx:", NULL),
     BUILTIN("where", 0, bin_whence, 0, -1, 0, "pmsSwx:", "ca"),
     BUILTIN("which", 0, bin_whence, 0, -1, 0, "ampsSwx:", "c"),
-    BUILTIN("zmodload", 0, bin_zmodload, 0, -1, 0, "AFRILP:abcfdilmpue", NULL),
+    BUILTIN("zmodload", 0, bin_zmodload, 0, -1, 0, "AFRILP:abcfdilmpsue", NULL),
     BUILTIN("zcompile", 0, bin_zcompile, 0, -1, 0, "tUMRcmzka", NULL),
 };
 
@@ -539,18 +539,18 @@ bin_enable(char *name, char **argv, Options ops, int func)
     /* With -m option, treat arguments as glob patterns. */
     if (OPT_ISSET(ops,'m')) {
 	for (; *argv; argv++) {
+	    queue_signals();
+
 	    /* parse pattern */
 	    tokenize(*argv);
-	    if ((pprog = patcompile(*argv, PAT_STATIC, 0))) {
-		queue_signals();
+	    if ((pprog = patcompile(*argv, PAT_STATIC, 0)))
 		match += scanmatchtable(ht, pprog, 0, 0, 0, scanfunc, 0);
-		unqueue_signals();
-	    }
 	    else {
 		untokenize(*argv);
 		zwarnnam(name, "bad pattern : %s", *argv);
 		returnval = 1;
 	    }
+	    unqueue_signals();
 	}
 	/* If we didn't match anything, we return 1. */
 	if (!match)
@@ -796,8 +796,8 @@ set_pwd_env(void)
 	unsetparam_pm(pm, 0, 1);
     }
 
-    setsparam("PWD", ztrdup(pwd));
-    setsparam("OLDPWD", ztrdup(oldpwd));
+    assignsparam("PWD", ztrdup(pwd), 0);
+    assignsparam("OLDPWD", ztrdup(oldpwd), 0);
 
     pm = (Param) paramtab->getnode(paramtab, "PWD");
     if (!(pm->node.flags & PM_EXPORTED))
@@ -880,8 +880,13 @@ cd_get_dest(char *nam, char **argv, int hard, int func)
 	    dir = nextnode(firstnode(dirstack));
 	if (dir)
 	    zinsertlinknode(dirstack, dir, getlinknode(dirstack));
-	else if (func != BIN_POPD)
+	else if (func != BIN_POPD) {
+	    if (!home) {
+		zwarnnam(nam, "HOME not set");
+		return NULL;
+	    }
 	    zpushnode(dirstack, ztrdup(home));
+	}
     } else if (!argv[1]) {
 	int dd;
 	char *end;
@@ -935,6 +940,10 @@ cd_get_dest(char *nam, char **argv, int hard, int func)
     }
     if (!dir) {
 	dir = firstnode(dirstack);
+    }
+    if (!dir || !getdata(dir)) {
+	DPUTS(1, "Directory not set, not detected early enough");
+	return NULL;
     }
     if (!(dest = cd_do_chdir(nam, getdata(dir), hard))) {
 	if (!target)
@@ -2922,9 +2931,61 @@ eval_autoload(Shfunc shf, char *name, Options ops, int func)
     }
 
     return !loadautofn(shf, (OPT_ISSET(ops,'k') ? 2 :
-			     (OPT_ISSET(ops,'z') ? 0 : 1)), 1);
+			     (OPT_ISSET(ops,'z') ? 0 : 1)), 1,
+		       OPT_ISSET(ops,'d'));
 }
 
+/* Helper for bin_functions() for -X and -r options */
+
+/**/
+static int
+check_autoload(Shfunc shf, char *name, Options ops, int func)
+{
+    if (OPT_ISSET(ops,'X'))
+    {
+	return eval_autoload(shf, name, ops, func);
+    }
+    if ((OPT_ISSET(ops,'r') || OPT_ISSET(ops,'R')) &&
+	(shf->node.flags & PM_UNDEFINED))
+    {
+	char *dir_path;
+	if (shf->filename && (shf->node.flags & PM_LOADDIR)) {
+	    char *spec_path[2];
+	    spec_path[0] = shf->filename;
+	    spec_path[1] = NULL;
+	    if (getfpfunc(shf->node.nam, NULL, &dir_path, spec_path, 1)) {
+		/* shf->filename is already correct. */
+		return 0;
+	    }
+	    if (!OPT_ISSET(ops,'d')) {
+		if (OPT_ISSET(ops,'R')) {
+		    zerr("%s: function definition file not found",
+			 shf->node.nam);
+		    return 1;
+		}
+		return 0;
+	    }
+	}
+	if (getfpfunc(shf->node.nam, NULL, &dir_path, NULL, 1)) {
+	    dircache_set(&shf->filename, NULL);
+	    if (*dir_path != '/') {
+		dir_path = zhtricat(metafy(zgetcwd(), -1, META_HEAPDUP),
+				    "/", dir_path);
+		dir_path = xsymlink(dir_path, 1);
+	    }
+	    dircache_set(&shf->filename, dir_path);
+	    shf->node.flags |= PM_LOADDIR;
+	    return 0;
+	}
+	if (OPT_ISSET(ops,'R')) {
+	    zerr("%s: function definition file not found",
+		 shf->node.nam);
+	    return 1;
+	}
+	/* with -r, we don't flag an error, just let it be found later. */
+    }
+    return 0;
+}
 
 /* List a user-defined math function. */
 static void
@@ -2941,7 +3002,7 @@ listusermathfunc(MathFunc p)
     else
 	showargs = 0;
 
-    printf("functions -M %s", p->name);
+    printf("functions -M%s %s", (p->flags & MFF_STR) ? "s" : "", p->name);
     if (showargs) {
 	printf(" %d", p->minargs);
 	showargs--;
@@ -2961,6 +3022,66 @@ listusermathfunc(MathFunc p)
     putchar('\n');
 }
 
+
+static void
+add_autoload_function(Shfunc shf, char *funcname)
+{
+    char *nam;
+    if (*funcname == '/' && funcname[1] &&
+	(nam = strrchr(funcname, '/')) && nam[1] &&
+	(shf->node.flags & PM_UNDEFINED)) {
+	char *dir;
+	nam = strrchr(funcname, '/');
+	if (nam == funcname) {
+	    dir = "/";
+	} else {
+	    *nam++ = '\0';
+	    dir = funcname;
+	}
+	dircache_set(&shf->filename, NULL);
+	dircache_set(&shf->filename, dir);
+	shf->node.flags |= PM_LOADDIR;
+	shf->node.flags |= PM_ABSPATH_USED;
+	shfunctab->addnode(shfunctab, ztrdup(nam), shf);
+    } else {
+        Shfunc shf2;
+        Funcstack fs;
+        const char *calling_f = NULL;
+        char buf[PATH_MAX+1];
+
+        /* Find calling function */
+        for (fs = funcstack; fs; fs = fs->prev) {
+            if (fs->tp == FS_FUNC && fs->name && (!shf->node.nam || 0 != strcmp(fs->name,shf->node.nam))) {
+                calling_f = fs->name;
+                break;
+            }
+        }
+
+        /* Get its directory */
+        if (calling_f) {
+            /* Should contain load directory, and be loaded via absolute path */
+            if ((shf2 = (Shfunc) shfunctab->getnode2(shfunctab, calling_f))
+                    && (shf2->node.flags & PM_LOADDIR) && (shf2->node.flags & PM_ABSPATH_USED)
+                    && shf2->filename)
+            {
+                if (strlen(shf2->filename) + strlen(funcname) + 1 < PATH_MAX)
+                {
+                    sprintf(buf, "%s/%s", shf2->filename, funcname);
+                    /* Set containing directory if the function file
+                     * exists (do normal FPATH processing otherwise) */
+                    if (!access(buf, R_OK)) {
+                        dircache_set(&shf->filename, NULL);
+                        dircache_set(&shf->filename, shf2->filename);
+                        shf->node.flags |= PM_LOADDIR;
+                        shf->node.flags |= PM_ABSPATH_USED;
+                    }
+                }
+            }
+        }
+
+	shfunctab->addnode(shfunctab, ztrdup(funcname), shf);
+    }
+}
 
 /* Display or change the attributes of shell functions.   *
  * If called as autoload, it will define a new autoloaded *
@@ -2992,6 +3113,10 @@ bin_functions(char *name, char **argv, Options ops, int func)
 	on |= PM_TAGGED_LOCAL;
     else if (OPT_PLUS(ops,'T'))
 	off |= PM_TAGGED_LOCAL;
+    if (OPT_MINUS(ops,'W'))
+	on |= PM_WARNNESTED;
+    else if (OPT_PLUS(ops,'W'))
+	off |= PM_WARNNESTED;
     roff = off;
     if (OPT_MINUS(ops,'z')) {
 	on |= PM_ZSHSTORED;
@@ -3007,10 +3132,17 @@ bin_functions(char *name, char **argv, Options ops, int func)
 	off |= PM_KSHSTORED;
 	roff |= PM_KSHSTORED;
     }
+    if (OPT_MINUS(ops,'d')) {
+	on |= PM_CUR_FPATH;
+	off |= PM_CUR_FPATH;
+    } else if (OPT_PLUS(ops,'d')) {
+	off |= PM_CUR_FPATH;
+	roff |= PM_CUR_FPATH;
+    }
 
     if ((off & PM_UNDEFINED) || (OPT_ISSET(ops,'k') && OPT_ISSET(ops,'z')) ||
 	(OPT_ISSET(ops,'x') && !OPT_HASARG(ops,'x')) ||
-	(OPT_MINUS(ops,'X') && (OPT_ISSET(ops,'m') || *argv || !scriptname))) {
+	(OPT_MINUS(ops,'X') && (OPT_ISSET(ops,'m') || !scriptname))) {
 	zwarnnam(name, "invalid option(s)");
 	return 1;
     }
@@ -3049,9 +3181,9 @@ bin_functions(char *name, char **argv, Options ops, int func)
 	} else if (OPT_ISSET(ops,'m')) {
 	    /* List matching functions. */
 	    for (; *argv; argv++) {
+		queue_signals();
 		tokenize(*argv);
 		if ((pprog = patcompile(*argv, PAT_STATIC, 0))) {
-		    queue_signals();
 		    for (p = mathfuncs, q = NULL; p; q = p) {
 			MathFunc next;
 			do {
@@ -3070,12 +3202,12 @@ bin_functions(char *name, char **argv, Options ops, int func)
 			if (p)
 			    p = p->next;
 		    }
-		    unqueue_signals();
 		} else {
 		    untokenize(*argv);
 		    zwarnnam(name, "bad pattern : %s", *argv);
 		    returnval = 1;
 		}
+		unqueue_signals();
 	    }
 	} else if (OPT_PLUS(ops,'M')) {
 	    /* Delete functions. -m is allowed but is handled above. */
@@ -3097,10 +3229,17 @@ bin_functions(char *name, char **argv, Options ops, int func)
 	    }
 	} else {
 	    /* Add a function */
-	    int minargs = 0, maxargs = -1;
+	    int minargs, maxargs;
 	    char *funcname = *argv++;
 	    char *modname = NULL;
 	    char *ptr;
+
+	    if (OPT_ISSET(ops,'s')) {
+		minargs = maxargs = 1;
+	    } else {
+		minargs = 0;
+		maxargs = -1;
+	    }
 
 	    ptr = itype_end(funcname, IIDENT, 0);
 	    if (idigit(*funcname) || funcname == ptr || *ptr) {
@@ -3113,6 +3252,10 @@ bin_functions(char *name, char **argv, Options ops, int func)
 		if (minargs < 0 || *ptr) {
 		    zwarnnam(name, "-M: invalid min number of arguments: %s",
 			     *argv);
+		    return 1;
+		}
+		if (OPT_ISSET(ops,'s') && minargs != 1) {
+		    zwarnnam(name, "-Ms: must take a single string argument");
 		    return 1;
 		}
 		maxargs = minargs;
@@ -3128,6 +3271,10 @@ bin_functions(char *name, char **argv, Options ops, int func)
 			     *argv);
 		    return 1;
 		}
+		if (OPT_ISSET(ops,'s') && maxargs != 1) {
+		    zwarnnam(name, "-Ms: must take a single string argument");
+		    return 1;
+		}
 		argv++;
 	    }
 	    if (*argv)
@@ -3140,6 +3287,8 @@ bin_functions(char *name, char **argv, Options ops, int func)
 	    p = (MathFunc)zshcalloc(sizeof(struct mathfunc));
 	    p->name = ztrdup(funcname);
 	    p->flags = MFF_USERFUNC;
+	    if (OPT_ISSET(ops,'s'))
+		p->flags |= MFF_STR;
 	    p->module = modname ? ztrdup(modname) : NULL;
 	    p->minargs = minargs;
 	    p->maxargs = maxargs;
@@ -3165,47 +3314,58 @@ bin_functions(char *name, char **argv, Options ops, int func)
 	return returnval;
     }
 
-    /* If no arguments given, we will print functions.  If flags *
-     * are given, we will print only functions containing these  *
-     * flags, else we'll print them all.                         */
-    if (!*argv) {
+    if (OPT_MINUS(ops,'X')) {
+	Funcstack fs;
+	char *funcname = NULL;
+	int ret;
+	if (*argv && argv[1]) {
+	    zwarnnam(name, "-X: too many arguments");
+	    return 1;
+	}
+	queue_signals();
+	for (fs = funcstack; fs; fs = fs->prev) {
+	    if (fs->tp == FS_FUNC) {
+		/*
+		 * dupstring here is paranoia but unlikely to be
+		 * problematic
+		 */
+		funcname = dupstring(fs->name);
+		break;
+	    }
+	}
+	if (!funcname)
+	{
+	    zerrnam(name, "bad autoload");
+	    ret = 1;
+	} else {
+	    if ((shf = (Shfunc) shfunctab->getnode(shfunctab, funcname))) {
+		DPUTS(!shf->funcdef,
+		      "BUG: Calling autoload from empty function");
+	    } else {
+		shf = (Shfunc) zshcalloc(sizeof *shf);
+		shfunctab->addnode(shfunctab, ztrdup(funcname), shf);
+	    }
+	    if (*argv) {
+		dircache_set(&shf->filename, NULL);
+		dircache_set(&shf->filename, *argv);
+		on |= PM_LOADDIR;
+	    }
+	    shf->node.flags = on;
+	    ret = eval_autoload(shf, funcname, ops, func);
+	}
+	unqueue_signals();
+	return ret;
+    } else if (!*argv) {
+	/* If no arguments given, we will print functions.  If flags *
+	 * are given, we will print only functions containing these  *
+	 * flags, else we'll print them all.                         */
 	int ret = 0;
 
 	queue_signals();
-	if (OPT_MINUS(ops,'X')) {
-	    Funcstack fs;
-	    char *funcname = NULL;
-	    for (fs = funcstack; fs; fs = fs->prev) {
-		if (fs->tp == FS_FUNC) {
-		    /*
-		     * dupstring here is paranoia but unlikely to be
-		     * problematic
-		     */
-		    funcname = dupstring(fs->name);
-		    break;
-		}
-	    }
-	    if (!funcname)
-	    {
-		zerrnam(name, "bad autoload");
-		ret = 1;
-	    } else {
-		if ((shf = (Shfunc) shfunctab->getnode(shfunctab, funcname))) {
-		    DPUTS(!shf->funcdef,
-			  "BUG: Calling autoload from empty function");
-		} else {
-		    shf = (Shfunc) zshcalloc(sizeof *shf);
-		    shfunctab->addnode(shfunctab, ztrdup(funcname), shf);
-		}
-		shf->node.flags = on;
-		ret = eval_autoload(shf, funcname, ops, func);
-	    }
-	} else {
-	    if (OPT_ISSET(ops,'U') && !OPT_ISSET(ops,'u'))
+	if (OPT_ISSET(ops,'U') && !OPT_ISSET(ops,'u'))
 		on &= ~PM_UNDEFINED;
 	    scanshfunc(1, on|off, DISABLED, shfunctab->printnode,
 		       pflags, expand);
-	}
 	unqueue_signals();
 	return ret;
     }
@@ -3214,11 +3374,11 @@ bin_functions(char *name, char **argv, Options ops, int func)
     if (OPT_ISSET(ops,'m')) {
 	on &= ~PM_UNDEFINED;
 	for (; *argv; argv++) {
+	    queue_signals();
 	    /* expand argument */
 	    tokenize(*argv);
 	    if ((pprog = patcompile(*argv, PAT_STATIC, 0))) {
 		/* with no options, just print all functions matching the glob pattern */
-		queue_signals();
 		if (!(on|off) && !OPT_ISSET(ops,'X')) {
 		    scanmatchshfunc(pprog, 1, 0, DISABLED,
 				   shfunctab->printnode, pflags, expand);
@@ -3231,19 +3391,19 @@ bin_functions(char *name, char **argv, Options ops, int func)
 				!(shf->node.flags & DISABLED)) {
 				shf->node.flags = (shf->node.flags |
 					      (on & ~PM_UNDEFINED)) & ~off;
-				if (OPT_ISSET(ops,'X') &&
-				    eval_autoload(shf, shf->node.nam, ops, func)) {
+				if (check_autoload(shf, shf->node.nam,
+						   ops, func)) {
 				    returnval = 1;
 				}
 			    }
 		    }
 		}
-		unqueue_signals();
 	    } else {
 		untokenize(*argv);
 		zwarnnam(name, "bad pattern : %s", *argv);
 		returnval = 1;
 	    }
+	    unqueue_signals();
 	}
 	return returnval;
     }
@@ -3258,8 +3418,7 @@ bin_functions(char *name, char **argv, Options ops, int func)
 	    if (on|off) {
 		/* turn on/off the given flags */
 		shf->node.flags = (shf->node.flags | (on & ~PM_UNDEFINED)) & ~off;
-		if (OPT_ISSET(ops,'X') &&
-		    eval_autoload(shf, shf->node.nam, ops, func))
+		if (check_autoload(shf, shf->node.nam, ops, func))
 		    returnval = 1;
 	    } else
 		/* no flags, so just print */
@@ -3276,13 +3435,38 @@ bin_functions(char *name, char **argv, Options ops, int func)
 		removetrapnode(signum);
 	    }
 
+	    if (**argv == '/') {
+		char *base = strrchr(*argv, '/') + 1;
+		if (*base &&
+		    (shf = (Shfunc) shfunctab->getnode(shfunctab, base))) {
+		    char *dir;
+		    /* turn on/off the given flags */
+		    shf->node.flags =
+			(shf->node.flags | (on & ~PM_UNDEFINED)) & ~off;
+		    if (shf->node.flags & PM_UNDEFINED) {
+			/* update path if not yet loaded */
+			if (base == *argv + 1)
+			    dir = "/";
+			else {
+			    dir = *argv;
+			    base[-1] = '\0';
+			}
+			dircache_set(&shf->filename, NULL);
+			dircache_set(&shf->filename, dir);
+		    }
+		    if (check_autoload(shf, shf->node.nam, ops, func))
+			returnval = 1;
+		    continue;
+		}
+	    }
+
 	    /* Add a new undefined (autoloaded) function to the *
 	     * hash table with the corresponding flags set.     */
 	    shf = (Shfunc) zshcalloc(sizeof *shf);
 	    shf->node.flags = on;
 	    shf->funcdef = mkautofn(shf);
 	    shfunc_set_sticky(shf);
-	    shfunctab->addnode(shfunctab, ztrdup(*argv), shf);
+	    add_autoload_function(shf, *argv);
 
 	    if (signum != -1) {
 		if (settrap(signum, NULL, ZSIG_FUNC)) {
@@ -3293,8 +3477,7 @@ bin_functions(char *name, char **argv, Options ops, int func)
 		}
 	    }
 
-	    if (ok && OPT_ISSET(ops,'X') &&
-		eval_autoload(shf, shf->node.nam, ops, func))
+	    if (ok && check_autoload(shf, shf->node.nam, ops, func))
 		returnval = 1;
 	} else
 	    returnval = 1;
@@ -3348,11 +3531,11 @@ bin_unset(char *name, char **argv, Options ops, int func)
     /* with -m option, treat arguments as glob patterns */
     if (OPT_ISSET(ops,'m')) {
 	while ((s = *argv++)) {
+	    queue_signals();
 	    /* expand */
 	    tokenize(s);
 	    if ((pprog = patcompile(s, PAT_STATIC, NULL))) {
 		/* Go through the parameter table, and unset any matches */
-		queue_signals();
 		for (i = 0; i < paramtab->hsize; i++) {
 		    for (pm = (Param) paramtab->nodes[i]; pm; pm = next) {
 			/* record pointer to next, since we may free this one */
@@ -3365,12 +3548,12 @@ bin_unset(char *name, char **argv, Options ops, int func)
 			}
 		    }
 		}
-		unqueue_signals();
 	    } else {
 		untokenize(s);
 		zwarnnam(name, "bad pattern : %s", s);
 		returnval = 1;
 	    }
+	    unqueue_signals();
 	}
 	/* If we didn't match anything, we return 1. */
 	if (!match)
@@ -3534,6 +3717,7 @@ bin_whence(char *nam, char **argv, Options ops, int func)
 	    pushheap();
 	    matchednodes = newlinklist();
 	}
+	queue_signals();
 	for (; *argv; argv++) {
 	    /* parse the pattern */
 	    tokenize(*argv);
@@ -3543,7 +3727,6 @@ bin_whence(char *nam, char **argv, Options ops, int func)
 		returnval = 1;
 		continue;
 	    }
-	    queue_signals();
 	    if (!OPT_ISSET(ops,'p')) {
 		/* -p option is for path search only.    *
 		 * We're not using it, so search for ... */
@@ -3574,9 +3757,9 @@ bin_whence(char *nam, char **argv, Options ops, int func)
 	    scanmatchtable(cmdnamtab, pprog, 1, 0, 0,
 			   (all ? fetchcmdnamnode : cmdnamtab->printnode),
 			   printflags);
-
-	    unqueue_signals();
+	    run_queued_signals();
 	}
+	unqueue_signals();
 	if (all) {
 	    allmatched = argv = zlinklist2array(matchednodes);
 	    matchednodes = NULL;
@@ -3653,9 +3836,11 @@ bin_whence(char *nam, char **argv, Options ops, int func)
 		    if (wd) {
 			printf("%s: command\n", *argv);
 		    } else {
-			if (v && !csh)
+			if (v && !csh) {
 			    zputs(*argv, stdout), fputs(" is ", stdout);
-			zputs(buf, stdout);
+			    quotedzputs(buf, stdout);
+			} else
+			    zputs(buf, stdout);
 			if (OPT_ISSET(ops,'s') || OPT_ISSET(ops, 'S'))
 			    print_if_link(buf, OPT_ISSET(ops, 'S'));
 			fputc('\n', stdout);
@@ -3685,9 +3870,11 @@ bin_whence(char *nam, char **argv, Options ops, int func)
 	    if (wd) {
 		printf("%s: command\n", *argv);
 	    } else {
-		if (v && !csh)
+		if (v && !csh) {
 		    zputs(*argv, stdout), fputs(" is ", stdout);
-		zputs(cnam, stdout);
+		    quotedzputs(cnam, stdout);
+		} else
+		    zputs(cnam, stdout);
 		if (OPT_ISSET(ops,'s') || OPT_ISSET(ops,'S'))
 		    print_if_link(cnam, OPT_ISSET(ops,'S'));
 		fputc('\n', stdout);
@@ -3899,11 +4086,11 @@ bin_unhash(char *name, char **argv, Options ops, int func)
      * "unhash -m '*'" is legal, but not recommended.    */
     if (OPT_ISSET(ops,'m')) {
 	for (; *argv; argv++) {
+	    queue_signals();
 	    /* expand argument */
 	    tokenize(*argv);
 	    if ((pprog = patcompile(*argv, PAT_STATIC, NULL))) {
 		/* remove all nodes matching glob pattern */
-		queue_signals();
 		for (i = 0; i < ht->hsize; i++) {
 		    for (hn = ht->nodes[i]; hn; hn = nhn) {
 			/* record pointer to next, since we may free this one */
@@ -3914,12 +4101,12 @@ bin_unhash(char *name, char **argv, Options ops, int func)
 			}
 		    }
 		}
-		unqueue_signals();
 	    } else {
 		untokenize(*argv);
 		zwarnnam(name, "bad pattern : %s", *argv);
 		returnval = 1;
 	    }
+	    unqueue_signals();
 	}
 	/* If we didn't match anything, we return 1. */
 	if (!match)
@@ -4002,18 +4189,18 @@ bin_alias(char *name, char **argv, Options ops, UNUSED(int func))
      * glob patterns of aliases to display.       */
     if (OPT_ISSET(ops,'m')) {
 	for (; *argv; argv++) {
+	    queue_signals();
 	    tokenize(*argv);  /* expand argument */
 	    if ((pprog = patcompile(*argv, PAT_STATIC, NULL))) {
 		/* display the matching aliases */
-		queue_signals();
 		scanmatchtable(ht, pprog, 1, flags1, flags2,
 			       ht->printnode, printflags);
-		unqueue_signals();
 	    } else {
 		untokenize(*argv);
 		zwarnnam(name, "bad pattern : %s", *argv);
 		returnval = 1;
 	    }
+	    unqueue_signals();
 	}
 	return returnval;
     }
@@ -4223,10 +4410,12 @@ bin_print(char *name, char **args, Options ops, int func)
 	    zwarnnam(name, "no pattern specified");
 	    return 1;
 	}
+	queue_signals();
 	tokenize(*args);
 	if (!(pprog = patcompile(*args, PAT_STATIC, NULL))) {
 	    untokenize(*args);
 	    zwarnnam(name, "bad pattern: %s", *args);
+	    unqueue_signals();
 	    return 1;
 	}
 	for (t = p = ++args; *p; p++)
@@ -4234,6 +4423,7 @@ bin_print(char *name, char **args, Options ops, int func)
 		*t++ = *p;
 	*t = NULL;
 	first = args;
+	unqueue_signals();
 	if (fmt && !*args) return 0;
     }
     /* compute lengths, and interpret according to -P, -D, -e, etc. */
@@ -5319,7 +5509,7 @@ bin_break(char *name, char **argv, UNUSED(Options ops), int func)
 	}
 	/*FALLTHROUGH*/
     case BIN_EXIT:
-	if (locallevel > forklevel) {
+	if (locallevel > forklevel && shell_exiting != -1) {
 	    /*
 	     * We don't exit directly from functions to allow tidying
 	     * up, in particular EXIT traps.  We still need to perform
@@ -5328,6 +5518,9 @@ bin_break(char *name, char **argv, UNUSED(Options ops), int func)
 	     *
 	     * If we are forked, we exit the shell at the function depth
 	     * at which we became a subshell, hence the comparison.
+	     *
+	     * If we are already exiting... give this all up as
+	     * a bad job.
 	     */
 	    if (stopmsg || (zexit(0,2), !stopmsg)) {
 		retflag = 1;
@@ -5374,6 +5567,14 @@ checkjobs(void)
     }
 }
 
+/*
+ * -1 if the shell is already committed to exit.
+ * positive if zexit() was already called.
+ */
+
+/**/
+int shell_exiting;
+
 /* exit the shell.  val is the return value of the shell.  *
  * from_where is
  *   1   if zexit is called because of a signal
@@ -5385,10 +5586,8 @@ checkjobs(void)
 mod_export void
 zexit(int val, int from_where)
 {
-    static int in_exit;
-
     /* Don't do anything recursively:  see below */
-    if (in_exit == -1)
+    if (shell_exiting == -1)
 	return;
 
     if (isset(MONITOR) && !stopmsg && from_where != 1) {
@@ -5401,14 +5600,14 @@ zexit(int val, int from_where)
 	}
     }
     /* Positive in_exit means we have been here before */
-    if (from_where == 2 || (in_exit++ && from_where))
+    if (from_where == 2 || (shell_exiting++ && from_where))
 	return;
 
     /*
-     * We're now committed to exiting.  Set in_exit to -1 to
+     * We're now committed to exiting.  Set shell_exiting to -1 to
      * indicate we shouldn't do any recursive processing.
      */
-    in_exit = -1;
+    shell_exiting = -1;
     /*
      * We want to do all remaining processing regardless of preceding
      * errors, even user interrupts.

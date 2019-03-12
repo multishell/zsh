@@ -1,4 +1,4 @@
-.TH "ZSHZLE" "1" "December 21, 2016" "zsh 5\&.3\&.1"
+.TH "ZSHZLE" "1" "August 8, 2017" "zsh 5\&.4\&.1"
 .SH "NAME"
 zshzle \- zsh command line editor
 .\" Yodl file: Zsh/zle.yo
@@ -840,12 +840,12 @@ starting with `\fB\&.\fP\&'\&.
 .SH "USER\-DEFINED WIDGETS"
 User\-defined widgets, being implemented as shell functions,
 can execute any normal shell command\&.  They can also run other widgets
-(whether built\-in or user\-defined) using the \fBzle\fP builtin command\&.
-The standard input of the function is closed to prevent external commands
-from unintentionally blocking ZLE by reading from the terminal, but
-\fBread \-k\fP or \fBread \-q\fP can be used to read characters\&.  Finally,
-they can examine and edit the ZLE buffer being edited by
-reading and setting the special parameters described below\&.
+(whether built\-in or user\-defined) using the \fBzle\fP builtin command\&. The
+standard input of the function is redirected from /dev/null to prevent
+external commands from unintentionally blocking ZLE by reading from the
+terminal, but \fBread \-k\fP or \fBread \-q\fP can be used to read characters\&.
+Finally, they can examine and edit the ZLE buffer being edited by reading
+and setting the special parameters described below\&.
 .PP
 These special parameters are always available in widget functions, but
 are not in any way special outside ZLE\&.  If they have some normal value
@@ -956,6 +956,11 @@ The name of the currently selected keymap; read\-only\&.
 \fBKEYS\fP (scalar)
 The keys typed to invoke this widget, as a literal string; read\-only\&.
 .TP
+\fBKEYS_QUEUED_COUNT\fP (integer)
+The number of bytes pushed back to the input queue and therefore
+available for reading immediately before any I/O is done; read\-only\&.
+See also \fBPENDING\fP; the two values are distinct\&.
+.TP
 \fBkillring\fP (array)
 The array of previously killed items, with the most recently killed first\&.
 This gives the items that would be retrieved by a \fByank\-pop\fP in the
@@ -1005,7 +1010,8 @@ called behave as if no numeric argument was given\&.
 The number of bytes pending for input, i\&.e\&. the number of bytes which have
 already been typed and can immediately be read\&. On systems where the shell
 is not able to get this information, this parameter will always have a
-value of zero\&.  Read\-only\&.
+value of zero\&.  Read\-only\&.  See also \fBKEYS_QUEUED_COUNT\fP; the two
+values are distinct\&.
 .TP
 \fBPREBUFFER\fP (scalar)
 In a multi\-line input at the secondary prompt, this read\-only parameter

@@ -1,4 +1,4 @@
-.TH "ZSHPARAM" "1" "December 21, 2016" "zsh 5\&.3\&.1"
+.TH "ZSHPARAM" "1" "August 8, 2017" "zsh 5\&.4\&.1"
 .SH "NAME"
 zshparam \- zsh parameters
 .\" Yodl file: Zsh/params.yo
@@ -966,8 +966,8 @@ Expands to the basename of the command used to invoke this instance
 of zsh\&.
 .TP
 \fBZSH_PATCHLEVEL\fP
-The revision string for the version number of the ChangeLog file
-in the zsh distribution\&.  This is most useful in order to keep
+The output of `\fBgit describe \-\-tags \-\-long\fP\&' for the zsh repository
+used to build the shell\&.  This is most useful in order to keep
 track of versions of the shell during development between releases;
 hence most users should not use it and should instead rely on
 \fB$ZSH_VERSION\fP\&.

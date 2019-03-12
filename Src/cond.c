@@ -138,13 +138,13 @@ evalcond(Estate state, char *fromtest)
 		strs = arrdup(sbuf);
 		l = 2;
 	    }
-	    if (name && name[0] == '-')
-		errname = name;
-	    else if (strs[0] && *strs[0] == '-')
-		errname = strs[0];
+	    if (name && IS_DASH(name[0]))
+		untokenize(errname = dupstring(name));
+	    else if (strs[0] && IS_DASH(*strs[0]))
+		untokenize(errname = strs[0]);
 	    else
 		errname = "<null>";
-	    if (name && name[0] == '-' &&
+	    if (name && IS_DASH(name[0]) &&
 		(cd = getconddef((ctype == COND_MODI), name + 1, 1))) {
 		if (ctype == COND_MOD &&
 		    (l < cd->min || (cd->max >= 0 && l > cd->max))) {
@@ -171,7 +171,7 @@ evalcond(Estate state, char *fromtest)
 		strs[0] = dupstring(name);
 		name = s;
 
-		if (name && name[0] == '-' &&
+		if (name && IS_DASH(name[0]) &&
 		    (cd = getconddef(0, name + 1, 1))) {
 		    if (l < cd->min || (cd->max >= 0 && l > cd->max)) {
 			zwarnnam(fromtest, "unknown condition: %s",
@@ -295,6 +295,8 @@ evalcond(Estate state, char *fromtest)
 	    int test, npat = state->pc[1];
 	    Patprog pprog = state->prog->pats[npat];
 
+	    queue_signals();
+
 	    if (pprog == dummy_patprog1 || pprog == dummy_patprog2) {
 		char *opat;
 		int save;
@@ -308,6 +310,7 @@ evalcond(Estate state, char *fromtest)
 		if (!(pprog = patcompile(right, (save ? PAT_ZDUP : PAT_STATIC),
 					 NULL))) {
 		    zwarnnam(fromtest, "bad pattern: %s", right);
+		    unqueue_signals();
 		    return 2;
 		}
 		else if (save)
@@ -315,6 +318,8 @@ evalcond(Estate state, char *fromtest)
 	    }
 	    state->pc += 2;
 	    test = (pprog && pattry(pprog, left));
+
+	    unqueue_signals();
 
 	    return !(ctype == COND_STRNEQ ? !test : test);
 	}

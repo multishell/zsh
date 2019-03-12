@@ -1,4 +1,4 @@
-.TH "ZSHMISC" "1" "December 21, 2016" "zsh 5\&.3\&.1"
+.TH "ZSHMISC" "1" "August 8, 2017" "zsh 5\&.4\&.1"
 .SH "NAME"
 zshmisc \- everything and then some
 .\" Yodl file: Zsh/grammar.yo
@@ -443,6 +443,9 @@ An alternative form of \fBcase\fP\&.
 \fBselect\fP \fIname\fP [ \fBin\fP \fIword\fP \&.\&.\&. \fIterm\fP ] \fIsublist\fP
 where \fIterm\fP is at least one newline or \fB;\fP\&.
 A short form of \fBselect\fP\&.
+.TP
+\fBfunction\fP \fIword\fP \&.\&.\&. [ \fB()\fP ] [ \fIterm\fP ] \fIsublist\fP
+This is a short form of \fBfunction\fP\&.
 .SH "RESERVED WORDS"
 The following words are recognized as reserved words when used as the first
 word of a command unless quoted or disabled using \fBdisable \-r\fP:
@@ -1617,6 +1620,12 @@ parent shell, and any variables set by the function will not be visible
 in the parent shell\&.  Thus the behaviour is different from the case
 where the function was never suspended\&.  Zsh is different from many
 other shells in this regard\&.
+.PP
+One additional side effect is that use of \fBdisown\fP with a job
+created by suspending shell code in this fashion is delayed: the
+job can only be disowned once any process started from the parent
+shell has terminated\&.  At that point, the disowned job disappears
+silently from the job list\&.
 .PP
 The same behaviour is found when the shell is executing code as the
 right hand side of a pipeline or any complex shell construct such as

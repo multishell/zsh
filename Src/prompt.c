@@ -399,7 +399,7 @@ putpromptchar(int doprint, int endchar, unsigned int *txtchangep)
 			test = 1;
 		    break;
 		case 'V':
-		    if (arrlen_ge(psvar, arg)) {
+		    if (psvar && *psvar && arrlen_ge(psvar, arg)) {
 			if (*psvar[(arg ? arg : 1) - 1])
 			    test = 1;
 		    }
@@ -920,6 +920,7 @@ addbufspc(int need)
 	if(need & 255)
 	    need = (need | 255) + 1;
 	bv->buf = realloc(bv->buf, bv->bufspc += need);
+	memset(bv->buf + bv->bufspc - need, 0, need);
 	bv->bp = bv->buf + bo;
 	if(bo1 != -1)
 	    bv->bp1 = bv->buf + bo1;

@@ -103,9 +103,24 @@
 0:`exec' with -a option, no space
 >/bin/SPLOOSH
 
+  (
+    opts=(-a /bin/WHOOOSH)
+    exec $opts /bin/sh -c 'echo $0'
+  )
+0:`exec' with -a option from expansion
+>/bin/WHOOOSH
+
   (export FOO=bar; exec -c /bin/sh -c 'echo x${FOO}x')
 0:`exec' with -c option
 >xx
+
+  (\exec /bin/sh -c 'echo Test one'; print Not reached)
+  ('exec' /bin/sh -c 'echo Test two'; print Not reached)
+  (\exec -c /bin/sh -c 'echo Test three'; print Not reached)
+0:precommand modifiers with quotes
+>Test one
+>Test two
+>Test three
 
   cat() { echo Function cat executed; }
   command cat && unfunction cat
@@ -113,11 +128,34 @@
 <External command cat executed
 >External command cat executed
 
+  (command -p echo this is output)
+  (\command -p echo this is more output)
+  ('command' -p echo this is yet more output)
+0: command -p without -v or -V
+>this is output
+>this is more output
+>this is yet more output
+
   command -pv cat
   command -pv echo
   command -p -V cat
   command -p -V -- echo
 0:command -p in combination
+*>*/cat
+>echo
+>cat is /*/cat
+>echo is a shell builtin
+
+  args=(
+  'command -pv cat'
+  'command -pv echo'
+  'command -p -V cat'
+  'command -p -V -- echo'
+  )
+  for arg in $args; do
+    ${=arg}
+  done
+0:command -p in combination, using expansion
 *>*/cat
 >echo
 >cat is /*/cat

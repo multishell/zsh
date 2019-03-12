@@ -640,6 +640,11 @@
 >echo
 >$(|||) bar
 
+  foo=$'\x06ZUI\x1f text-field example: \x1azuitfieldtfield1_1\x1a\'\'\x1a\'\'\x1a1\x1aZUI\\[my_tfield1_width\\]\x1aZUI\\[my_tfield1_start\\]\x1aZUI\\[my_tfield1_data\\]\x1c'
+  print "${#${(z@)foo}}"
+0:Test real-world data that once seemed to fail
+>4
+
   psvar=(dog)
   setopt promptsubst
   foo='It shouldn'\''t $(happen) to a %1v.'
@@ -778,16 +783,36 @@
 0:${(R)...}
 >is the , 
 
+  # Although there's no reliance on multibyte here, the
+  # code exercised is different, so test both paths in the following group.
+  # If the shell isn't multibyte capable the tests are the same;
+  # that's not a problem.
   # This (1) doesn't work with // or /
   #      (2) perhaps ought to be 18, to be consistent with normal zsh
   #          substring indexing and with backreferences.
   print ${(BES)string##white}
+  (unsetopt multibyte; print ${(BES)string##white})
 0:${(BE...)...}
+>14 19
 >14 19
 
   print ${(NS)string##white}
+  (unsetopt multibyte; print ${(NS)string##white})
 0:${(N)...}
 >5
+>5
+
+  fn() {
+    emulate -L zsh
+    local a=abcdef
+    print ${(SNBE)a#abcd}
+    unsetopt multibyte
+    print ${(SNBE)a#abcd}
+  }
+  fn
+0:${(BEN)...} again, with match
+>1 5 4
+>1 5 4
 
   string='abcdefghijklmnopqrstuvwxyz'
   print ${${string%[aeiou]*}/(#m)?(#e)/${(U)MATCH}}
@@ -2055,4 +2080,123 @@
   a='~-/'; echo $~a
 0:Regression: "-" became Dash in workers/37689, breaking ~- expansion
 *>*
-F:We do not care what $OLDPWD is, as long as it doesn't cause an error
+F:We do not care what $OLDPWD is, as long as it does not cause an error
+
+  (
+  set -- one 'two three' four
+  for ifs in default null unset; do
+    for wordsplit in native sh; do
+      print -r -- "--- $ifs IFS, $wordsplit splitting ---"
+      case $ifs in
+      default) IFS=$' \t\n\00' ;;
+      null)    IFS= ;;
+      unset)   unset -v IFS ;;
+      esac
+      case $wordsplit in
+      native)  unsetopt shwordsplit ;;
+      sh)      setopt shwordsplit ;;
+      esac
+      for testcmd in 'var=$@' 'var=$*' 'var="$@"' 'var="$*"'; do
+	print -r -- "> $testcmd"
+        eval "$testcmd"
+	printf '[%s]\n' "${var[@]}"
+      done
+    done
+  done
+  )
+0:Assigning $@, $*, "$@", "$*" to var with various shwordsplit/IFS settings
+>--- default IFS, native splitting ---
+>> var=$@
+>[one two three four]
+>> var=$*
+>[one two three four]
+>> var="$@"
+>[one two three four]
+>> var="$*"
+>[one two three four]
+>--- default IFS, sh splitting ---
+>> var=$@
+>[one two three four]
+>> var=$*
+>[one two three four]
+>> var="$@"
+>[one two three four]
+>> var="$*"
+>[one two three four]
+>--- null IFS, native splitting ---
+>> var=$@
+>[onetwo threefour]
+>> var=$*
+>[onetwo threefour]
+>> var="$@"
+>[onetwo threefour]
+>> var="$*"
+>[onetwo threefour]
+>--- null IFS, sh splitting ---
+>> var=$@
+>[onetwo threefour]
+>> var=$*
+>[onetwo threefour]
+>> var="$@"
+>[onetwo threefour]
+>> var="$*"
+>[onetwo threefour]
+>--- unset IFS, native splitting ---
+>> var=$@
+>[one two three four]
+>> var=$*
+>[one two three four]
+>> var="$@"
+>[one two three four]
+>> var="$*"
+>[one two three four]
+>--- unset IFS, sh splitting ---
+>> var=$@
+>[one two three four]
+>> var=$*
+>[one two three four]
+>> var="$@"
+>[one two three four]
+>> var="$*"
+>[one two three four]
+F:As of this writing, var=$@ and var="$@" with null IFS have unspecified
+F:behavior, see http://austingroupbugs.net/view.php?id=888
+
+  () {
+    setopt localoptions extendedglob
+    [[ $- = [[:alnum:]]## ]] || print Failed 1
+    [[ ${-} = [[:alnum:]]## ]] || print Failed 2
+  }
+0:$- expansion correctly handles Dash token
+
+  a=(1 "" 3)
+  print -rl -- "${(@)a//*/x}"
+  a=""
+  print -rl -- "${(@)a//*/y}"
+0:Zero-length string match in parameter substitution
+>x
+>x
+>x
+>y
+
+  a=(1 "" 3)
+  print -rl -- "${(@)a//#%*/x}"
+  a=""
+  print -rl -- "${(@)a//#%*/y}"
+0:Zero-length string match at end
+>x
+>x
+>x
+>y
+
+  my_width=6
+  my_index=1
+  my_options=Option1
+  hyperlink=$'\034'"MYID"$'\034'"DATA1"$'\034'"DATA2"$'\034'"DATA3"$'\034'"my_width"$'\034'"my_index"$'\034'"my_options"$'\02'
+  array=( $hyperlink "Regular text" $hyperlink )
+  array=( "${array[@]//(#b)$'\034'[^$'\034']#$'\034'[^$'\034']#$'\034'[^$'\034']#$'\034'[^$'\034']#$'\034'([^$'\034']#)$'\034'([^$'\034']#)$'\034'([^$'\02']#)$'\02'/${(mr:${(P)${(Q)match[1]}}:: :)${(As:;:)${(P)${(Q)match[3]}}}[${(P)${(Q)match[2]}}]}}" )
+  print -rl -- "${array[@]}"
+0:Test substitution that uses P,Q,A,s,r,m flags
+>Option
+>Regular text
+>Option

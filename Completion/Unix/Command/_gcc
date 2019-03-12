@@ -94,7 +94,7 @@ romp)
   ;;
 mips*)
   args=(
-    '-mcpu=:CPU type:(r2000 r3000 r4000 r4400 r4600 r6000_'
+    '-mcpu=:CPU type:(r2000 r3000 r4000 r4400 r4600 r6000)'
     -mabicalls -membedded-data
     -membedded-pic -mfp32 -mfp64 -mgas -mgp32 -mgp64
     -mgpopt -mhalf-pic -mhard-float -mint64 -mips1
@@ -353,7 +353,7 @@ args+=(
   '-print-file-name=-[Display the full path to library <library>]:library:->library'
   '-print-prog-name=-[Display the full path to compiler component <program>]:program:'
   '*-specs=-[Override built-in specs with the contents of <file>]:file:_files'
-  '-std=-[Assume that the input sources are for <standard>]:standard:(c90 c89 c99 c11 gnu90 gnu89 gnu99 gnu11 c++98 c++03 gnu++98 gnu++03 c++11 gnu++11 c++1y gnu++1y)'
+  '-std=-[assume that the input sources are for specified standard]:standard:(c90 c89 c99 c11 gnu90 gnu89 gnu99 gnu11 c++98 c++03 gnu++98 gnu++03 c++11 gnu++11 c++1y gnu++1y c++14 gnu++14 c++1z gnu++1z)'
   '*-include:include file:_files -g \*.h\(-.\)'
   '*-imacros:macro input file:_files -g \*.h\(-.\)'
   '*-idirafter:second include path directory:_files -/'
@@ -428,7 +428,7 @@ args+=(
   '-Wdisabled-optimization[Warn when an optimization pass is disabled]'
   '-Wdiv-by-zero[Warn about compile-time integer division by zero]'
   '-Wdouble-promotion[Warn about implicit conversions from "float" to "double"]'
-  '-Weffc++[Warn about violations of Effective C++ style rules]'
+  '-Weffc\+\+[Warn about violations of Effective C++ style rules]'
   '-Wempty-body[Warn about an empty body in an if or else statement]'
   '-Wendif-labels[Warn about stray tokens after #elif and #endif]'
   '-Wenum-compare[Warn about comparison of different enum types]'

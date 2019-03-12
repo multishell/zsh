@@ -78,6 +78,7 @@ mod_export HashTable optiontab;
  */
 static struct optname optns[] = {
 {{NULL, "aliases",	      OPT_EMULATE|OPT_ALL},	 ALIASESOPT},
+{{NULL, "aliasfuncdef",       OPT_EMULATE|OPT_BOURNE},	 ALIASFUNCDEF},
 {{NULL, "allexport",	      OPT_EMULATE},		 ALLEXPORT},
 {{NULL, "alwayslastprompt",   OPT_ALL},			 ALWAYSLASTPROMPT},
 {{NULL, "alwaystoend",	      0},			 ALWAYSTOEND},
@@ -257,6 +258,7 @@ static struct optname optns[] = {
 {{NULL, "verbose",	      0},			 VERBOSE},
 {{NULL, "vi",		      0},			 VIMODE},
 {{NULL, "warncreateglobal",   OPT_EMULATE},		 WARNCREATEGLOBAL},
+{{NULL, "warnnestedvar",      OPT_EMULATE},		 WARNNESTEDVAR},
 {{NULL, "xtrace",	      0},			 XTRACE},
 {{NULL, "zle",		      OPT_SPECIAL},		 USEZLE},
 {{NULL, "braceexpand",	      OPT_ALIAS}, /* ksh/bash */ -IGNOREBRACES},
@@ -645,7 +647,7 @@ bin_setopt(char *nam, char **args, UNUSED(Options ops), int isun)
 
 	    /* Expand the current arg. */
 	    tokenize(s);
-	    if (!(pprog = patcompile(s, PAT_STATIC, NULL))) {
+	    if (!(pprog = patcompile(s, PAT_HEAPDUP, NULL))) {
 		zwarnnam(nam, "bad pattern: %s", *args);
 		continue;
 	    }

@@ -238,6 +238,16 @@ struct mathfunc {
 #define PATCHARS "#^*()|[]<>?~\\"
 
 /*
+ * Check for a possibly tokenized dash.
+ *
+ * A dash only needs to be a token in a character range, [a-z], but
+ * it's difficult in general to ensure that.  So it's turned into
+ * a token at the usual point in the lexer.  However, we need
+ * to check for a literal dash at many points.
+ */
+#define IS_DASH(x) ((x) == '-' || (x) == Dash)
+
+/*
  * Types of quote.  This is used in various places, so care needs
  * to be taken when changing them.  (Oooh, don't you look surprised.)
  * - Passed to quotestring() to indicate style.  This is the ultimate
@@ -803,6 +813,7 @@ struct eccstr {
     char *str;
     wordcode offs, aoffs;
     int nfunc;
+    int hashval;
 };
 
 #define EC_NODUP  0
@@ -1019,6 +1030,7 @@ struct job {
 #define STAT_BUILTIN    (0x4000) /* job at tail of pipeline is a builtin */
 #define STAT_SUBJOB_ORPHANED (0x8000)
                                  /* STAT_SUBJOB with STAT_SUPERJOB exited */
+#define STAT_DISOWN     (0x10000) /* STAT_SUPERJOB with disown pending */
 
 #define SP_RUNNING -1		/* fake status for jobs currently running */
 
@@ -1233,7 +1245,9 @@ struct cmdnam {
 
 struct shfunc {
     struct hashnode node;
-    char *filename;             /* Name of file located in */
+    char *filename;             /* Name of file located in.
+				   For not yet autoloaded file, name
+				   of explicit directory, if not NULL. */
     zlong lineno;		/* line number in above file */
     Eprog funcdef;		/* function definition    */
     Eprog redir;                /* redirections to apply */
@@ -1529,6 +1543,7 @@ struct patstralloc {
 
 /* Flags used in pattern matchers (Patprog) and passed down to patcompile */
 
+#define PAT_HEAPDUP	0x0000	/* Dummy flag for default behavior */
 #define PAT_FILE	0x0001	/* Pattern is a file name */
 #define PAT_FILET	0x0002	/* Pattern is top level file, affects ~ */
 #define PAT_ANY		0x0004	/* Match anything (cheap "*") */
@@ -1804,6 +1819,7 @@ struct tieddata {
 #define PM_READONLY	(1<<10)	/* readonly                                 */
 #define PM_TAGGED	(1<<11)	/* tagged                                   */
 #define PM_EXPORTED	(1<<12)	/* exported                                 */
+#define PM_ABSPATH_USED (1<<12) /* (function): loaded using absolute path   */
 
 /* The following are the same since they *
  * both represent -U option to typeset   */
@@ -1811,7 +1827,9 @@ struct tieddata {
 #define PM_UNALIASED	(1<<13)	/* do not expand aliases when autoloading   */
 
 #define PM_HIDE		(1<<14)	/* Special behaviour hidden by local        */
+#define PM_CUR_FPATH    (1<<14) /* (function): can use $fpath with filename */
 #define PM_HIDEVAL	(1<<15)	/* Value not shown in `typeset' commands    */
+#define PM_WARNNESTED   (1<<15) /* (function): non-recursive WARNNESTEDVAR  */
 #define PM_TIED 	(1<<16)	/* array tied to colon-path or v.v.         */
 #define PM_TAGGED_LOCAL (1<<16) /* (function): non-recursive PM_TAGGED      */
 
@@ -1820,6 +1838,7 @@ struct tieddata {
 
 /* Remaining flags do not correspond directly to command line arguments */
 #define PM_DONTIMPORT_SUID (1<<19) /* do not import if running setuid */
+#define PM_LOADDIR      (1<<19) /* (function) filename gives load directory */
 #define PM_SINGLE       (1<<20) /* special can only have a single instance  */
 #define PM_LOCAL	(1<<21) /* this parameter will be made local        */
 #define PM_SPECIAL	(1<<22) /* special builtin parameter                */
@@ -2012,9 +2031,15 @@ struct paramdef {
  * Flags for assignsparam and assignaparam.
  */
 enum {
+    /* Add to rather than override value */
     ASSPM_AUGMENT = 1 << 0,
+    /* Test for warning if creating global variable in function */
     ASSPM_WARN_CREATE = 1 << 1,
-    ASSPM_ENV_IMPORT = 1 << 2
+    /* Test for warning if using nested variable in function */
+    ASSPM_WARN_NESTED = 1 << 2,
+    ASSPM_WARN = (ASSPM_WARN_CREATE|ASSPM_WARN_NESTED),
+    /* Import from environment, so exercise care evaluating value */
+    ASSPM_ENV_IMPORT = 1 << 3,
 };
 
 /* node for named directory hash table (nameddirtab) */
@@ -2222,6 +2247,7 @@ struct histent {
 enum {
     OPT_INVALID,
     ALIASESOPT,
+    ALIASFUNCDEF,
     ALLEXPORT,
     ALWAYSLASTPROMPT,
     ALWAYSTOEND,
@@ -2395,6 +2421,7 @@ enum {
     VERBOSE,
     VIMODE,
     WARNCREATEGLOBAL,
+    WARNNESTEDVAR,
     XTRACE,
     USEZLE,
     DVORAK,
@@ -2893,6 +2920,7 @@ struct hist_stack {
     int histdone;
     int stophist;
     int hlinesz;
+    zlong defev;
     char *hline;
     char *hptr;
     short *chwords;
@@ -3133,9 +3161,7 @@ typedef wint_t convchar_t;
  * works on MacOS which doesn't define that.
  */
 #ifdef ENABLE_UNICODE9
-#define WCWIDTH(wc)	mk_wcwidth(wc)
-#elif defined(BROKEN_WCWIDTH) && (defined(__STDC_ISO_10646__) || defined(__APPLE__))
-#define WCWIDTH(wc)	mk_wcwidth(wc)
+#define WCWIDTH(wc)	u9_wcwidth(wc)
 #else
 #define WCWIDTH(wc)	wcwidth(wc)
 #endif
@@ -3180,15 +3206,7 @@ typedef wint_t convchar_t;
  * sense throughout the shell.  I am not aware of a way of
  * detecting the Unicode trait in standard libraries.
  */
-#ifdef BROKEN_WCWIDTH
-/*
- * We can't be quite sure the wcwidth we've provided is entirely
- * in agreement with the system's, so be extra safe.
- */
-#define IS_COMBINING(wc)	(wc != 0 && WCWIDTH(wc) == 0 && !iswcntrl(wc))
-#else
 #define IS_COMBINING(wc)	(wc != 0 && WCWIDTH(wc) == 0)
-#endif
 /*
  * Test for the base of a combining character.
  *

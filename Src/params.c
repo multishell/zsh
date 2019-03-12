@@ -128,6 +128,11 @@ struct timeval shtimer;
 /**/
 mod_export int termflags;
 
+/* Forward declaration */
+
+static void
+rprompt_indent_unsetfn(Param pm, int exp);
+
 /* Standard methods for get/set/unset pointers in parameters */
 
 /**/
@@ -241,6 +246,9 @@ static const struct gsu_integer argc_gsu =
 static const struct gsu_array pipestatus_gsu =
 { pipestatgetfn, pipestatsetfn, stdunsetfn };
 
+static const struct gsu_integer rprompt_indent_gsu =
+{ intvargetfn, zlevarsetfn, rprompt_indent_unsetfn };
+
 /* Nodes for special parameters for parameter hash table */
 
 #ifdef HAVE_UNION_INIT
@@ -327,7 +335,7 @@ IPDEF4("ZSH_SUBSHELL", &zsh_subshell),
 #define IPDEF5U(A,B,F) {{NULL,A,PM_INTEGER|PM_SPECIAL|PM_UNSET},BR((void *)B),GSU(F),10,0,NULL,NULL,NULL,0}
 IPDEF5("COLUMNS", &zterm_columns, zlevar_gsu),
 IPDEF5("LINES", &zterm_lines, zlevar_gsu),
-IPDEF5U("ZLE_RPROMPT_INDENT", &rprompt_indent, zlevar_gsu),
+IPDEF5U("ZLE_RPROMPT_INDENT", &rprompt_indent, rprompt_indent_gsu),
 IPDEF5("SHLVL", &shlvl, varinteger_gsu),
 
 /* Don't import internal integer status variables. */
@@ -353,6 +361,17 @@ IPDEF7("PS3", &prompt3),
 IPDEF7R("PS4", &prompt4),
 IPDEF7("SPROMPT", &sprompt),
 
+#define IPDEF9F(A,B,C,D) {{NULL,A,D|PM_ARRAY|PM_SPECIAL|PM_DONTIMPORT},BR((void *)B),GSU(vararray_gsu),0,0,NULL,C,NULL,0}
+#define IPDEF9(A,B,C) IPDEF9F(A,B,C,0)
+IPDEF9F("*", &pparams, NULL, PM_ARRAY|PM_SPECIAL|PM_DONTIMPORT|PM_READONLY),
+IPDEF9F("@", &pparams, NULL, PM_ARRAY|PM_SPECIAL|PM_DONTIMPORT|PM_READONLY),
+
+/*
+ * This empty row indicates the end of parameters available in
+ * all emulations.
+ */
+{{NULL,NULL,0},BR(NULL),NULL_GSU,0,0,NULL,NULL,NULL,0},
+
 #define IPDEF8(A,B,C,D) {{NULL,A,D|PM_SCALAR|PM_SPECIAL},BR((void *)B),GSU(colonarr_gsu),0,0,NULL,C,NULL,0}
 IPDEF8("CDPATH", &cdpath, "cdpath", 0),
 IPDEF8("FIGNORE", &fignore, "fignore", 0),
@@ -365,17 +384,6 @@ IPDEF8("ZSH_EVAL_CONTEXT", &zsh_eval_context, "zsh_eval_context", PM_READONLY),
 
 /* MODULE_PATH is not imported for security reasons */
 IPDEF8("MODULE_PATH", &module_path, "module_path", PM_DONTIMPORT|PM_RESTRICTED),
-
-#define IPDEF9F(A,B,C,D) {{NULL,A,D|PM_ARRAY|PM_SPECIAL|PM_DONTIMPORT},BR((void *)B),GSU(vararray_gsu),0,0,NULL,C,NULL,0}
-#define IPDEF9(A,B,C) IPDEF9F(A,B,C,0)
-IPDEF9F("*", &pparams, NULL, PM_ARRAY|PM_SPECIAL|PM_DONTIMPORT|PM_READONLY),
-IPDEF9F("@", &pparams, NULL, PM_ARRAY|PM_SPECIAL|PM_DONTIMPORT|PM_READONLY),
-
-/*
- * This empty row indicates the end of parameters available in
- * all emulations.
- */
-{{NULL,NULL,0},BR(NULL),NULL_GSU,0,0,NULL,NULL,NULL,0},
 
 #define IPDEF10(A,B) {{NULL,A,PM_ARRAY|PM_SPECIAL},BR(NULL),GSU(B),10,0,NULL,NULL,NULL,0}
 
@@ -411,6 +419,26 @@ IPDEF9F("path", &path, "PATH", PM_RESTRICTED),
 /* These are known to zsh alone. */
 
 IPDEF10("pipestatus", pipestatus_gsu),
+
+{{NULL,NULL,0},BR(NULL),NULL_GSU,0,0,NULL,NULL,NULL,0},
+};
+
+/*
+ * Alternative versions of colon-separated path parameters for
+ * sh emulation.  These don't link to the array versions.
+ */
+static initparam special_params_sh[] = {
+IPDEF8("CDPATH", &cdpath, NULL, 0),
+IPDEF8("FIGNORE", &fignore, NULL, 0),
+IPDEF8("FPATH", &fpath, NULL, 0),
+IPDEF8("MAILPATH", &mailpath, NULL, 0),
+IPDEF8("WATCH", &watch, NULL, 0),
+IPDEF8("PATH", &path, NULL, PM_RESTRICTED),
+IPDEF8("PSVAR", &psvar, NULL, 0),
+IPDEF8("ZSH_EVAL_CONTEXT", &zsh_eval_context, NULL, PM_READONLY),
+
+/* MODULE_PATH is not imported for security reasons */
+IPDEF8("MODULE_PATH", &module_path, NULL, PM_DONTIMPORT|PM_RESTRICTED),
 
 {{NULL,NULL,0},BR(NULL),NULL_GSU,0,0,NULL,NULL,NULL,0},
 };
@@ -745,9 +773,13 @@ createparamtable(void)
     /* Add the special parameters to the hash table */
     for (ip = special_params; ip->node.nam; ip++)
 	paramtab->addnode(paramtab, ztrdup(ip->node.nam), ip);
-    if (!EMULATION(EMULATE_SH|EMULATE_KSH))
+    if (EMULATION(EMULATE_SH|EMULATE_KSH)) {
+	for (ip = special_params_sh; ip->node.nam; ip++)
+	    paramtab->addnode(paramtab, ztrdup(ip->node.nam), ip);
+    } else {
 	while ((++ip)->node.nam)
 	    paramtab->addnode(paramtab, ztrdup(ip->node.nam), ip);
+    }
 
     argvparam = (Param) &argvparam_pm;
 
@@ -1175,7 +1207,7 @@ getarg(char **str, int *inv, Value v, int a2, zlong *w,
        int *prevcharlen, int *nextcharlen)
 {
     int hasbeg = 0, word = 0, rev = 0, ind = 0, down = 0, l, i, ishash;
-    int keymatch = 0, needtok = 0, arglen, len;
+    int keymatch = 0, needtok = 0, arglen, len, inpar = 0;
     char *s = *str, *sep = NULL, *t, sav, *d, **ta, **p, *tt, c;
     zlong num = 1, beg = 0, r = 0, quote_arg = 0;
     Patprog pprog = NULL;
@@ -1314,8 +1346,9 @@ getarg(char **str, int *inv, Value v, int a2, zlong *w,
     }
 
     for (t = s, i = 0;
-	 (c = *t) && ((c != Outbrack &&
-		       (ishash || c != ',')) || i); t++) {
+	 (c = *t) &&
+	     ((c != Outbrack && (ishash || c != ',')) || i || inpar);
+	 t++) {
 	/* Untokenize inull() except before brackets and double-quotes */
 	if (inull(c)) {
 	    c = t[1];
@@ -1336,6 +1369,10 @@ getarg(char **str, int *inv, Value v, int a2, zlong *w,
 	    i++;
 	else if (c == ']' || c == Outbrack)
 	    i--;
+	if (c == '(' || c == Inpar)
+	    inpar++;
+	else if (c == ')' || c == Outpar)
+	    inpar--;
 	if (ispecial(c))
 	    needtok = 1;
     }
@@ -1979,7 +2016,9 @@ fetchvalue(Value v, char **pptr, int bracks, int flags)
 	*s++ = '$';
     else if (c == Star)
 	*s++ = '*';
-    else if (c == '#' || c == '-' || c == '?' || c == '$' ||
+    else if (IS_DASH(c))
+	*s++ = '-';
+    else if (c == '#' || c == '?' || c == '$' ||
 	     c == '!' || c == '@' || c == '*')
 	s++;
     else
@@ -2708,24 +2747,73 @@ setarrvalue(Value v, char **val)
 	    post_assignment_length += pre_assignment_length - v->end;
 	}
 
-	p = new = (char **) zalloc(sizeof(char *)
-		                   * (post_assignment_length + 1));
+	if (pre_assignment_length == post_assignment_length
+	    && v->pm->gsu.a->setfn == arrsetfn
+	    /* ... and isn't something that arrsetfn() treats specially */
+	    && 0 == (v->pm->node.flags & (PM_SPECIAL|PM_UNIQUE))
+	    && NULL == v->pm->ename)
+	{
+	    /* v->start is 0-based */
+	    p = old + v->start;
+	    for (r = val; *r;) {
+		/* Free previous string */
+		zsfree(*p);
+		/* Give away ownership of the string */
+		*p++ = *r++;
+	    }
+	} else {
+            /* arr+=( ... )
+             * arr[${#arr}+x,...]=( ... ) */
+            if (post_assignment_length > pre_assignment_length &&
+                    pre_assignment_length <= v->start &&
+                    pre_assignment_length > 0 &&
+                    v->pm->gsu.a->setfn == arrsetfn)
+            {
+                p = new = (char **) zrealloc(old, sizeof(char *)
+                                           * (post_assignment_length + 1));
 
-	for (i = 0; i < v->start; i++)
-	    *p++ = i < pre_assignment_length ? ztrdup(*q++) : ztrdup("");
-	for (r = val; *r;) {
-            /* Give away ownership of the string */
-	    *p++ = *r++;
+                p += pre_assignment_length; /* after old elements */
+
+                /* Consider 1 < 0, case for a=( 1 ); a[1,..] =
+                 *          1 < 1, case for a=( 1 ); a[2,..] = */
+                if (pre_assignment_length < v->start) {
+                    for (i = pre_assignment_length; i < v->start; i++) {
+                        *p++ = ztrdup("");
+                    }
+                }
+
+                for (r = val; *r;) {
+                    /* Give away ownership of the string */
+                    *p++ = *r++;
+                }
+
+                /* v->end doesn't matter:
+                 * a=( 1 2 ); a[4,100]=( a b ); echo "${(q@)a}"
+                 * 1 2 '' a b */
+                *p = NULL;
+
+                v->pm->u.arr = NULL;
+                v->pm->gsu.a->setfn(v->pm, new);
+            } else {
+                p = new = (char **) zalloc(sizeof(char *)
+                                           * (post_assignment_length + 1));
+                for (i = 0; i < v->start; i++)
+                    *p++ = i < pre_assignment_length ? ztrdup(*q++) : ztrdup("");
+                for (r = val; *r;) {
+                    /* Give away ownership of the string */
+                    *p++ = *r++;
+                }
+                if (v->end < pre_assignment_length)
+                    for (q = old + v->end; *q;)
+                        *p++ = ztrdup(*q++);
+                *p = NULL;
+
+                v->pm->gsu.a->setfn(v->pm, new);
+            }
+
+	    DPUTS2(p - new != post_assignment_length, "setarrvalue: wrong allocation: %d 1= %lu",
+		   post_assignment_length, (unsigned long)(p - new));
 	}
-	if (v->end < pre_assignment_length)
-	    for (q = old + v->end; *q;)
-		*p++ = ztrdup(*q++);
-	*p = NULL;
-
-	DPUTS2(p - new != post_assignment_length, "setarrvalue: wrong allocation: %d 1= %lu",
-	       post_assignment_length, (unsigned long)(p - new));
-
-	v->pm->gsu.a->setfn(v->pm, new);
 
         /* Ownership of all strings has been
          * given away, can plainly free */
@@ -2833,20 +2921,51 @@ gethkparam(char *s)
     return NULL;
 }
 
+/*
+ * Function behind WARNCREATEGLOBAL and WARNNESTEDVAR option.
+ *
+ * For WARNNESTEDVAR:
+ * Called when the variable is created.
+ * Apply heuristics to see if this variable was just created
+ * globally but in a local context.
+ *
+ * For WARNNESTEDVAR:
+ * Called when the variable already exists and is set.
+ * Apply heuristics to see if this variable is setting
+ * a variable that was created in a less nested function
+ * or globally.
+ */
+
 /**/
 static void
-check_warn_create(Param pm, const char *pmtype)
+check_warn_pm(Param pm, const char *pmtype, int created,
+	      int may_warn_about_nested_vars)
 {
     Funcstack i;
 
-    if (pm->level != 0 || (pm->node.flags & PM_SPECIAL))
+    if (!may_warn_about_nested_vars && !created)
+	return;
+
+    if (created && isset(WARNCREATEGLOBAL)) {
+	if (locallevel <= forklevel || pm->level != 0)
+	    return;
+    } else if (!created && isset(WARNNESTEDVAR)) {
+	if (pm->level >= locallevel)
+	    return;
+    } else
+	return;
+
+    if (pm->node.flags & PM_SPECIAL)
 	return;
 
     for (i = funcstack; i; i = i->prev) {
 	if (i->tp == FS_FUNC) {
+	    char *msg;
 	    DPUTS(!i->name, "funcstack entry with no name");
-	    zwarn("%s parameter %s created globally in function %s",
-		  pmtype, pm->node.nam, i->name);
+	    msg = created ?
+		"%s parameter %s created globally in function %s" :
+		"%s parameter %s set in enclosing scope in function %s";
+	    zwarn(msg, pmtype, pm->node.nam, i->name);
 	    break;
 	}
     }
@@ -2862,7 +2981,7 @@ assignsparam(char *s, char *val, int flags)
     char *ss, *copy, *var;
     size_t lvar;
     mnumber lhs, rhs;
-    int sstart;
+    int sstart, created = 0;
 
     if (!isident(s)) {
 	zerr("not an identifier: %s", s);
@@ -2873,9 +2992,10 @@ assignsparam(char *s, char *val, int flags)
     queue_signals();
     if ((ss = strchr(s, '['))) {
 	*ss = '\0';
-	if (!(v = getvalue(&vbuf, &s, 1)))
+	if (!(v = getvalue(&vbuf, &s, 1))) {
 	    createparam(t, PM_ARRAY);
-	else {
+	    created = 1;
+	} else {
 	    if (v->pm->node.flags & PM_READONLY) {
 		zerr("read-only variable: %s", v->pm->node.nam);
 		*ss = '[';
@@ -2883,23 +3003,27 @@ assignsparam(char *s, char *val, int flags)
 		unqueue_signals();
 		return NULL;
 	    }
-	    flags &= ~ASSPM_WARN_CREATE;
+	    /*
+	     * Parameter defined here is a temporary bogus one.
+	     * Don't warn about anything.
+	     */
+	    flags &= ~ASSPM_WARN;
 	}
 	*ss = '[';
 	v = NULL;
     } else {
-	if (!(v = getvalue(&vbuf, &s, 1)))
+	if (!(v = getvalue(&vbuf, &s, 1))) {
 	    createparam(t, PM_SCALAR);
-	else if ((((v->pm->node.flags & PM_ARRAY) && !(flags & ASSPM_AUGMENT)) ||
+	    created = 1;
+	} else if ((((v->pm->node.flags & PM_ARRAY) && !(flags & ASSPM_AUGMENT)) ||
 	    	 (v->pm->node.flags & PM_HASHED)) &&
 		 !(v->pm->node.flags & (PM_SPECIAL|PM_TIED)) && 
 		 unset(KSHARRAYS)) {
 	    unsetparam(t);
 	    createparam(t, PM_SCALAR);
+	    /* not regarded as a new creation */
 	    v = NULL;
 	}
-	else
-	    flags &= ~ASSPM_WARN_CREATE;
     }
     if (!v && !(v = getvalue(&vbuf, &t, 1))) {
 	unqueue_signals();
@@ -2907,8 +3031,8 @@ assignsparam(char *s, char *val, int flags)
 	/* errflag |= ERRFLAG_ERROR; */
 	return NULL;
     }
-    if (flags & ASSPM_WARN_CREATE)
-	check_warn_create(v->pm, "scalar");
+    if (flags & ASSPM_WARN)
+	check_warn_pm(v->pm, "scalar", created, 1);
     if (flags & ASSPM_AUGMENT) {
 	if (v->start == 0 && v->end == -1) {
 	    switch (PM_TYPE(v->pm->node.flags)) {
@@ -2989,9 +3113,7 @@ assignsparam(char *s, char *val, int flags)
 mod_export Param
 setsparam(char *s, char *val)
 {
-    return assignsparam(
-	s, val, isset(WARNCREATEGLOBAL) && locallevel > forklevel ?
-	ASSPM_WARN_CREATE : 0);
+    return assignsparam(s, val, ASSPM_WARN);
 }
 
 /**/
@@ -3002,6 +3124,8 @@ assignaparam(char *s, char **val, int flags)
     Value v;
     char *t = s;
     char *ss;
+    int created = 0;
+    int may_warn_about_nested_vars = 1;
 
     if (!isident(s)) {
 	zerr("not an identifier: %s", s);
@@ -3012,10 +3136,12 @@ assignaparam(char *s, char **val, int flags)
     queue_signals();
     if ((ss = strchr(s, '['))) {
 	*ss = '\0';
-	if (!(v = getvalue(&vbuf, &s, 1)))
+	if (!(v = getvalue(&vbuf, &s, 1))) {
 	    createparam(t, PM_ARRAY);
-	else
-	    flags &= ~ASSPM_WARN_CREATE;
+	    created = 1;
+	} else {
+	    may_warn_about_nested_vars = 0;
+	}
 	*ss = '[';
 	if (v && PM_TYPE(v->pm->node.flags) == PM_HASHED) {
 	    unqueue_signals();
@@ -3027,9 +3153,10 @@ assignaparam(char *s, char **val, int flags)
 	}
 	v = NULL;
     } else {
-	if (!(v = fetchvalue(&vbuf, &s, 1, SCANPM_ASSIGNING)))
+	if (!(v = fetchvalue(&vbuf, &s, 1, SCANPM_ASSIGNING))) {
 	    createparam(t, PM_ARRAY);
-	else if (!(PM_TYPE(v->pm->node.flags) & (PM_ARRAY|PM_HASHED)) &&
+	    created = 1;
+	} else if (!(PM_TYPE(v->pm->node.flags) & (PM_ARRAY|PM_HASHED)) &&
 		 !(v->pm->node.flags & (PM_SPECIAL|PM_TIED))) {
 	    int uniq = v->pm->node.flags & PM_UNIQUE;
 	    if (flags & ASSPM_AUGMENT) {
@@ -3047,8 +3174,6 @@ assignaparam(char *s, char **val, int flags)
 	    createparam(t, PM_ARRAY | uniq);
 	    v = NULL;
 	}
-	else
-	    flags &= ~ASSPM_WARN_CREATE;
     }
     if (!v)
 	if (!(v = fetchvalue(&vbuf, &t, 1, SCANPM_ASSIGNING))) {
@@ -3058,8 +3183,8 @@ assignaparam(char *s, char **val, int flags)
 	    return NULL;
 	}
 
-    if (flags & ASSPM_WARN_CREATE)
-	check_warn_create(v->pm, "array");
+    if (flags & ASSPM_WARN)
+	check_warn_pm(v->pm, "array", created, may_warn_about_nested_vars);
     if (flags & ASSPM_AUGMENT) {
     	if (v->start == 0 && v->end == -1) {
 	    if (PM_TYPE(v->pm->node.flags) & PM_ARRAY) {
@@ -3087,9 +3212,7 @@ assignaparam(char *s, char **val, int flags)
 mod_export Param
 setaparam(char *s, char **aval)
 {
-    return assignaparam(
-	s, aval, isset(WARNCREATEGLOBAL) && locallevel > forklevel ?
-	ASSPM_WARN_CREATE : 0);
+    return assignaparam(s, aval, ASSPM_WARN);
 }
 
 /**/
@@ -3118,13 +3241,18 @@ sethparam(char *s, char **val)
     queue_signals();
     if (!(v = fetchvalue(&vbuf, &s, 1, SCANPM_ASSIGNING))) {
 	createparam(t, PM_HASHED);
-	checkcreate = isset(WARNCREATEGLOBAL) && locallevel > forklevel;
-    } else if (!(PM_TYPE(v->pm->node.flags) & PM_HASHED) &&
-	     !(v->pm->node.flags & PM_SPECIAL)) {
-	unsetparam(t);
-	/* no WARNCREATEGLOBAL check here as parameter already existed */
-	createparam(t, PM_HASHED);
-	v = NULL;
+	checkcreate = 1;
+    } else if (!(PM_TYPE(v->pm->node.flags) & PM_HASHED)) {
+	if (!(v->pm->node.flags & PM_SPECIAL)) {
+	    unsetparam(t);
+	    /* no WARNCREATEGLOBAL check here as parameter already existed */
+	    createparam(t, PM_HASHED);
+	    v = NULL;
+	} else {
+	    zerr("%s: can't change type of a special parameter", t);
+	    unqueue_signals();
+	    return NULL;
+	}
     }
     if (!v)
 	if (!(v = fetchvalue(&vbuf, &t, 1, SCANPM_ASSIGNING))) {
@@ -3132,8 +3260,7 @@ sethparam(char *s, char **val)
 	    /* errflag |= ERRFLAG_ERROR; */
 	    return NULL;
 	}
-    if (checkcreate)
-	check_warn_create(v->pm, "associative array");
+    check_warn_pm(v->pm, "associative array", checkcreate, 1);
     setarrvalue(v, val);
     unqueue_signals();
     return v->pm;
@@ -3142,11 +3269,12 @@ sethparam(char *s, char **val)
 
 /*
  * Set a generic shell number, floating point or integer.
+ * Option to warn on setting.
  */
 
 /**/
-Param
-setnparam(char *s, mnumber val)
+mod_export Param
+assignnparam(char *s, mnumber val, int flags)
 {
     struct value vbuf;
     Value v;
@@ -3198,12 +3326,39 @@ setnparam(char *s, mnumber val)
 	    unqueue_signals();
 	    return NULL;
 	}
-	if (!was_unset && isset(WARNCREATEGLOBAL) && locallevel > forklevel)
-	    check_warn_create(v->pm, "numeric");
+	if (flags & ASSPM_WARN)
+	    check_warn_pm(v->pm, "numeric", !was_unset, 1);
+    } else {
+	if (flags & ASSPM_WARN)
+	    check_warn_pm(v->pm, "numeric", 0, 1);
     }
     setnumvalue(v, val);
     unqueue_signals();
     return v->pm;
+}
+
+/*
+ * Set a generic shell number, floating point or integer.
+ * Warn on setting based on option.
+ */
+
+/**/
+mod_export Param
+setnparam(char *s, mnumber val)
+{
+    return assignnparam(s, val, ASSPM_WARN);
+}
+
+/* Simplified interface to assignnparam */
+
+/**/
+mod_export Param
+assigniparam(char *s, zlong val, int flags)
+{
+    mnumber mnval;
+    mnval.type = MN_INTEGER;
+    mnval.u.l = val;
+    return assignnparam(s, mnval, flags);
 }
 
 /* Simplified interface to setnparam */
@@ -3215,7 +3370,7 @@ setiparam(char *s, zlong val)
     mnumber mnval;
     mnval.type = MN_INTEGER;
     mnval.u.l = val;
-    return setnparam(s, mnval);
+    return assignnparam(s, mnval, ASSPM_WARN);
 }
 
 /*
@@ -3234,10 +3389,7 @@ setiparam_no_convert(char *s, zlong val)
      */
     char buf[BDIGBUFSIZE];
     convbase(buf, val, 10);
-    return assignsparam(
-	s, ztrdup(buf),
-	isset(WARNCREATEGLOBAL) && locallevel > forklevel ?
-	ASSPM_WARN_CREATE : 0);
+    return assignsparam(s, ztrdup(buf), ASSPM_WARN);
 }
 
 /* Unset a parameter */
@@ -3458,6 +3610,8 @@ strsetfn(Param pm, char *x)
 	pm->node.flags |= PM_NAMEDDIR;
 	adduserdir(pm->node.nam, x, 0, 0);
     }
+    /* If you update this function, you may need to update the
+     * `Implement remainder of strsetfn' block in assignstrvalue(). */
 }
 
 /* Function to get value of an array parameter */
@@ -3485,6 +3639,8 @@ arrsetfn(Param pm, char **x)
     /* Arrays tied to colon-arrays may need to fix the environment */
     if (pm->ename && x)
 	arrfixenv(pm->ename, x);
+    /* If you extend this function, update the list of conditions in
+     * setarrvalue(). */
 }
 
 /* Function to get value of an association parameter */
@@ -3621,6 +3777,16 @@ zlevarsetfn(Param pm, zlong x)
 	adjustwinsize(2 + (p == &zterm_columns));
 }
 
+
+/* Implements gsu_integer.unsetfn for ZLE_RPROMPT_INDENT; see stdunsetfn() */
+
+static void
+rprompt_indent_unsetfn(Param pm, int exp)
+{
+    stdunsetfn(pm, exp);
+    rprompt_indent = 1; /* Keep this in sync with init_term() */
+}
+
 /* Function to set value of generic special scalar    *
  * parameter.  data is pointer to a character pointer *
  * representing the scalar (string).                  */
@@ -3720,8 +3886,7 @@ colonarrsetfn(Param pm, char *x)
 	*dptr = colonsplit(x, pm->node.flags & PM_UNIQUE);
     else
 	*dptr = mkarray(NULL);
-    if (pm->ename)
-	arrfixenv(pm->node.nam, *dptr);
+    arrfixenv(pm->node.nam, *dptr);
     zsfree(x);
 }
 

@@ -144,9 +144,10 @@ shingetline(void)
     int q = queue_signal_level();
 
     p = buf;
+    winch_unblock();
+    dont_queue_signals();
     for (;;) {
-	winch_unblock();
-	dont_queue_signals();
+	/* Can't fgets() here because we need to accept '\0' bytes */
 	do {
 	    errno = 0;
 	    c = fgetc(bshin);
@@ -176,7 +177,8 @@ shingetline(void)
 	    ll += p - buf;
 	    line[ll] = '\0';
 	    p = buf;
-	    unqueue_signals();
+	    winch_unblock();
+	    dont_queue_signals();
 	}
     }
 }
@@ -669,4 +671,31 @@ char *
 ingetptr(void)
 {
     return inbufptr;
+}
+
+/*
+ * Check if the current input line, including continuations, is
+ * expanding an alias.  This does not detect alias expansions that
+ * have been fully processed and popped from the input stack.
+ * If there is an alias, the most recently expanded is returned,
+ * else NULL.
+ */
+
+/**/
+char *input_hasalias(void)
+{
+    int flags = inbufflags;
+    struct instacks *instackptr = instacktop;
+
+    for (;;)
+    {
+	if (!(flags & INP_CONT))
+	    break;
+	instackptr--;
+	if (instackptr->alias)
+	    return instackptr->alias->node.nam;
+	flags = instackptr->flags;
+    }
+
+    return NULL;
 }

@@ -750,12 +750,12 @@ sect(User-Defined Widgets)
 cindex(widgets, user-defined)
 User-defined widgets, being implemented as shell functions,
 can execute any normal shell command.  They can also run other widgets
-(whether built-in or user-defined) using the tt(zle) builtin command.
-The standard input of the function is closed to prevent external commands
-from unintentionally blocking ZLE by reading from the terminal, but
-tt(read -k) or tt(read -q) can be used to read characters.  Finally,
-they can examine and edit the ZLE buffer being edited by
-reading and setting the special parameters described below.
+(whether built-in or user-defined) using the tt(zle) builtin command. The
+standard input of the function is redirected from /dev/null to prevent
+external commands from unintentionally blocking ZLE by reading from the
+terminal, but tt(read -k) or tt(read -q) can be used to read characters.
+Finally, they can examine and edit the ZLE buffer being edited by reading
+and setting the special parameters described below.
 
 cindex(parameters, editor)
 cindex(parameters, zle)
@@ -864,6 +864,12 @@ vindex(KEYS)
 item(tt(KEYS) (scalar))(
 The keys typed to invoke this widget, as a literal string; read-only.
 )
+vindex(KEYS_QUEUED_COUNT)
+item(tt(KEYS_QUEUED_COUNT) (integer))(
+The number of bytes pushed back to the input queue and therefore
+available for reading immediately before any I/O is done; read-only.
+See also tt(PENDING); the two values are distinct.
+)
 vindex(killring)
 item(tt(killring) (array))(
 The array of previously killed items, with the most recently killed first.
@@ -919,7 +925,8 @@ item(tt(PENDING) (integer))(
 The number of bytes pending for input, i.e. the number of bytes which have
 already been typed and can immediately be read. On systems where the shell
 is not able to get this information, this parameter will always have a
-value of zero.  Read-only.
+value of zero.  Read-only.  See also tt(KEYS_QUEUED_COUNT); the two
+values are distinct.
 )
 vindex(PREBUFFER)
 item(tt(PREBUFFER) (scalar))(

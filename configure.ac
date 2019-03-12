@@ -628,6 +628,7 @@ if test "x$ac_cv_prog_YODL" = xyodl; then
     case `yodl --version` in
       *"version 2."*) YODL_OPTIONS='-k' ;;
       *"version 3."*) YODL_OPTIONS='-k -L' ;;
+      *"version 4."*) YODL_OPTIONS='-k -L' ;;
     esac
 fi
 AC_SUBST(YODL_OPTIONS)
@@ -1309,7 +1310,7 @@ AC_CHECK_FUNCS(strftime strptime mktime timelocal \
 	       putenv getenv setenv unsetenv xw\
 	       brk sbrk \
 	       pathconf sysconf \
-	       tgetent tigetflag tigetnum tigetstr setupterm initscr \
+	       tgetent tigetflag tigetnum tigetstr setupterm initscr resize_term \
 	       getcchar setcchar waddwstr wget_wch win_wch use_default_colors \
 	       pcre_compile pcre_study pcre_exec \
 	       nl_langinfo \
@@ -1324,7 +1325,8 @@ AC_CHECK_FUNCS(strftime strptime mktime timelocal \
 	       symlink getcwd \
 	       cygwin_conv_path \
 	       nanosleep \
-	       srand_deterministic)
+	       srand_deterministic \
+	       setutxent getutxent endutxent getutent)
 AC_FUNC_STRCOLL
 
 AH_TEMPLATE([REALPATH_ACCEPTS_NULL],
@@ -2309,21 +2311,6 @@ AH_TEMPLATE([HAVE_FIFOS],
 if test x$zsh_cv_sys_fifo = xyes; then
   AC_DEFINE(HAVE_FIFOS)
 fi
-dnl ---------------------
-dnl echo style of /bin/sh
-dnl ---------------------
-AC_CACHE_CHECK(if echo in /bin/sh interprets escape sequences,
-zsh_cv_prog_sh_echo_escape,
-[if test "`/bin/sh -c \"echo '\\n'\"`" = "\\n"; then
-  zsh_cv_prog_sh_echo_escape=no
-else
-  zsh_cv_prog_sh_echo_escape=yes
-fi])
-AH_TEMPLATE([SH_USE_BSD_ECHO],
-[Define to 1 if /bin/sh does not interpret \ escape sequences.])
-if test x$zsh_cv_prog_sh_echo_escape = xno; then
-  AC_DEFINE(SH_USE_BSD_ECHO)
-fi
 
 dnl -----------
 dnl test for whether link() works
@@ -2603,16 +2590,21 @@ AC_HELP_STRING([--enable-unicode9], [compile with unicode9 character widths]),
   AC_DEFINE(ENABLE_UNICODE9)
 fi])
 
-AH_TEMPLATE([BROKEN_WCWIDTH],
-[Define to 1 if the wcwidth() function is present but broken.])
 AH_TEMPLATE([BROKEN_ISPRINT],
 [Define to 1 if the isprint() function is broken under UTF-8 locale.])
+
 if test x$zsh_cv_c_unicode_support = xyes; then
   AC_DEFINE(MULTIBYTE_SUPPORT)
 
-  dnl Test for a wcwidth() implementation that gives the wrong width for
-  dnl zero-width combining characters.
-  dnl For the test we use a combining acute accent (\u0301).
+  dnl Test if wcwidth() and/or iswprint() is broken for
+  dnl   zero-width combining characters, or
+  dnl   some characters in the Latin Extended-B.
+  dnl If either of the functions is broken, both functions will be replaced
+  dnl by the ones from wcwidth9.h by defining ENABLE_UNICODE9. We will do
+  dnl this only if __STDC_ISO_10646__ is defined (or if building on macOS,
+  dnl where __STDC_ISO_10646__ is not defined but wchar_t is UCS).
+  dnl For the test we use a combining acute accent (\u0301) or
+  dnl a LATIN SMALL LETTER L WITH CURL (\u0234).
   dnl We input it as UTF-8 since that is the standard we can rely
   dnl upon most:  we can't rely on a wchar_t being stored as a
   dnl Unicode code point on all systems.
@@ -2621,9 +2613,8 @@ if test x$zsh_cv_c_unicode_support = xyes; then
   dnl - the programme compiled, linked and ran
   dnl - we successfully set a UTF-8 locale
   dnl - the locale we set plausibly converted the UTF-8 string
-  dnl   for a zero-width combining character (the only way to be
-  dnl   100% sure would be to output it and ask if it looked right)
-  dnl - the converted wide character gave a non-zero width.
+  dnl   into the correct wide character
+  dnl - but wcwidth() or iswprint() is broken for the converted wide character.
   dnl locale -a is a fallback; on most systems we should find en_US.UTF-8.
   [locale_prog='char *my_locales[] = {
   "en_US.UTF-8", "en_GB.UTF-8", "en.UTF-8", '
@@ -2635,32 +2626,38 @@ if test x$zsh_cv_c_unicode_support = xyes; then
   #include <stdlib.h>
   #include <locale.h>
   #include <wchar.h>
+  #include <wctype.h>
 
   int main() {
     char **localep;
     char comb_acute_mb[] = { (char)0xcc, (char)0x81 };
+    char u_0234[] = { (char)0xc8, (char)0xb4 };
     wchar_t wc;
+  #if !defined(__STDC_ISO_10646__) && !defined(__APPLE__)
+    return 1;
+  #endif
 
     for (localep = my_locales; *localep; localep++)
-      if (setlocale(LC_ALL, *localep) &&
-          mbtowc(&wc, comb_acute_mb, 2) == 2)
+      if (setlocale(LC_ALL, *localep))
 	  break;
     if (!*localep)
       return 1;
-    if (wcwidth(wc) == 0)
-      return 1;
-    return 0;
+    if (mbtowc(&wc, comb_acute_mb, 2) == 2 && (wcwidth(wc) != 0 || !iswprint(wc)))
+      return 0;
+    if (mbtowc(&wc, u_0234, 2) == 2 && (wcwidth(wc) != 1 || !iswprint(wc)))
+      return 0;
+    return 1;
   }
   "]
 
-  AC_CACHE_CHECK(if the wcwidth() function is broken,
+  AC_CACHE_CHECK(if the wcwidth() and/or iswprint() functions are broken,
   zsh_cv_c_broken_wcwidth,
   [AC_TRY_RUN([$locale_prog],
   zsh_cv_c_broken_wcwidth=yes,
   zsh_cv_c_broken_wcwidth=no,
   zsh_cv_c_broken_wcwidth=no)])
   if test x$zsh_cv_c_broken_wcwidth = xyes; then
-    AC_DEFINE(BROKEN_WCWIDTH)
+    AC_DEFINE(ENABLE_UNICODE9)
   fi
 
   dnl Check if isprint() behaves correctly under UTF-8 locale.

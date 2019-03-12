@@ -1,4 +1,4 @@
-.TH "ZSHMODULES" "1" "December 21, 2016" "zsh 5\&.3\&.1"
+.TH "ZSHMODULES" "1" "August 8, 2017" "zsh 5\&.4\&.1"
 .SH "NAME"
 zshmodules \- zsh loadable modules
 .\" Yodl file: Zsh/modules.yo
@@ -381,7 +381,10 @@ matches beginning with `\fBm\fP\&' in groups whose names  begin with
 .PP
 Note also that all patterns are tried in the order in which they
 appear in the parameter value until the first one matches which is
-then used\&.
+then used\&.  Patterns may be matched against completions, descriptions
+(possibly with spaces appended for padding), or lines consisting of a
+completion followed by a description\&.  For consistent coloring it may be
+necessary to use more than one pattern or a pattern with backreferences\&.
 .PP
 When printing a match, the code prints the value of \fBlc\fP, the value
 for the file\-type or the last matching specification with a `\fB*\fP\&',
@@ -826,8 +829,11 @@ various parameters\&.
 .PD 0
 \fBzcurses\fP \fBtimeout\fP \fItargetwin\fP \fIintval\fP
 .TP
-.PD
+.PD 0
 \fBzcurses\fP \fBquerychar\fP \fItargetwin\fP [ \fIparam\fP ]
+.TP
+.PD
+\fBzcurses\fP \fBresize\fP \fIheight\fP \fIwidth\fP [ \fBendwin\fP | \fBnosave\fP | \fBendwin_nosave\fP ]
 Manipulate curses windows\&.  All uses of this command should be
 bracketed by `\fBzcurses init\fP\&' to initialise use of curses, and
 `\fBzcurses end\fP\&' to end it; omitting `\fBzcurses end\fP' can cause
@@ -1030,6 +1036,21 @@ second is the color pair in the usual \fIfg_col\fP\fB/\fP\fIbg_col\fP
 notation, or \fB0\fP if color is not supported\&.  Any attributes other than
 color that apply to the character, as set with the subcommand \fBattr\fP,
 appear as additional elements\&.
+.PP
+The subcommand \fBresize\fP resizes \fBstdscr\fP and all windows to given
+dimensions (windows that stick out from the new dimensions are resized
+down)\&. The underlying curses extension (\fBresize_term call\fP) can be
+unavailable\&. To verify, zeroes can be used for \fIheight\fP and
+\fIwidth\fP\&. If the result of the subcommand is \fB0\fP, resize_term is
+available (\fB2\fP otherwise)\&. Tests show that resizing can be normally
+accomplished by calling \fBzcurses end\fP and \fBzcurses refresh\fP\&. The
+\fBresize\fP subcommand is provided for versatility\&. Multiple system
+configurations have been checked and \fBzcurses end\fP and \fBzcurses
+refresh\fP are still needed for correct terminal state after resize\&. To
+invoke them with \fBresize\fP, use \fIendwin\fP argument\&.  Using
+\fInosave\fP argument will cause new terminal state to not be saved
+internally by \fBzcurses\fP\&. This is also provided for versatility and
+should normally be not needed\&.
 .RE
 .PP
 .SS "Parameters"
@@ -1209,6 +1230,13 @@ local scope (function) ends\&.  Note that a readonly parameter may not be
 explicitly unset, so the only way to unset a global parameter created with
 `\fBztie \-r\fP\&' is to use `\fBzuntie \-u\fP'\&.
 .RE
+.TP
+\fBzgdbmpath\fP \fIparametername\fP
+Put path to database file assigned to \fIparametername\fP into \fBREPLY\fP
+scalar\&.
+.TP
+\fBzgdbm_tied\fP
+Array holding names of all tied parameters\&.
 .PP
 The fields of an associative array tied to GDBM are neither cached nor
 otherwise stored in memory, they are read from or written to the database
@@ -1709,6 +1737,30 @@ removes the definition for the function named by the key\&.
 \fBdis_functions\fP
 Like \fBfunctions\fP but for disabled functions\&.
 .TP
+\fBfunctions_source\fP
+This readonly associative array maps names of enabled functions to the
+name of the file containing the source of the function\&.
+.RS
+.PP
+For an autoloaded function that has already been loaded, or marked for
+autoload with an absolute path, or that has had its path resolved with
+`\fBfunctions \-r\fP\&', this is the file found for autoloading, resolved
+to an absolute path\&.
+.PP
+For a function defined within the body of a script or sourced file,
+this is the name of that file\&.  In this case, this is the exact path
+originally used to that file, which may be a relative path\&.
+.PP
+For any other function, including any defined at an interactive prompt or
+an autoload function whose path has not yet been resolved, this is
+the empty string\&.  However, the hash element is reported as defined
+just so long as the function is present:  the keys to this hash are
+the same as those to \fB$funcions\fP\&.
+.RE
+.TP
+\fBdis_functions_source\fP
+Like \fBfunctions_source\fP but for disabled functions\&.
+.TP
 \fBbuiltins\fP
 This associative array gives information about the builtin commands
 currently enabled\&. The keys are the names of the builtin commands and
@@ -1852,11 +1904,14 @@ defined\&.  The line number is the line where the `\fBfunction\fP \fIname\fP\&'
 or `\fIname\fP \fB()\fP\&' started\&.  In the case of an autoloaded
 function  the line number is reported as zero\&.
 The format of each element is \fIfilename\fP\fB:\fP\fIlineno\fP\&.
+.RS
+.PP
 For functions autoloaded from a file in native zsh format, where only the
 body of the function occurs in the file, or for files that have been
 executed by the \fBsource\fP or `\fB\&.\fP\&' builtins, the trace information is
-shown as \fIfilename\fP\fB:\fP\fI0\fP, since the entire file is the definition\&.
-.RS
+shown as \fIfilename\fP\fB:\fP\fI0\fP, since the entire file is the
+definition\&.  The source file name is resolved to an absolute path when
+the function is loaded or the path to it otherwise resolved\&.
 .PP
 Most users will be interested in the information in the
 \fBfuncfiletrace\fP array instead\&.
@@ -3950,7 +4005,7 @@ The resulting strings are stored in the \fIarray\fP\&.
 \fBzregexparse\fP
 This implements some internals of the \fB_regex_arguments\fP function\&.
 .TP
-\fBzparseopts\fP [ \fB\-D\fP \fB\-K\fP \fB\-M\fP \fB\-E\fP ] [ \fB\-a\fP \fIarray\fP ] [ \fB\-A\fP \fIassoc\fP ] \fIspec\fP \&.\&.\&.
+\fBzparseopts\fP [ \fB\-D\fP \fB\-K\fP \fB\-M\fP \fB\-E\fP ] [ \fB\-a\fP \fIarray\fP ] [ \fB\-A\fP \fIassoc\fP ] [ \fB\-\fP ] \fIspec\fP \&.\&.\&.
 This builtin simplifies the parsing of options in positional parameters,
 i\&.e\&. the set of arguments given by \fB$*\fP\&.  Each \fIspec\fP describes one
 option and must be of the form `\fIopt\fP[\fB=\fP\fIarray\fP]\&'\&.  If an option

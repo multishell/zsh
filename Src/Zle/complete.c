@@ -901,7 +901,7 @@ do_comp_vars(int test, int na, char *sa, int nb, char *sb, int mod)
 		return 0;
 
 	    singsub(&sa);
-	    pp = patcompile(sa, PAT_STATIC, NULL);
+	    pp = patcompile(sa, PAT_HEAPDUP, NULL);
 
 	    for (i--, p = compwords + i; i >= 0; p--, i--) {
 		if (pattry(pp, *p)) {
@@ -955,7 +955,7 @@ do_comp_vars(int test, int na, char *sa, int nb, char *sb, int mod)
 	    if (!na)
 		return 0;
 
-	    if (!(pp = patcompile(sa, PAT_STATIC, 0)))
+	    if (!(pp = patcompile(sa, PAT_HEAPDUP, 0)))
 		return 0;
 
 	    if (test == CVT_PREPAT) {

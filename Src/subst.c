@@ -446,7 +446,7 @@ singsub(char **s)
  * NULL to use IFS).  The return value is true iff the expansion resulted
  * in an empty list.
  *
- * *ms_flags is set to bits in the enum above as neeed.
+ * *ms_flags is set to bits in the enum above as needed.
  */
 
 /**/
@@ -481,6 +481,8 @@ multsub(char **s, int pf_flags, char ***a, int *isarr, char *sep,
 	for ( ; *x; x += l) {
 	    int rawc = -1;
 	    convchar_t c;
+	    if (*x == Dash)
+		*x = '-';
 	    if (itok(STOUC(*x))) {
 		/* token, can't be separator, must be single byte */
 		rawc = *x;
@@ -622,7 +624,7 @@ filesub(char **namptr, int assign)
 char *
 equalsubstr(char *str, int assign, int nomatch)
 {
-    char *pp, *cnam, *cmdstr, *ret;
+    char *pp, *cnam, *cmdstr;
 
     for (pp = str; !isend2(*pp); pp++)
 	;
@@ -634,10 +636,10 @@ equalsubstr(char *str, int assign, int nomatch)
 	    zerr("%s not found", cmdstr);
 	return NULL;
     }
-    ret = dupstring(cnam);
     if (*pp)
-	ret = dyncat(ret, pp);
-    return ret;
+	return dyncat(cnam, pp);
+    else
+	return cnam;		/* already duplicated */
 }
 
 /**/
@@ -1766,7 +1768,8 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int pf_flags,
      */
     c = *s;
     if (itype_end(s, IIDENT, 1) == s && *s != '#' && c != Pound &&
-	c != '-' && c != '!' && c != '$' && c != String && c != Qstring &&
+	!IS_DASH(c) &&
+	c != '!' && c != '$' && c != String && c != Qstring &&
 	c != '?' && c != Quest &&
 	c != '*' && c != Star && c != '@' && c != '{' &&
 	c != Inbrace && c != '=' && c != Equals && c != Hat &&
@@ -1895,13 +1898,13 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int pf_flags,
 		    if (quotetype == QT_DOLLARS ||
 			quotetype == QT_BACKSLASH_PATTERN)
 			goto flagerr;
-		    if (s[1] == '-' || s[1] == '+') {
+		    if (IS_DASH(s[1]) || s[1] == '+') {
 			if (quotemod)
 			    goto flagerr;
 			s++;
 			quotemod = 1;
-			quotetype = (*s == '-') ? QT_SINGLE_OPTIONAL :
-			    QT_QUOTEDZPUTS;
+			quotetype = (*s == '+') ? QT_QUOTEDZPUTS :
+			    QT_SINGLE_OPTIONAL;
 		    } else {
 			if (quotetype == QT_SINGLE_OPTIONAL) {
 			    /* extra q's after '-' not allowed */
@@ -2208,9 +2211,9 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int pf_flags,
 		     * properly in the first place we wouldn't
 		     * have this nonsense.
 		     */
-		    || ((cc == '#' || cc == Pound) &&
-			s[2] == Outbrace)
-		    || cc == '-' || (cc == ':' && s[2] == '-')
+		    || ((cc == '#' || cc == Pound) && s[2] == Outbrace)
+		    || IS_DASH(cc)
+		    || (cc == ':' && IS_DASH(s[2]))
 		    || (isstring(cc) && (s[2] == Inbrace || s[2] == Inpar)))) {
 	    getlen = 1 + whichlen, s++;
 	    /*
@@ -2605,14 +2608,17 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int pf_flags,
      * Again, this duplicates tests for characters we're about to
      * examine properly later on.
      */
-    if (inbrace &&
-	(c = *s) != '-' && c != '+' && c != ':' && c != '%'  && c != '/' &&
-	c != '=' && c != Equals &&
-	c != '#' && c != Pound &&
-	c != '?' && c != Quest &&
-	c != '}' && c != Outbrace) {
-	zerr("bad substitution");
-	return NULL;
+    if (inbrace) {
+	c = *s;
+	if (!IS_DASH(c) &&
+	    c != '+' && c != ':' && c != '%'  && c != '/' &&
+	    c != '=' && c != Equals &&
+	    c != '#' && c != Pound &&
+	    c != '?' && c != Quest &&
+	    c != '}' && c != Outbrace) {
+	    zerr("bad substitution");
+	    return NULL;
+	}
     }
     /*
      * Join arrays up if we're in quotes and there isn't some
@@ -2690,8 +2696,8 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int pf_flags,
     /* Check for ${..?..} or ${..=..} or one of those. *
      * Only works if the name is in braces.            */
 
-    if (inbrace && ((c = *s) == '-' ||
-		    c == '+' ||
+    if (inbrace && ((c = *s) == '+' ||
+		    IS_DASH(c) ||
 		    c == ':' ||	/* i.e. a doubled colon */
 		    c == '=' || c == Equals ||
 		    c == '%' ||
@@ -2802,6 +2808,7 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int pf_flags,
 	    vunset = 1;
 	/* Fall Through! */
 	case '-':
+	case Dash:
 	    if (vunset) {
 		int split_flags;
 		val = dupstring(s);
@@ -2902,6 +2909,7 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int pf_flags,
 		    } else
 			setaparam(idbeg, a);
 		    isarr = 1;
+		    arrasg = 0;
 		} else {
 		    untokenize(val);
 		    setsparam(idbeg, ztrdup(val));
@@ -3066,7 +3074,10 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int pf_flags,
 		if (sval)
 		    zip = hmkarray(sval);
 	    }
-	    if (!isarr) aval = mkarray(val);
+	    if (!isarr) {
+		aval = mkarray(val);
+		isarr = 1;
+	    }
 	    if (zip) {
 		char **out;
 		int alen, ziplen, outlen, i = 0;
@@ -3089,7 +3100,6 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int pf_flags,
 		    out[i*2] = NULL;
 		    aval = out;
 		    copied = 1;
-		    isarr = 1;
 		}
 	    } else {
 		if (unset(UNSET)) {
@@ -3473,8 +3483,8 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int pf_flags,
 	    if (nojoin == 0 || sep) {
 		val = sepjoin(aval, sep, 1);
 		isarr = 0;
-		ms_flags = 0;
-	    } else if (force_split && (spsep || nojoin == 2)) {
+	    } else if (force_split &&
+		       (spsep || nojoin == 2 || (!ifs && isarr < 0))) {
 		/* Hack to simulate splitting individual elements:
 		 * forced joining as previously determined, or
 		 * join on what we later use to forcibly split
@@ -3482,6 +3492,8 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int pf_flags,
 		val = sepjoin(aval, (nojoin == 1 ? NULL : spsep), 1);
 		isarr = 0;
 	    }
+	    if (!isarr)
+		ms_flags = 0;
 	}
 	if (force_split && !isarr) {
 	    aval = sepsplit(val, spsep, 0, 1);
@@ -3767,6 +3779,13 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int pf_flags,
      * as a scalar.)
      */
 
+    if (isarr && ssub) {
+	/* prefork() wants a scalar, so join no matter what else */
+	val = sepjoin(aval, NULL, 1);
+	isarr = 0;
+	l->list.flags &= ~LF_ARRAY;
+    }
+
     /*
      * If a multsub result had whitespace at the start and we're
      * splitting and there's a previous string, now's the time to do so.
@@ -3779,6 +3798,16 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int pf_flags,
     if ((ms_flags & MULTSUB_WS_AT_END) && *fstr) {
 	insertlinknode(l, n, dupstring(fstr)); /* appended, no incnode */
 	*fstr = '\0';
+    }
+    if (arrasg && !isarr) {
+	/*
+	 * Caller requested this be forced to an array even if scalar.
+	 * Any point in distinguishing arrasg == 2 (assoc array) here?
+	 */
+	l->list.flags |= LF_ARRAY;
+	aval = hmkarray(val);
+	isarr = 1;
+	DPUTS(!val, "value is NULL in paramsubst, empty array");
     }
     if (isarr) {
 	char *x;
@@ -4302,7 +4331,11 @@ modify(char **str, char **ptr)
 			break;
 		    case 'P':
 			if (*copy != '/') {
-			    copy = zhtricat(metafy(zgetcwd(), -1, META_HEAPDUP), "/", copy);
+			    char *here = zgetcwd();
+			    if (here[strlen(here)-1] != '/')
+				copy = zhtricat(metafy(here, -1, META_HEAPDUP), "/", copy);
+			    else
+				copy = dyncat(here, copy);
 			}
 			copy = xsymlink(copy, 1);
 			break;
@@ -4384,7 +4417,11 @@ modify(char **str, char **ptr)
 		    break;
 		case 'P':
 		    if (**str != '/') {
-			*str = zhtricat(metafy(zgetcwd(), -1, META_HEAPDUP), "/", *str);
+			char *here = zgetcwd();
+			if (here[strlen(here)-1] != '/')
+			    *str = zhtricat(metafy(here, -1, META_HEAPDUP), "/", *str);
+			else
+			    *str = dyncat(here, *str);
 		    }
 		    *str = xsymlink(*str, 1);
 		    break;
