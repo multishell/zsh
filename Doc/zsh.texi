@@ -29,8 +29,8 @@
 @end iftex
 @titlepage
 @title The Z Shell Manual
-@subtitle Version 5.0.4
-@subtitle Updated December 20, 2013
+@subtitle Version 5.0.5
+@subtitle Updated January 5, 2014
 @author Original documentation by Paul Falstad
 @page
 This is a texinfo version of the documentation for the Z Shell, originally by 
@@ -63,7 +63,7 @@ This Info file documents Zsh, a freely available UNIX command interpreter
 
 @noindent
 @cindex version
-Version 5.0.4, last updated December 20, 2013.
+Version 5.0.5, last updated January 5, 2014.
 @end ifinfo
 
 @menu
@@ -22227,10 +22227,10 @@ elements of the array.
 @end table
 
 @noindent
-During the performance of the action the array `@t{line}'
-will be set to the command name and normal arguments from the command
-line, i.e. the words from the command line excluding all options
-and their arguments.  Options are stored in the associative array
+During the performance of the action the array `@t{line}' will be set to
+the normal arguments from the command line, i.e. the words from the
+command line after the command name excluding all options and their
+arguments.  Options are stored in the associative array
 `@t{opt_args}' with option names as keys and their arguments as
 the values.  For options that have more than one argument these are
 given as one string, separated by colons.  All colons in the original
@@ -31392,7 +31392,7 @@ distribution in your home directory, you would use the commands:
 mkdir ~/zsh_help
 cd ~/zsh_help
 man zshall | colcrt - | \ 
-perl ~/zsh-5.0.4/Util/helpfiles
+perl ~/zsh-5.0.5/Util/helpfiles
 @end example
 
 @noindent
@@ -31548,7 +31548,7 @@ Run @t{zkbd} either as an autoloaded function, or as a shell script:
 
 @noindent
 @example
-zsh -f ~/zsh-5.0.4/Functions/Misc/zkbd
+zsh -f ~/zsh-5.0.5/Functions/Misc/zkbd
 @end example
 
 @noindent
@@ -31613,7 +31613,7 @@ command and redirect the output into a file:
 
 @noindent
 @example
-. ~/zsh-5.0.4/Util/reporter > zsh.report
+. ~/zsh-5.0.5/Util/reporter > zsh.report
 @end example
 
 @noindent
