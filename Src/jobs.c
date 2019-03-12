@@ -93,7 +93,7 @@ static struct tms shtms;
 /* 1 if ttyctl -f has been executed */
  
 /**/
-int ttyfrozen;
+mod_export int ttyfrozen;
 
 /* Previous values of errflag and breaks if the signal handler had to
  * change them. And a flag saying if it did that. */
@@ -103,6 +103,15 @@ int prev_errflag, prev_breaks, errbrk_saved;
 
 /**/
 int numpipestats, pipestats[MAX_PIPESTATS];
+
+/*
+ * The status associated with the process lastpid.
+ * -1 if not set and no associated lastpid
+ * -2 if lastpid is set and status isn't yet
+ * else the value returned by wait().
+ */
+/**/
+long lastpid_status;
 
 /* Diff two timevals for elapsed-time computations */
 
@@ -151,18 +160,47 @@ findproc(pid_t pid, Job *jptr, Process *pptr, int aux)
     Process pn;
     int i;
 
+    *jptr = NULL;
+    *pptr = NULL;
     for (i = 1; i <= maxjob; i++)
     {
+	/*
+	 * We are only interested in jobs with processes still
+	 * marked as live.  Careful in case there's an identical
+	 * process number in a job we haven't quite got around
+	 * to deleting.
+	 */
+	if (jobtab[i].stat & STAT_DONE)
+	    continue;
+
 	for (pn = aux ? jobtab[i].auxprocs : jobtab[i].procs;
 	     pn; pn = pn->next)
+	{
+	    /*
+	     * Make sure we match a process that's still running.
+	     *
+	     * When a job contains two pids, one terminated pid and one
+	     * running pid, then the condition (jobtab[i].stat &
+	     * STAT_DONE) will not stop these pids from being candidates
+	     * for the findproc result (which is supposed to be a
+	     * RUNNING pid), and if the terminated pid is an identical
+	     * process number for the pid identifying the running
+	     * process we are trying to find (after pid number
+	     * wrapping), then we need to avoid returning the terminated
+	     * pid, otherwise the shell would block and wait forever for
+	     * the termination of the process which pid we were supposed
+	     * to return in a different job.
+	     */
 	    if (pn->pid == pid) {
 		*pptr = pn;
 		*jptr = jobtab + i;
-		return 1;
+		if (pn->status == SP_RUNNING) 
+		    return 1;
 	    }
+	}
     }
 
-    return 0;
+    return (*pptr && *jptr);
 }
 
 /* Does the given job number have any processes? */
@@ -231,7 +269,7 @@ handle_sub(int job, int fg)
 	       sleep, the rest will be executed by a sub-shell,
 	       but the parent shell gets notified for the
 	       sleep.
-	       deletejob(sj); */
+	       deletejob(sj, 0); */
 	    /* If this super-job contains only the sub-shell,
 	       we have to attach the tty to its process group
 	       now. */
@@ -302,6 +340,36 @@ update_process(Process pn, int status)
 }
 #endif
 
+/*
+ * Called when the current shell is behaving as if it received
+ * a interactively generated signal (sig).
+ * 
+ * As we got the signal or are pretending we did, we need to pretend
+ * anything attached to a CURSH process got it, too.
+ */
+/**/
+void
+check_cursh_sig(int sig)
+{
+    int i, j;
+
+    if (!errflag)
+	return;
+    for (i = 1; i <= maxjob; i++) {
+	if ((jobtab[i].stat & (STAT_CURSH|STAT_DONE)) ==
+	    STAT_CURSH) {
+	    for (j = 0; j < 2; j++) {
+		Process pn = j ? jobtab[i].auxprocs : jobtab[i].procs;
+		for (; pn; pn = pn->next) {
+		    if (pn->status == SP_RUNNING) {
+			kill(pn->pid, sig);
+		    }
+		}
+	    }
+	}
+    }
+}
+
 /* Update status of job, possibly printing it */
 
 /**/
@@ -313,11 +381,20 @@ update_job(Job jn)
     int val = 0, status = 0;
     int somestopped = 0, inforeground = 0;
 
-    for (pn = jn->auxprocs; pn; pn = pn->next)
+    for (pn = jn->auxprocs; pn; pn = pn->next) {
+#ifdef WIFCONTINUED
+	if (WIFCONTINUED(pn->status))
+	    pn->status = SP_RUNNING;
+#endif
 	if (pn->status == SP_RUNNING)
 	    return;
+    }
 
     for (pn = jn->procs; pn; pn = pn->next) {
+#ifdef WIFCONTINUED
+	if (WIFCONTINUED(pn->status))
+	    pn->status = SP_RUNNING;
+#endif
 	if (pn->status == SP_RUNNING)      /* some processes in this job are running       */
 	    return;                        /* so no need to update job table entry         */
 	if (WIFSTOPPED(pn->status))        /* some processes are stopped                   */
@@ -448,16 +525,16 @@ update_job(Job jn)
 	curjob = job;
     }
     if ((isset(NOTIFY) || job == thisjob) && (jn->stat & STAT_LOCKED)) {
-	printjob(jn, !!isset(LONGLISTJOBS), 0);
-	if (zleactive)
-	    zrefresh();
+	if (printjob(jn, !!isset(LONGLISTJOBS), 0) &&
+	    zleactive)
+	    zleentry(ZLE_CMD_REFRESH);
     }
     if (sigtrapped[SIGCHLD] && job != thisjob)
 	dotrap(SIGCHLD);
 
     /* When MONITOR is set, the foreground process runs in a different *
      * process group from the shell, so the shell will not receive     *
-     * terminal signals, therefore we we pretend that the shell got    *
+     * terminal signals, therefore we pretend that the shell got       *
      * the signal too.                                                 */
     if (inforeground == 2 && isset(MONITOR) && WIFSIGNALED(status)) {
 	int sig = WTERMSIG(status);
@@ -478,6 +555,7 @@ update_job(Job jn)
 		breaks = loops;
 		errflag = 1;
 	    }
+	    check_cursh_sig(sig);
 	}
     }
 }
@@ -565,10 +643,18 @@ printtime(struct timeval *real, child_times_t *ti, char *desc)
 #ifdef HAVE_GETRUSAGE
     double total_time;
 #endif
-    int percent;
+    int percent, desclen;
 
     if (!desc)
+    {
 	desc = "";
+	desclen = 0;
+    }
+    else
+    {
+	desc = dupstring(desc);
+	unmetafy(desc, &desclen);
+    }
 
     /* go ahead and compute these, since almost every TIMEFMT will have them */
     elapsed_time = real->tv_sec + real->tv_usec / 1000000.0;
@@ -630,17 +716,22 @@ printtime(struct timeval *real, child_times_t *ti, char *desc)
 #endif
 #ifdef HAVE_STRUCT_RUSAGE_RU_IXRSS
 	    case 'X':
-		fprintf(stderr, "%ld", (long)(ti->ru_ixrss / total_time));
+		fprintf(stderr, "%ld", 
+			total_time ?
+			(long)(ti->ru_ixrss / total_time) :
+			(long)0);
 		break;
 #endif
 #ifdef HAVE_STRUCT_RUSAGE_RU_IDRSS
 	    case 'D':
 		fprintf(stderr, "%ld",
+			total_time ? 
 			(long) ((ti->ru_idrss
 #ifdef HAVE_STRUCT_RUSAGE_RU_ISRSS
 				 + ti->ru_isrss
 #endif
-				    ) / total_time));
+				    ) / total_time) :
+			(long)0);
 		break;
 #endif
 #if defined(HAVE_STRUCT_RUSAGE_RU_IDRSS) || \
@@ -649,6 +740,7 @@ printtime(struct timeval *real, child_times_t *ti, char *desc)
 	    case 'K':
 		/* treat as D if X not available */
 		fprintf(stderr, "%ld",
+			total_time ?
 			(long) ((
 #ifdef HAVE_STRUCT_RUSAGE_RU_IXRSS
 				    ti->ru_ixrss
@@ -661,7 +753,8 @@ printtime(struct timeval *real, child_times_t *ti, char *desc)
 #ifdef HAVE_STRUCT_RUSAGE_RU_ISRSS
 				    + ti->ru_isrss
 #endif
-				    ) / total_time));
+				    ) / total_time) :
+			(long)0);
 		break;
 #endif
 #ifdef HAVE_STRUCT_RUSAGE_RU_MAXRSS
@@ -715,7 +808,7 @@ printtime(struct timeval *real, child_times_t *ti, char *desc)
 		break;
 #endif
 	    case 'J':
-		fprintf(stderr, "%s", desc);
+		fwrite(desc, sizeof(char), desclen, stderr);
 		break;
 	    case '%':
 		putc('%', stderr);
@@ -796,27 +889,32 @@ should_report_time(Job j)
  * synch = 0 means asynchronous
  * synch = 1 means synchronous
  * synch = 2 means called synchronously from jobs
-*/
+ * synch = 3 means called synchronously from bg or fg
+ *
+ * Returns 1 if some output was done.
+ *
+ * The function also deletes the job if it was done, even it
+ * is not printed.
+ */
 
 /**/
-void
+int
 printjob(Job jn, int lng, int synch)
 {
     Process pn;
     int job, len = 9, sig, sflag = 0, llen;
-    int conted = 0, lineleng = columns, skip = 0, doputnl = 0;
-    FILE *fout = (synch == 2) ? stdout : shout;
+    int conted = 0, lineleng = zterm_columns, skip = 0, doputnl = 0;
+    int doneprint = 0, skip_print = 0;
+    FILE *fout = (synch == 2 || !shout) ? stdout : shout;
 
-    if (jn->stat & STAT_NOPRINT)
-	return;
-
-    /*
-     * Wow, what a hack.  Did I really write this? --- pws
-     */
-    if (jn < jobtab || jn >= jobtab + jobtabsize)
+    if (oldjobtab != NULL)
 	job = jn - oldjobtab;
     else
 	job = jn - jobtab;
+
+    if (jn->stat & STAT_NOPRINT) {
+	skip_print = 1;
+    }
 
     if (lng < 0) {
 	conted = 1;
@@ -842,6 +940,10 @@ printjob(Job jn, int lng, int synch)
 		    sflag = 1;
 		if (job == thisjob && sig == SIGINT)
 		    doputnl = 1;
+		if (isset(PRINTEXITVALUE) && isset(SHINSTDIN)) {
+		    sflag = 1;
+		    skip_print = 0;
+		}
 	    } else if (WIFSTOPPED(pn->status)) {
 		sig = WSTOPSIG(pn->status);
 		if ((int)strlen(sigmsg(sig)) > len)
@@ -849,25 +951,50 @@ printjob(Job jn, int lng, int synch)
 		if (job == thisjob && sig == SIGTSTP)
 		    doputnl = 1;
 	    } else if (isset(PRINTEXITVALUE) && isset(SHINSTDIN) &&
-		       WEXITSTATUS(pn->status))
+		       WEXITSTATUS(pn->status)) {
 		sflag = 1;
+		skip_print = 0;
+	    }
 	}
     }
 
-/* print if necessary: ignore option state on explicit call to `jobs'. */
+    if (skip_print) {
+	if (jn->stat & STAT_DONE) {
+	    if (should_report_time(jn))
+		dumptime(jn);
+	    deletejob(jn, 0);
+	    if (job == curjob) {
+		curjob = prevjob;
+		prevjob = job;
+	    }
+	    if (job == prevjob)
+		setprevjob();
+	}
+	return 0;
+    }
 
-    if (synch == 2 || 
-	(interact && jobbing &&
+    /*
+     * - Always print if called from jobs
+     * - Otherwise, require MONITOR option ("jobbing") and some
+     *   change of state
+     * - also either the shell is interactive or this is synchronous.
+     */
+    if (synch == 2 ||
+	((interact || synch) && jobbing &&
 	 ((jn->stat & STAT_STOPPED) || sflag || job != thisjob))) {
 	int len2, fline = 1;
+	/* POSIX requires just the job text for bg and fg */
+	int plainfmt = (synch == 3) && isset(POSIXJOBS);
 	/* use special format for current job, except in `jobs' */
 	int thisfmt = job == thisjob && synch != 2;
 	Process qn;
 
 	if (!synch)
-	    trashzle();
-	if (doputnl && !synch)
+	    zleentry(ZLE_CMD_TRASH);
+	if (doputnl && !synch) {
+	    doneprint = 1;
 	    putc('\n', fout);
+	}
 	for (pn = jn->procs; pn;) {
 	    len2 = (thisfmt ? 5 : 10) + len;	/* 2 spaces */
 	    if (lng & 3)
@@ -876,60 +1003,74 @@ printjob(Job jn, int lng, int synch)
 		for (qn = pn->next; qn; qn = qn->next) {
 		    if (qn->status != pn->status)
 			break;
-		    if ((int)strlen(qn->text) + len2 + ((qn->next) ? 3 : 0) > lineleng)
+		    if ((int)strlen(qn->text) + len2 + ((qn->next) ? 3 : 0)
+			> lineleng)
 			break;
 		    len2 += strlen(qn->text) + 2;
 		}
-	    if (!thisfmt || lng) {
-		if (fline)
-		    fprintf(fout, "[%ld]  %c ",
-			    (long)job,
-			    (job == curjob) ? '+'
-			    : (job == prevjob) ? '-' : ' ');
-		else
-		    fprintf(fout, (job > 9) ? "        " : "       ");
-	    } else
-		fprintf(fout, "zsh: ");
-	    if (lng & 1)
-		fprintf(fout, "%ld ", (long) pn->pid);
-	    else if (lng & 2) {
-		pid_t x = jn->gleader;
+	    doneprint = 1;
+	    if (!plainfmt) {
+		if (!thisfmt || lng) {
+		    if (fline)
+			fprintf(fout, "[%ld]  %c ",
+				(long)job,
+				(job == curjob) ? '+'
+				: (job == prevjob) ? '-' : ' ');
+		    else
+			fprintf(fout, (job > 9) ? "        " : "       ");
+		} else
+		    fprintf(fout, "zsh: ");
+		if (lng & 1)
+		    fprintf(fout, "%ld ", (long) pn->pid);
+		else if (lng & 2) {
+		    pid_t x = jn->gleader;
 
-		fprintf(fout, "%ld ", (long) x);
-		do
+		    fprintf(fout, "%ld ", (long) x);
+		    do
+			skip++;
+		    while ((x /= 10));
 		    skip++;
-		while ((x /= 10));
-		skip++;
-		lng &= ~3;
-	    } else
-		fprintf(fout, "%*s", skip, "");
-	    if (pn->status == SP_RUNNING) {
-		if (!conted)
-		    fprintf(fout, "running%*s", len - 7 + 2, "");
+		    lng &= ~3;
+		} else
+		    fprintf(fout, "%*s", skip, "");
+		if (pn->status == SP_RUNNING) {
+		    if (!conted)
+			fprintf(fout, "running%*s", len - 7 + 2, "");
+		    else
+			fprintf(fout, "continued%*s", len - 9 + 2, "");
+		}
+		else if (WIFEXITED(pn->status)) {
+		    if (WEXITSTATUS(pn->status))
+			fprintf(fout, "exit %-4d%*s", WEXITSTATUS(pn->status),
+				len - 9 + 2, "");
+		    else
+			fprintf(fout, "done%*s", len - 4 + 2, "");
+		} else if (WIFSTOPPED(pn->status))
+		    fprintf(fout, "%-*s", len + 2,
+			    sigmsg(WSTOPSIG(pn->status)));
+		else if (WCOREDUMP(pn->status))
+		    fprintf(fout, "%s (core dumped)%*s",
+			    sigmsg(WTERMSIG(pn->status)),
+			    (int)(len - 14 + 2 -
+				  strlen(sigmsg(WTERMSIG(pn->status)))), "");
 		else
-		    fprintf(fout, "continued%*s", len - 9 + 2, "");
+		    fprintf(fout, "%-*s", len + 2,
+			    sigmsg(WTERMSIG(pn->status)));
 	    }
-	    else if (WIFEXITED(pn->status)) {
-		if (WEXITSTATUS(pn->status))
-		    fprintf(fout, "exit %-4d%*s", WEXITSTATUS(pn->status),
-			    len - 9 + 2, "");
-		else
-		    fprintf(fout, "done%*s", len - 4 + 2, "");
-	    } else if (WIFSTOPPED(pn->status))
-		fprintf(fout, "%-*s", len + 2, sigmsg(WSTOPSIG(pn->status)));
-	    else if (WCOREDUMP(pn->status))
-		fprintf(fout, "%s (core dumped)%*s",
-			sigmsg(WTERMSIG(pn->status)),
-			(int)(len - 14 + 2 - strlen(sigmsg(WTERMSIG(pn->status)))), "");
-	    else
-		fprintf(fout, "%-*s", len + 2, sigmsg(WTERMSIG(pn->status)));
-	    for (; pn != qn; pn = pn->next)
-		fprintf(fout, (pn->next) ? "%s | " : "%s", pn->text);
+	    for (; pn != qn; pn = pn->next) {
+		char *txt = dupstring(pn->text);
+		int txtlen;
+		unmetafy(txt, &txtlen);
+		fwrite(txt, sizeof(char), txtlen, fout);
+		if (pn->next)
+		    fputs(" | ", fout);
+	    }
 	    putc('\n', fout);
 	    fline = 0;
 	}
 	fflush(fout);
     } else if (doputnl && interact && !synch) {
+	doneprint = 1;
 	putc('\n', fout);
 	fflush(fout);
     }
@@ -940,6 +1081,7 @@ printjob(Job jn, int lng, int synch)
 
     if ((lng & 4) || (interact && job == thisjob &&
 		      jn->pwd && strcmp(jn->pwd, pwd))) {
+	doneprint = 1;
 	fprintf(fout, "(pwd %s: ", (lng & 4) ? "" : "now");
 	fprintdir(((lng & 4) && jn->pwd) ? jn->pwd : pwd, fout);
 	fprintf(fout, ")\n");
@@ -950,7 +1092,7 @@ printjob(Job jn, int lng, int synch)
     if (jn->stat & STAT_DONE) {
 	if (should_report_time(jn))
 	    dumptime(jn);
-	deletejob(jn);
+	deletejob(jn, 0);
 	if (job == curjob) {
 	    curjob = prevjob;
 	    prevjob = job;
@@ -959,16 +1101,19 @@ printjob(Job jn, int lng, int synch)
 	    setprevjob();
     } else
 	jn->stat &= ~STAT_CHANGED;
+
+    return doneprint;
 }
 
 /**/
 void
-deletefilelist(LinkList file_list)
+deletefilelist(LinkList file_list, int disowning)
 {
     char *s;
     if (file_list) {
 	while ((s = (char *)getlinknode(file_list))) {
-	    unlink(s);
+	    if (!disowning)
+		unlink(s);
 	    zsfree(s);
 	}
 	zfree(file_list, sizeof(struct linklist));
@@ -1004,7 +1149,7 @@ freejob(Job jn, int deleting)
 	/* careful in case we shrink and move the job table */
 	int job = jn - jobtab;
 	if (deleting)
-	    deletejob(jobtab + jn->other);
+	    deletejob(jobtab + jn->other, 0);
 	else
 	    freejob(jobtab + jn->other, 0);
 	jn = jobtab + job;
@@ -1024,13 +1169,17 @@ freejob(Job jn, int deleting)
 /*
  * We are actually finished with this job, rather
  * than freeing it to make space.
+ *
+ * If "disowning" is set, files associated with the job are not
+ * actually deleted --- and won't be as there is nothing left
+ * to clear up.
  */
 
 /**/
 void
-deletejob(Job jn)
+deletejob(Job jn, int disowning)
 {
-    deletefilelist(jn->filelist);
+    deletefilelist(jn->filelist, disowning);
     if (jn->stat & STAT_ATTACH) {
 	attachtty(mypgrp);
 	adjustwinsize(0);
@@ -1052,6 +1201,14 @@ void
 addproc(pid_t pid, char *text, int aux, struct timeval *bgtime)
 {
     Process pn, *pnlist;
+
+    if (pid == lastpid && lastpid_status != -2L) {
+	/*
+	 * The status for the previous lastpid is invalid.
+	 * Presumably process numbers have wrapped.
+	 */
+	lastpid_status = -1L;
+    }
 
     DPUTS(thisjob == -1, "No valid job in addproc.");
     pn = (Process) zshcalloc(sizeof *pn);
@@ -1127,6 +1284,7 @@ waitforpid(pid_t pid, int wait_cmd)
     /* child_block() around this loop in case #ifndef WNOHANG */
     dont_queue_signals();
     child_block();		/* unblocked in signal_suspend() */
+    queue_traps(wait_cmd);
     while (!errflag && (kill(pid, 0) >= 0 || errno != ESRCH)) {
 	if (first)
 	    first = 0;
@@ -1135,13 +1293,15 @@ waitforpid(pid_t pid, int wait_cmd)
 
 	last_signal = -1;
 	signal_suspend(SIGCHLD, wait_cmd);
-	if (last_signal != SIGCHLD && wait_cmd) {
+	if (last_signal != SIGCHLD && wait_cmd && last_signal >= 0 &&
+	    (sigtrapped[last_signal] & ZSIG_TRAPPED)) {
 	    /* wait command interrupted, but no error: return */
 	    restore_queue_signals(q);
 	    return 128 + last_signal;
 	}
 	child_block();
     }
+    unqueue_traps();
     child_unblock();
     restore_queue_signals(q);
 
@@ -1163,6 +1323,7 @@ zwaitjob(int job, int wait_cmd)
 
     dont_queue_signals();
     child_block();		 /* unblocked during signal_suspend() */
+    queue_traps(wait_cmd);
     if (jn->procs || jn->auxprocs) { /* if any forks were done         */
 	jn->stat |= STAT_LOCKED;
 	if (jn->stat & STAT_CHANGED)
@@ -1171,7 +1332,8 @@ zwaitjob(int job, int wait_cmd)
 	       !(jn->stat & STAT_DONE) &&
 	       !(interact && (jn->stat & STAT_STOPPED))) {
 	    signal_suspend(SIGCHLD, wait_cmd);
-	    if (last_signal != SIGCHLD && wait_cmd)
+	    if (last_signal != SIGCHLD && wait_cmd && last_signal >= 0 &&
+		(sigtrapped[last_signal] & ZSIG_TRAPPED))
 	    {
 		/* builtin wait interrupted by trapped signal */
 		restore_queue_signals(q);
@@ -1193,10 +1355,11 @@ zwaitjob(int job, int wait_cmd)
 	    child_block();
 	}
     } else {
-	deletejob(jn);
+	deletejob(jn, 0);
 	pipestats[0] = lastval;
 	numpipestats = 1;
     }
+    unqueue_traps();
     child_unblock();
     restore_queue_signals(q);
 
@@ -1215,7 +1378,7 @@ waitjobs(void)
     if (jn->procs || jn->auxprocs)
 	zwaitjob(thisjob, 0);
     else {
-	deletejob(jn);
+	deletejob(jn, 0);
 	pipestats[0] = lastval;
 	numpipestats = 1;
     }
@@ -1230,6 +1393,8 @@ clearjobtab(int monitor)
 {
     int i;
 
+    if (isset(POSIXJOBS))
+	oldmaxjob = 0;
     for (i = 1; i <= maxjob; i++) {
 	/*
 	 * See if there is a jobtable worth saving.
@@ -1237,7 +1402,7 @@ clearjobtab(int monitor)
 	 * once for each subshell of a shell with job control,
 	 * so doesn't create a leak.
 	 */
-	if (monitor && jobtab[i].stat)
+	if (monitor && !isset(POSIXJOBS) && jobtab[i].stat)
 	    oldmaxjob = i+1;
 	else if (jobtab[i].stat & STAT_INUSE)
 	    freejob(jobtab + i, 0);
@@ -1245,6 +1410,8 @@ clearjobtab(int monitor)
 
     if (monitor && oldmaxjob) {
 	int sz = oldmaxjob * sizeof(struct job);
+	if (oldjobtab)
+	    free(oldjobtab);
 	oldjobtab = (struct job *)zalloc(sz);
 	memcpy(oldjobtab, jobtab, sz);
 
@@ -1298,7 +1465,7 @@ initjob(void)
     if (expandjobtab())
 	return initnewjob(i);
 
-    zerr("job table full or recursion limit exceeded", NULL, 0);
+    zerr("job table full or recursion limit exceeded");
     return -1;
 }
 
@@ -1329,16 +1496,17 @@ spawnjob(void)
 	    setprevjob();
 	} else if (prevjob == -1 || !(jobtab[prevjob].stat & STAT_STOPPED))
 	    prevjob = thisjob;
-	if (interact && jobbing && jobtab[thisjob].procs) {
-	    fprintf(stderr, "[%d]", thisjob);
+	if (jobbing && jobtab[thisjob].procs) {
+	    FILE *fout = shout ? shout : stdout;
+	    fprintf(fout, "[%d]", thisjob);
 	    for (pn = jobtab[thisjob].procs; pn; pn = pn->next)
-		fprintf(stderr, " %ld", (long) pn->pid);
-	    fprintf(stderr, "\n");
-	    fflush(stderr);
+		fprintf(fout, " %ld", (long) pn->pid);
+	    fprintf(fout, "\n");
+	    fflush(fout);
 	}
     }
     if (!hasprocs(thisjob))
-	deletejob(jobtab + thisjob);
+	deletejob(jobtab + thisjob, 0);
     else
 	jobtab[thisjob].stat |= STAT_LOCKED;
     thisjob = -1;
@@ -1429,10 +1597,19 @@ setcurjob(void)
  * to a job number.                                             */
 
 /**/
-static int
-getjob(char *s, char *prog)
+mod_export int
+getjob(const char *s, const char *prog)
 {
-    int jobnum, returnval;
+    int jobnum, returnval, mymaxjob;
+    Job myjobtab;
+
+    if (oldjobtab) {
+	myjobtab = oldjobtab;
+	mymaxjob = oldmaxjob;
+    } else {
+	myjobtab= jobtab;
+	mymaxjob = maxjob;
+    }
 
     /* if there is no %, treat as a name */
     if (*s != '%')
@@ -1441,7 +1618,8 @@ getjob(char *s, char *prog)
     /* "%%", "%+" and "%" all represent the current job */
     if (*s == '%' || *s == '+' || !*s) {
 	if (curjob == -1) {
-	    zwarnnam(prog, "no current job", NULL, 0);
+	    if (prog)
+		zwarnnam(prog, "no current job");
 	    returnval = -1;
 	    goto done;
 	}
@@ -1451,7 +1629,8 @@ getjob(char *s, char *prog)
     /* "%-" represents the previous job */
     if (*s == '-') {
 	if (prevjob == -1) {
-	    zwarnnam(prog, "no previous job", NULL, 0);
+	    if (prog)
+		zwarnnam(prog, "no previous job");
 	    returnval = -1;
 	    goto done;
 	}
@@ -1461,12 +1640,20 @@ getjob(char *s, char *prog)
     /* a digit here means we have a job number */
     if (idigit(*s)) {
 	jobnum = atoi(s);
-	if (jobnum && jobnum <= maxjob && jobtab[jobnum].stat &&
-	    !(jobtab[jobnum].stat & STAT_SUBJOB) && jobnum != thisjob) {
+	if (jobnum && jobnum <= mymaxjob && myjobtab[jobnum].stat &&
+	    !(myjobtab[jobnum].stat & STAT_SUBJOB) &&
+	    /*
+	     * If running jobs in a subshell, we are allowed to
+	     * refer to the "current" job (it's not really the
+	     * current job in the subshell).  It's possible we
+	     * should reset thisjob to -1 on entering the subshell.
+	     */
+	    (myjobtab == oldjobtab || jobnum != thisjob)) {
 	    returnval = jobnum;
 	    goto done;
 	}
-	zwarnnam(prog, "%%%s: no such job", s, 0);
+	if (prog)
+	    zwarnnam(prog, "%%%s: no such job", s);
 	returnval = -1;
 	goto done;
     }
@@ -1474,15 +1661,17 @@ getjob(char *s, char *prog)
     if (*s == '?') {
 	struct process *pn;
 
-	for (jobnum = maxjob; jobnum >= 0; jobnum--)
-	    if (jobtab[jobnum].stat && !(jobtab[jobnum].stat & STAT_SUBJOB) &&
+	for (jobnum = mymaxjob; jobnum >= 0; jobnum--)
+	    if (myjobtab[jobnum].stat &&
+		!(myjobtab[jobnum].stat & STAT_SUBJOB) &&
 		jobnum != thisjob)
-		for (pn = jobtab[jobnum].procs; pn; pn = pn->next)
+		for (pn = myjobtab[jobnum].procs; pn; pn = pn->next)
 		    if (strstr(pn->text, s + 1)) {
 			returnval = jobnum;
 			goto done;
 		    }
-	zwarnnam(prog, "job not found: %s", s, 0);
+	if (prog)
+	    zwarnnam(prog, "job not found: %s", s);
 	returnval = -1;
 	goto done;
     }
@@ -1495,18 +1684,20 @@ getjob(char *s, char *prog)
     }
     /* if we get here, it is because none of the above succeeded and went
     to done */
-    zwarnnam(prog, "job not found: %s", s, 0);
+    zwarnnam(prog, "job not found: %s", s);
     returnval = -1;
   done:
     return returnval;
 }
 
+#ifndef HAVE_SETPROCTITLE
 /* For jobs -Z (which modifies the shell's name as seen in ps listings).  *
  * hackzero is the start of the safely writable space, and hackspace is   *
  * its length, excluding a final NUL terminator that will always be left. */
 
 static char *hackzero;
 static int hackspace;
+#endif
 
 
 /* Initialise job handling. */
@@ -1523,12 +1714,13 @@ init_jobs(char **argv, char **envp)
      */
     jobtab = (struct job *)zalloc(init_bytes);
     if (!jobtab) {
-	zerr("failed to allocate job table, aborting.", NULL, 0);
+	zerr("failed to allocate job table, aborting.");
 	exit(1);
     }
     jobtabsize = MAXJOBS_ALLOC;
     memset(jobtab, 0, init_bytes);
 
+#ifndef HAVE_SETPROCTITLE
     /*
      * Initialise the jobs -Z system.  The technique is borrowed from
      * perl: check through the argument and environment space, to see
@@ -1551,6 +1743,7 @@ init_jobs(char **argv, char **envp)
     }
     done:
     hackspace = p - hackzero;
+#endif
 }
 
 
@@ -1638,19 +1831,23 @@ bin_fg(char *name, char **argv, Options ops, int func)
 	int len;
 
 	if(isset(RESTRICTED)) {
-	    zwarnnam(name, "-Z is restricted", NULL, 0);
+	    zwarnnam(name, "-Z is restricted");
 	    return 1;
 	}
 	if(!argv[0] || argv[1]) {
-	    zwarnnam(name, "-Z requires one argument", NULL, 0);
+	    zwarnnam(name, "-Z requires one argument");
 	    return 1;
 	}
 	queue_signals();
 	unmetafy(*argv, &len);
+#ifdef HAVE_SETPROCTITLE
+	setproctitle("%s", *argv);
+#else
 	if(len > hackspace)
 	    len = hackspace;
 	memcpy(hackzero, *argv, len);
 	memset(hackzero + len, 0, hackspace - len);
+#endif
 	unqueue_signals();
 	return 0;
     }
@@ -1665,11 +1862,19 @@ bin_fg(char *name, char **argv, Options ops, int func)
 
     if ((func == BIN_FG || func == BIN_BG) && !jobbing) {
 	/* oops... maybe bg and fg should have been disabled? */
-	zwarnnam(name, "no job control in this shell.", NULL, 0);
+	zwarnnam(name, "no job control in this shell.");
 	return 1;
     }
 
     queue_signals();
+    /*
+     * In case any processes changed state recently, wait for them.
+     * This updates stopped processes (but we should have been
+     * signalled about those, up to inevitable races), and also
+     * continued processes if that feature is available.
+     */
+    wait_for_processes();
+
     /* If necessary, update job table. */
     if (unset(NOTIFY))
 	scanjobs();
@@ -1689,7 +1894,7 @@ bin_fg(char *name, char **argv, Options ops, int func)
 	    /* W.r.t. the above comment, we'd better have a current job at this
 	    point or else. */
 	    if (curjob == -1 || (jobtab[curjob].stat & STAT_NOPRINT)) {
-		zwarnnam(name, "no current job", NULL, 0);
+		zwarnnam(name, "no current job");
 		unqueue_signals();
 		return 1;
 	    }
@@ -1731,7 +1936,7 @@ bin_fg(char *name, char **argv, Options ops, int func)
     In the default case for bg, fg and disown, the argument will be provided by
     the above routine.  We now loop over the arguments. */
     for (; (firstjob != -1) || *argv; (void)(*argv && argv++)) {
-	int stopped, ocj = thisjob;
+	int stopped, ocj = thisjob, jstat;
 
         func = ofunc;
 
@@ -1742,20 +1947,35 @@ bin_fg(char *name, char **argv, Options ops, int func)
 	    Process p;
 
 	    if (findproc(pid, &j, &p, 0)) {
-		/*
-		 * returns 0 for normal exit, else signal+128
-		 * in which case we should return that status.
-		 */
-		retval = waitforpid(pid, 1);
-		if (!retval)
+		if (j->stat & STAT_STOPPED) {
+		    retval = (killjb(j, SIGCONT) != 0);
+		    if (retval == 0)
+			makerunning(j);
+		}
+		if (retval == 0) {
+		    /*
+		     * returns 0 for normal exit, else signal+128
+		     * in which case we should return that status.
+		     */
+		    retval = waitforpid(pid, 1);
+		}
+		if (retval == 0)
 		    retval = lastval2;
+	    } else if (isset(POSIXJOBS) &&
+		       pid == lastpid && lastpid_status >= 0L) {
+		retval = (int)lastpid_status;
 	    } else {
-		zwarnnam(name, "pid %d is not a child of this shell", 0, pid);
+		zwarnnam(name, "pid %d is not a child of this shell", pid);
 		/* presumably lastval2 doesn't tell us a heck of a lot? */
 		retval = 1;
 	    }
 	    thisjob = ocj;
 	    continue;
+	}
+	if (func != BIN_JOBS && oldjobtab != NULL) {
+	    zwarnnam(name, "can't manipulate jobs in subshell");
+	    unqueue_signals();
+	    return 1;
 	}
 	/* The only type of argument allowed now is a job spec.  Check it. */
 	job = (*argv) ? getjob(*argv, name) : firstjob;
@@ -1764,9 +1984,10 @@ bin_fg(char *name, char **argv, Options ops, int func)
 	    retval = 1;
 	    break;
 	}
-	if (!(jobtab[job].stat & STAT_INUSE) ||
-	    (jobtab[job].stat & STAT_NOPRINT)) {
-	    zwarnnam(name, "no such job: %d", 0, job);
+	jstat = oldjobtab ? oldjobtab[job].stat : jobtab[job].stat;
+	if (!(jstat & STAT_INUSE) ||
+	    (jstat & STAT_NOPRINT)) {
+	    zwarnnam(name, "%s: no such job", *argv);
 	    unqueue_signals();
 	    return 1;
 	}
@@ -1774,7 +1995,7 @@ bin_fg(char *name, char **argv, Options ops, int func)
          * on disown), we actually do a bg and then delete the job table entry. */
 
         if (isset(AUTOCONTINUE) && func == BIN_DISOWN &&
-            jobtab[job].stat & STAT_STOPPED)
+            jstat & STAT_STOPPED)
             func = BIN_BG;
 
 	/* We have a job number.  Now decide what to do with it. */
@@ -1800,7 +2021,7 @@ bin_fg(char *name, char **argv, Options ops, int func)
 		}
 	    } else if (func == BIN_BG) {
 		/* Silly to bg a job already running. */
-		zwarnnam(name, "job already in background", NULL, 0);
+		zwarnnam(name, "job already in background");
 		thisjob = ocj;
 		unqueue_signals();
 		return 1;
@@ -1819,10 +2040,10 @@ bin_fg(char *name, char **argv, Options ops, int func)
 	    }
 	    if (func != BIN_WAIT)
 		/* for bg and fg -- show the job we are operating on */
-		printjob(jobtab + job, (stopped) ? -1 : lng, 1);
+		printjob(jobtab + job, (stopped) ? -1 : lng, 3);
 	    if (func != BIN_BG) {		/* fg or wait */
 		if (jobtab[job].pwd && strcmp(jobtab[job].pwd, pwd)) {
-		    FILE *fout = (func == BIN_JOBS) ? stdout : shout;
+		    FILE *fout = (func == BIN_JOBS || !shout) ? stdout : shout;
 		    fprintf(fout, "(pwd : ");
 		    fprintdir(jobtab[job].pwd, fout);
 		    fprintf(fout, ")\n");
@@ -1861,10 +2082,10 @@ bin_fg(char *name, char **argv, Options ops, int func)
 		waitjobs();
 		retval = lastval2;
 	    } else if (ofunc == BIN_DISOWN)
-	        deletejob(jobtab + job);
+	        deletejob(jobtab + job, 1);
 	    break;
 	case BIN_JOBS:
-	    printjob(job + jobtab, lng, 2);
+	    printjob(job + (oldjobtab ? oldjobtab : jobtab), lng, 2);
 	    break;
 	case BIN_DISOWN:
 	    if (jobtab[job].stat & STAT_STOPPED) {
@@ -1895,9 +2116,9 @@ bin_fg(char *name, char **argv, Options ops, int func)
 #else
                          "warning: job is stopped, use `kill -CONT%s' to resume",
 #endif
-                         pids, 0);
+                         pids);
 	    }
-	    deletejob(jobtab + job);
+	    deletejob(jobtab + job, 1);
 	    break;
 	}
 	thisjob = ocj;
@@ -1906,18 +2127,6 @@ bin_fg(char *name, char **argv, Options ops, int func)
     return retval;
 }
 
-#if defined(SIGCHLD) && defined(SIGCLD)
-#if SIGCHLD == SIGCLD
-#define ALT_SIGS 1
-#endif
-#endif
-#if defined(SIGPOLL) && defined(SIGIO)
-#if SIGPOLL == SIGIO
-#define ALT_SIGS 1
-#endif
-#endif
-
-#ifdef ALT_SIGS
 const struct {
     const char *name;
     int num;
@@ -1932,9 +2141,15 @@ const struct {
     { "IO", SIGIO },
 #endif
 #endif
+#if !defined(SIGERR)
+    /*
+     * If SIGERR is not defined by the operating system, use it
+     * as an alias for SIGZERR.
+     */
+    { "ERR", SIGZERR },
+#endif
     { NULL, 0 }
 };
-#endif
 
 /* kill: send a signal to a process.  The process(es) may be specified *
  * by job specifier (see above) or pid.  A signal, defaulting to       *
@@ -1949,10 +2164,15 @@ bin_kill(char *nam, char **argv, UNUSED(Options ops), UNUSED(int func))
 
     /* check for, and interpret, a signal specifier */
     if (*argv && **argv == '-') {
-	if (idigit((*argv)[1]))
+	if (idigit((*argv)[1])) {
+	    char *endp;
 	    /* signal specified by number */
-	    sig = atoi(*argv + 1);
-	else if ((*argv)[1] != '-' || (*argv)[2]) {
+	    sig = zstrtol(*argv + 1, &endp, 10);
+	    if (*endp) {
+		zwarnnam(nam, "invalid signal number: %s", *argv);
+		return 1;
+	    }
+	} else if ((*argv)[1] != '-' || (*argv)[2]) {
 	    char *signame;
 
 	    /* with argument "-l" display the list of signal names */
@@ -1964,30 +2184,28 @@ bin_kill(char *nam, char **argv, UNUSED(Options ops), UNUSED(int func))
 			    if (!strncmp(signame, "SIG", 3))
 				signame += 3;
 			    for (sig = 1; sig <= SIGCOUNT; sig++)
-				if (!cstrpcmp(sigs + sig, &signame))
+				if (!strcasecmp(sigs[sig], signame))
 				    break;
-#ifdef ALT_SIGS
 			    if (sig > SIGCOUNT) {
 				int i;
 
 				for (i = 0; alt_sigs[i].name; i++)
-				    if (!cstrpcmp(&alt_sigs[i].name, &signame))
+				    if (!strcasecmp(alt_sigs[i].name, signame))
 				    {
 					sig = alt_sigs[i].num;
 					break;
 				    }
 			    }
-#endif
 			    if (sig > SIGCOUNT) {
 				zwarnnam(nam, "unknown signal: SIG%s",
-					 signame, 0);
+					 signame);
 				returnval++;
 			    } else
 				printf("%d\n", sig);
 			} else {
 			    if (*signame) {
 				zwarnnam(nam, "unknown signal: SIG%s",
-					 signame, 0);
+					 signame);
 				returnval++;
 			    } else {
 				if (WIFSIGNALED(sig))
@@ -2014,23 +2232,27 @@ bin_kill(char *nam, char **argv, UNUSED(Options ops), UNUSED(int func))
 	    	char *endp;
 
 	    	if (!*++argv) {
-		    zwarnnam(nam, "-n: argument expected", NULL, 0);
+		    zwarnnam(nam, "-n: argument expected");
 		    return 1;
 		}
 		sig = zstrtol(*argv, &endp, 10);
 		if (*endp) {
-		    zwarnnam(nam, "invalid signal number", signame, 0);
+		    zwarnnam(nam, "invalid signal number: %s", *argv);
 		    return 1;
 		}
 	    } else {
 		if (!((*argv)[1] == 's' && (*argv)[2] == '\0'))
 		    signame = *argv + 1;
 		else if (!(*++argv)) {
-		    zwarnnam(nam, "-s: argument expected", NULL, 0);
+		    zwarnnam(nam, "-s: argument expected");
 		    return 1;
 		} else
 		    signame = *argv;
-		makeuppercase(&signame);
+		if (!*signame) {
+		    zwarnnam(nam, "-: signal name expected");
+		    return 1;
+		}
+		signame = casemodify(signame, CASMOD_UPPER);
 		if (!strncmp(signame, "SIG", 3))
 		    signame+=3;
 
@@ -2040,7 +2262,6 @@ bin_kill(char *nam, char **argv, UNUSED(Options ops), UNUSED(int func))
 			break;
 		if (*signame == '0' && !signame[1])
 		    sig = 0;
-#ifdef ALT_SIGS
 		if (sig > SIGCOUNT) {
 		    int i;
 
@@ -2051,10 +2272,9 @@ bin_kill(char *nam, char **argv, UNUSED(Options ops), UNUSED(int func))
 			    break;
 			}
 		}
-#endif
 		if (sig > SIGCOUNT) {
-		    zwarnnam(nam, "unknown signal: SIG%s", signame, 0);
-		    zwarnnam(nam, "type kill -l for a List of signals", NULL, 0);
+		    zwarnnam(nam, "unknown signal: SIG%s", signame);
+		    zwarnnam(nam, "type kill -l for a list of signals");
 		    return 1;
 		}
 	    }
@@ -2063,7 +2283,7 @@ bin_kill(char *nam, char **argv, UNUSED(Options ops), UNUSED(int func))
     }
 
     if (!*argv) {
-    	zwarnnam(nam, "not enough arguments", NULL, 0);
+    	zwarnnam(nam, "not enough arguments");
 	return 1;
     }
 
@@ -2090,18 +2310,35 @@ bin_kill(char *nam, char **argv, UNUSED(Options ops), UNUSED(int func))
 	    job, and send the job a SIGCONT if sending it a non-stopping
 	    signal. */
 	    if (jobtab[p].stat & STAT_STOPPED) {
+#ifndef WIFCONTINUED
+		/* With WIFCONTINUED we find this out properly */
 		if (sig == SIGCONT)
-		    jobtab[p].stat &= ~STAT_STOPPED;
+		    makerunning(jobtab + p);
+#endif
 		if (sig != SIGKILL && sig != SIGCONT && sig != SIGTSTP
 		    && sig != SIGTTOU && sig != SIGTTIN && sig != SIGSTOP)
 		    killjb(jobtab + p, SIGCONT);
 	    }
 	} else if (!isanum(*argv)) {
-	    zwarnnam("kill", "illegal pid: %s", *argv, 0);
+	    zwarnnam("kill", "illegal pid: %s", *argv);
 	    returnval++;
-	} else if (kill(atoi(*argv), sig) == -1) {
-	    zwarnnam("kill", "kill %s failed: %e", *argv, errno);
-	    returnval++;
+	} else {
+	    int pid = atoi(*argv);
+	    if (kill(pid, sig) == -1) {
+		zwarnnam("kill", "kill %s failed: %e", *argv, errno);
+		returnval++;
+	    } 
+#ifndef WIFCONTINUED
+	    else if (sig == SIGCONT) {
+		Job jn;
+		Process pn;
+		/* With WIFCONTINUED we find this out properly */
+		if (findproc(pid, &jn, &pn, 0)) {
+		    if (WIFSTOPPED(pn->status))
+			pn->status = SP_RUNNING;
+		}
+	    }
+#endif
 	}
     }
     unqueue_signals();
@@ -2112,7 +2349,7 @@ bin_kill(char *nam, char **argv, UNUSED(Options ops), UNUSED(int func))
 
 /**/
 mod_export int
-getsignum(char *s)
+getsignum(const char *s)
 {
     int x, i;
 
@@ -2129,17 +2366,39 @@ getsignum(char *s)
 	if (!strcmp(s, sigs[i]))
 	    return i;
 
-#ifdef ALT_SIGS
     for (i = 0; alt_sigs[i].name; i++)
     {
 	if (!strcmp(s, alt_sigs[i].name))
 	    return alt_sigs[i].num;
     }
-#endif
 
     /* no matching signal */
     return -1;
 }
+
+/* Get the name for a signal. */
+
+/**/
+mod_export const char *
+getsigname(int sig)
+{
+    if (sigtrapped[sig] & ZSIG_ALIAS)
+    {
+	int i;
+	for (i = 0; alt_sigs[i].name; i++)
+	    if (sig == alt_sigs[i].num)
+		return alt_sigs[i].name;
+    }
+    else
+	return sigs[sig];
+
+    /* shouldn't reach here */
+#ifdef DEBUG
+    dputs("Bad alias flag for signal");
+#endif
+    return "";
+}
+
 
 /* Get the function node for a trap, taking care about alternative names */
 /**/
@@ -2148,10 +2407,8 @@ gettrapnode(int sig, int ignoredisable)
 {
     char fname[20];
     HashNode hn;
-    HashNode (*getptr)(HashTable ht, char *name);
-#ifdef ALT_SIGS
+    HashNode (*getptr)(HashTable ht, const char *name);
     int i;
-#endif
     if (ignoredisable)
 	getptr = shfunctab->getnode2;
     else
@@ -2161,7 +2418,6 @@ gettrapnode(int sig, int ignoredisable)
     if ((hn = getptr(shfunctab, fname)))
 	return hn;
 
-#ifdef ALT_SIGS
     for (i = 0; alt_sigs[i].name; i++) {
 	if (alt_sigs[i].num == sig) {
 	    sprintf(fname, "TRAP%s", alt_sigs[i].name);
@@ -2169,7 +2425,6 @@ gettrapnode(int sig, int ignoredisable)
 		return hn;
 	}
     }
-#endif
 
     return NULL;
 }
@@ -2195,7 +2450,7 @@ bin_suspend(char *name, UNUSED(char **argv), Options ops, UNUSED(int func))
 {
     /* won't suspend a login shell, unless forced */
     if (islogin && !OPT_ISSET(ops,'f')) {
-	zwarnnam(name, "can't suspend login shell", NULL, 0);
+	zwarnnam(name, "can't suspend login shell");
 	return 1;
     }
     if (jobbing) {
@@ -2225,7 +2480,7 @@ bin_suspend(char *name, UNUSED(char **argv), Options ops, UNUSED(int func))
 
 /**/
 int
-findjobnam(char *s)
+findjobnam(const char *s)
 {
     int jobnum;
 
@@ -2264,7 +2519,7 @@ acquire_pgrp(void)
 	    if (mypgrp == gettygrp())
 		break;
 	    signal_setmask(oldset);
-	    read(0, NULL, 0); /* Might generate SIGT* */
+	    if (read(0, NULL, 0) != 0) {} /* Might generate SIGT* */
 	    signal_block(blockset);
 	    mypgrp = GETPGRP();
 	}

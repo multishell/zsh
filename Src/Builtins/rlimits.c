@@ -36,6 +36,7 @@ enum {
     ZLIMTYPE_MEMORY,
     ZLIMTYPE_NUMBER,
     ZLIMTYPE_TIME,
+    ZLIMTYPE_MICROSECONDS,
     ZLIMTYPE_UNKNOWN
 };
 
@@ -101,9 +102,9 @@ showlimitvalue(int lim, rlim_t val)
 	printf("%lld\n", val);
 #  else
 #   ifdef RLIM_T_IS_UNSIGNED
-	printf("%lu\n", val);
+	printf("%lu\n", (unsigned long)val);
 #   else
-	printf("%ld\n", val);
+	printf("%ld\n", (long)val);
 #   endif /* RLIM_T_IS_UNSIGNED */
 #  endif /* RLIM_T_IS_LONG_LONG */
 # endif /* RLIM_T_IS_QUAD_T */
@@ -113,10 +114,37 @@ showlimitvalue(int lim, rlim_t val)
 	   seconds. */
 	printf("%d:%02d:%02d\n", (int)(val / 3600),
 	       (int)(val / 60) % 60, (int)(val % 60));
+    } else if (limtype[lim] == ZLIMTYPE_MICROSECONDS) {
+	/* microseconds */
+# ifdef RLIM_T_IS_QUAD_T
+	printf("%qdus\n", val);
+# else
+#  ifdef RLIM_T_IS_LONG_LONG
+	printf("%lldus\n", val);
+#  else
+#   ifdef RLIM_T_IS_UNSIGNED
+	printf("%luus\n", (unsigned long)val);
+#   else
+	printf("%ldus\n", (long)val);
+#   endif /* RLIM_T_IS_UNSIGNED */
+#  endif /* RLIM_T_IS_LONG_LONG */
+# endif /* RLIM_T_IS_QUAD_T */
     } else if (limtype[lim] == ZLIMTYPE_NUMBER ||
 	       limtype[lim] == ZLIMTYPE_UNKNOWN) {
 	/* pure numeric resource */
-	printf("%d\n", (int)val);
+# ifdef RLIM_T_IS_QUAD_T
+	printf("%qd\n", val);
+# else
+#  ifdef RLIM_T_IS_LONG_LONG
+	printf("%lld\n", val);
+#  else
+#   ifdef RLIM_T_IS_UNSIGNED
+	printf("%lu\n", (unsigned long)val);
+#   else
+	printf("%ld\n", (long)val);
+#   endif /* RLIM_T_IS_UNSIGNED */
+#  endif /* RLIM_T_IS_LONG_LONG */
+# endif /* RLIM_T_IS_QUAD_T */
     } else if (val >= 1024L * 1024L)
 	/* memory resource -- display with `K' or `M' modifier */
 # ifdef RLIM_T_IS_QUAD_T
@@ -125,18 +153,18 @@ showlimitvalue(int lim, rlim_t val)
 	printf("%qdkB\n", val / 1024L);
 # else
 #  ifdef RLIM_T_IS_LONG_LONG
-    printf("%lldMB\n", val / (1024L * 1024L));
+	printf("%lldMB\n", val / (1024L * 1024L));
     else
 	printf("%lldkB\n", val / 1024L);
 #  else
 #   ifdef RLIM_T_IS_UNSIGNED
-    printf("%luMB\n", val / (1024L * 1024L));
+    printf("%luMB\n", (unsigned long)(val / (1024L * 1024L)));
     else
-	printf("%lukB\n", val / 1024L);
+	printf("%lukB\n", (unsigned long)(val / 1024L));
 #   else
-    printf("%ldMB\n", val / (1024L * 1024L));
+    printf("%ldMB\n", (long)val / (1024L * 1024L));
     else
-	printf("%ldkB\n", val / 1024L);
+	printf("%ldkB\n", (long)val / 1024L);
 #   endif /* RLIM_T_IS_UNSIGNED */
 #  endif /* RLIM_T_IS_LONG_LONG */
 # endif /* RLIM_T_IS_QUAD_T */
@@ -161,7 +189,7 @@ showlimits(char *nam, int hard, int lim)
 	struct rlimit vals;
 	if (getrlimit(lim, &vals) < 0)
 	{
-	    zwarnnam(nam, "can't read limit: %e", NULL, errno);
+	    zwarnnam(nam, "can't read limit: %e", errno);
 	    return 1;
 	}
 	showlimitvalue(lim, hard ? vals.rlim_max : vals.rlim_cur);
@@ -199,7 +227,7 @@ printulimit(char *nam, int lim, int hard, int head)
 
 	if (getrlimit(lim, &vals) < 0)
 	{
-	    zwarnnam(nam, "can't read limit: %e", NULL, errno);
+	    zwarnnam(nam, "can't read limit: %e", errno);
 	    return 1;
 	}
 	limit = (hard) ? vals.rlim_max : vals.rlim_cur;
@@ -370,9 +398,9 @@ printulimit(char *nam, int lim, int hard, int head)
 	printf("%lld\n", limit);
 #  else
 #   ifdef RLIM_T_IS_UNSIGNED
-	printf("%lu\n", limit);
+	printf("%lu\n", (unsigned long)limit);
 #   else
-	printf("%ld\n", limit);
+	printf("%ld\n", (long)limit);
 #   endif /* RLIM_T_IS_UNSIGNED */
 #  endif /* RLIM_T_IS_LONG_LONG */
 # endif /* RLIM_T_IS_QUAD_T */
@@ -390,13 +418,13 @@ do_limit(char *nam, int lim, rlim_t val, int hard, int soft, int set)
 	if (getrlimit(lim, &vals) < 0)
 	{
 	    /* best guess about error */
-	    zwarnnam(nam, "can't read limit: %e", NULL, errno);
+	    zwarnnam(nam, "can't read limit: %e", errno);
 	    return 1;
 	}
 	if (hard)
 	{
 	    if (val > vals.rlim_max && geteuid()) {
-		zwarnnam(nam, "can't raise hard limits", NULL, 0);
+		zwarnnam(nam, "can't raise hard limits");
 		return 1;
 	    }
 	    vals.rlim_max = val;
@@ -409,7 +437,7 @@ do_limit(char *nam, int lim, rlim_t val, int hard, int soft, int set)
 	}
 	if (soft || !hard) {
 	    if (val > vals.rlim_max) {
-		zwarnnam(nam, "limit exceeds hard limit", NULL, 0);
+		zwarnnam(nam, "limit exceeds hard limit");
 		return 1;
 	    }
 	    else
@@ -419,12 +447,12 @@ do_limit(char *nam, int lim, rlim_t val, int hard, int soft, int set)
 	{
 	    zwarnnam(nam,
 		     "warning: unrecognised limit %d, use -s to set",
-		     NULL, lim);
+		     lim);
 	    return 1;
 	}
 	else if (setrlimit(lim, &vals) < 0)
 	{
-	    zwarnnam(nam, "setrlimit failed: %e", NULL, errno);
+	    zwarnnam(nam, "setrlimit failed: %e", errno);
 	    return 1;
 	}
     } else {
@@ -433,7 +461,7 @@ do_limit(char *nam, int lim, rlim_t val, int hard, int soft, int set)
 	if (hard) {
 	    /* can only raise hard limits if running as root */
 	    if (val > current_limits[lim].rlim_max && geteuid()) {
-		zwarnnam(nam, "can't raise hard limits", NULL, 0);
+		zwarnnam(nam, "can't raise hard limits");
 		return 1;
 	    } else {
 		limits[lim].rlim_max = val;
@@ -448,13 +476,13 @@ do_limit(char *nam, int lim, rlim_t val, int hard, int soft, int set)
 		{
 		    /* ulimit does this */
 		    if (val > current_limits[lim].rlim_max && geteuid()) {
-			zwarnnam(nam, "value exceeds hard limit", NULL, 0);
+			zwarnnam(nam, "value exceeds hard limit");
 			return 1;
 		    }
 		    limits[lim].rlim_max = limits[lim].rlim_cur = val;
 		} else {
 		    /* but limit does this */
-		    zwarnnam(nam, "limit exceeds hard limit", NULL, 0);
+		    zwarnnam(nam, "limit exceeds hard limit");
 		    return 1;
 		}
 	    } else
@@ -505,7 +533,7 @@ bin_limit(char *nam, char **argv, Options ops, UNUSED(int func))
 	if (lim < 0) {
 	    zwarnnam(nam,
 		     (lim == -2) ? "ambiguous resource specification: %s"
-		     : "no such resource: %s", s, 0);
+		     : "no such resource: %s", s);
 	    return 1;
 	}
 	/* without value for limit, display the current limit */
@@ -517,7 +545,7 @@ bin_limit(char *nam, char **argv, Options ops, UNUSED(int func))
 	    if (*s)
 	    {
 		/* unknown limit, no idea how to scale */
-		zwarnnam(nam, "unknown scaling factor: %s", s, 0);
+		zwarnnam(nam, "unknown scaling factor: %s", s);
 		return 1;
 	    }
 	}
@@ -535,17 +563,19 @@ bin_limit(char *nam, char **argv, Options ops, UNUSED(int func))
 		else if (*s == ':')
 		    val = val * 60 + zstrtorlimt(s + 1, &s, 10);
 		else {
-		    zwarnnam(nam, "unknown scaling factor: %s", s, 0);
+		    zwarnnam(nam, "unknown scaling factor: %s", s);
 		    return 1;
 		}
 	    }
-	} else if (limtype[lim] == ZLIMTYPE_NUMBER || limtype[lim] == ZLIMTYPE_UNKNOWN) {
+	} else if (limtype[lim] == ZLIMTYPE_NUMBER ||
+		   limtype[lim] == ZLIMTYPE_UNKNOWN ||
+		   limtype[lim] == ZLIMTYPE_MICROSECONDS) {
 	    /* pure numeric resource -- only a straight decimal number is
 	    permitted. */
 	    char *t = s;
 	    val = zstrtorlimt(t, &s, 10);
 	    if (s == t) {
-		zwarnnam(nam, "limit must be a number", NULL, 0);
+		zwarnnam(nam, "limit must be a number");
 		return 1;
 	    }
 	} else {
@@ -558,7 +588,7 @@ bin_limit(char *nam, char **argv, Options ops, UNUSED(int func))
 	    } else if ((*s == 'M' || *s == 'm') && !s[1])
 		val *= 1024L * 1024;
 	    else {
-		zwarnnam(nam, "unknown scaling factor: %s", s, 0);
+		zwarnnam(nam, "unknown scaling factor: %s", s);
 		return 1;
 	    }
 	}
@@ -577,12 +607,12 @@ do_unlimit(char *nam, int lim, int hard, int soft, int set, int euid)
 	struct rlimit vals;
 	if (getrlimit(lim, &vals) < 0)
 	{
-	    zwarnnam(nam, "can't read limit: %e", NULL, errno);
+	    zwarnnam(nam, "can't read limit: %e", errno);
 	    return 1;
 	}
 	if (hard) {
 	    if (euid && vals.rlim_max != RLIM_INFINITY) {
-		zwarnnam(nam, "can't remove hard limits", NULL, 0);
+		zwarnnam(nam, "can't remove hard limits");
 		return 1;
 	    } else
 		vals.rlim_max = RLIM_INFINITY;
@@ -591,17 +621,16 @@ do_unlimit(char *nam, int lim, int hard, int soft, int set, int euid)
 	    vals.rlim_cur = vals.rlim_max;
 	if (!set) {
 	    zwarnnam(nam,
-		     "warning: unrecognised limit %d, use -s to set",
-		     NULL, lim);
+		     "warning: unrecognised limit %d, use -s to set", lim);
 	    return 1;
 	} else if (setrlimit(lim, &vals) < 0) {
-	    zwarnnam(nam, "setrlimit failed: %e", NULL, errno);
+	    zwarnnam(nam, "setrlimit failed: %e", errno);
 	    return 1;
 	}
     } else {
 	if (hard) {
 	    if (euid && current_limits[lim].rlim_max != RLIM_INFINITY) {
-		zwarnnam(nam, "can't remove hard limits", NULL, 0);
+		zwarnnam(nam, "can't remove hard limits");
 		return 1;
 	    } else
 		limits[lim].rlim_max = RLIM_INFINITY;
@@ -640,7 +669,7 @@ bin_unlimit(char *nam, char **argv, Options ops, UNUSED(int func))
 	if (OPT_ISSET(ops,'s'))
 	    ret += setlimits(nam);
 	if (ret)
-	    zwarnnam(nam, "can't remove hard limits", NULL, 0);
+	    zwarnnam(nam, "can't remove hard limits");
     } else {
 	for (; *argv; argv++) {
 	    /* Search for the appropriate resource name.  When a name     *
@@ -663,7 +692,7 @@ bin_unlimit(char *nam, char **argv, Options ops, UNUSED(int func))
 	    if (lim < 0) {
 		zwarnnam(nam,
 			 (lim == -2) ? "ambiguous resource specification: %s"
-			 : "no such resource: %s", *argv, 0);
+			 : "no such resource: %s", *argv);
 		return 1;
 	    }
 	    else if (do_unlimit(nam, lim, hard, !hard, OPT_ISSET(ops, 's'),
@@ -681,12 +710,12 @@ static int
 bin_ulimit(char *name, char **argv, UNUSED(Options ops), UNUSED(int func))
 {
     int res, resmask = 0, hard = 0, soft = 0, nres = 0, all = 0, ret = 0;
-    char *options;
+    char *options, *eptr, *number;
 
     do {
 	options = *argv;
 	if (options && *options == '-' && !options[1]) {
-	    zwarnnam(name, "missing option letter", NULL, 0);
+	    zwarnnam(name, "missing option letter");
 	    return 1;
 	}
 	res = -1;
@@ -705,12 +734,16 @@ bin_ulimit(char *name, char **argv, UNUSED(Options ops), UNUSED(int func))
 		    continue;
 		case 'N':
 		    if (options[1]) {
-			res = (int)zstrtol(options+1, NULL, 10);
+			number = options + 1;
 		    } else if (*argv) {
-			res = (int)zstrtol(*argv++, NULL, 10);
+			number = *argv++;
 		    } else {
-			zwarnnam(name, "number required after -N",
-				 NULL, 0);
+			zwarnnam(name, "number required after -N");
+			return 1;
+		    }
+		    res = (int)zstrtol(number, &eptr, 10);
+		    if (*eptr) {
+			zwarnnam(name, "invalid number: %s", number);
 			return 1;
 		    }
 		    /*
@@ -721,8 +754,7 @@ bin_ulimit(char *name, char **argv, UNUSED(Options ops), UNUSED(int func))
 		    break;
 		case 'a':
 		    if (resmask) {
-			zwarnnam(name, "no limits allowed with -a",
-				 NULL, 0);
+			zwarnnam(name, "no limits allowed with -a");
 			return 1;
 		    }
 		    all = 1;
@@ -800,7 +832,7 @@ bin_ulimit(char *name, char **argv, UNUSED(Options ops), UNUSED(int func))
 # endif
 		default:
 		    /* unrecognised limit */
-		    zwarnnam(name, "bad option: -%c", NULL, *options);
+		    zwarnnam(name, "bad option: -%c", *options);
 		    return 1;
 		}
 		if (options[1]) {
@@ -808,8 +840,7 @@ bin_ulimit(char *name, char **argv, UNUSED(Options ops), UNUSED(int func))
 		    nres++;
 		}
 		if (all && res != -1) {
-		    zwarnnam(name, "no limits allowed with -a",
-			     NULL, 0);
+		    zwarnnam(name, "no limits allowed with -a");
 		    return 1;
 		}
 	    }
@@ -826,7 +857,7 @@ bin_ulimit(char *name, char **argv, UNUSED(Options ops), UNUSED(int func))
 	    continue;
 	}
 	if (all) {
-	    zwarnnam(name, "no arguments allowed after -a", NULL, 0);
+	    zwarnnam(name, "no arguments allowed after -a");
 	    return 1;
 	}
 	if (res < 0)
@@ -835,35 +866,53 @@ bin_ulimit(char *name, char **argv, UNUSED(Options ops), UNUSED(int func))
 	    /* set limit to specified value */
 	    rlim_t limit;
 
-	    limit = zstrtorlimt(*argv, NULL, 10);
-	    /* scale appropriately */
-	    switch (res) {
-	    case RLIMIT_FSIZE:
-	    case RLIMIT_CORE:
-		limit *= 512;
-		break;
-	    case RLIMIT_DATA:
-	    case RLIMIT_STACK:
+	    if (!strcmp(*argv, "hard")) {
+		struct rlimit vals;
+
+		if (getrlimit(res, &vals) < 0)
+		{
+		    zwarnnam(name, "can't read limit: %e", errno);
+		    return 1;
+		}
+		else
+		{
+		    limit = vals.rlim_max;
+		}
+	    } else {
+		limit = zstrtorlimt(*argv, &eptr, 10);
+		if (*eptr) {
+		    zwarnnam(name, "invalid number: %s", *argv);
+		    return 1;
+		}
+		/* scale appropriately */
+		switch (res) {
+		case RLIMIT_FSIZE:
+		case RLIMIT_CORE:
+		    limit *= 512;
+		    break;
+		case RLIMIT_DATA:
+		case RLIMIT_STACK:
 # ifdef HAVE_RLIMIT_RSS
-	    case RLIMIT_RSS:
+		case RLIMIT_RSS:
 # endif /* HAVE_RLIMIT_RSS */
 # ifdef HAVE_RLIMIT_MEMLOCK
-	    case RLIMIT_MEMLOCK:
+		case RLIMIT_MEMLOCK:
 # endif /* HAVE_RLIMIT_MEMLOCK */
 /* If RLIMIT_VMEM and RLIMIT_RSS are defined and equal, avoid *
  * duplicate case statement.  Observed on QNX Neutrino 6.1.0. */
 # if defined(HAVE_RLIMIT_VMEM) && !defined(RLIMIT_VMEM_IS_RSS)
-	    case RLIMIT_VMEM:
+		case RLIMIT_VMEM:
 # endif /* HAVE_RLIMIT_VMEM */
 /* ditto RLIMIT_VMEM and RLIMIT_AS */
 # if defined(HAVE_RLIMIT_AS) && !defined(RLIMIT_VMEM_IS_AS) && !defined(RLIMIT_RSS_IS_AS)
-	    case RLIMIT_AS:
+		case RLIMIT_AS:
 # endif /* HAVE_RLIMIT_AS */
 # ifdef HAVE_RLIMIT_AIO_MEM
-	    case RLIMIT_AIO_MEM:
+		case RLIMIT_AIO_MEM:
 # endif /* HAVE_RLIMIT_AIO_MEM */
-		limit *= 1024;
-		break;
+		    limit *= 1024;
+		    break;
+		}
 	    }
 	    if (do_limit(name, res, limit, hard, soft, 1))
 		ret++;
@@ -893,6 +942,14 @@ static struct builtin bintab[] = {
     BUILTIN("unlimit", 0, bin_unlimit, 0, -1, 0, "hs", NULL),
 };
 
+static struct features module_features = {
+    bintab, sizeof(bintab)/sizeof(*bintab),
+    NULL, 0,
+    NULL, 0,
+    NULL, 0,
+    0
+};
+
 /**/
 int
 setup_(UNUSED(Module m))
@@ -902,17 +959,31 @@ setup_(UNUSED(Module m))
 
 /**/
 int
+features_(Module m, char ***features)
+{
+    *features = featuresarray(m, &module_features);
+    return 0;
+}
+
+/**/
+int
+enables_(Module m, int **enables)
+{
+    return handlefeatures(m, &module_features, enables);
+}
+
+/**/
+int
 boot_(Module m)
 {
-    return !addbuiltins(m->nam, bintab, sizeof(bintab)/sizeof(*bintab));
+    return 0;
 }
 
 /**/
 int
 cleanup_(Module m)
 {
-    deletebuiltins(m->nam, bintab, sizeof(bintab)/sizeof(*bintab));
-    return 0;
+    return setfeatureenables(m, &module_features, NULL);
 }
 
 /**/

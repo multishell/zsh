@@ -30,13 +30,9 @@
 #include "langinfo.mdh"
 #include "langinfo.pro"
 
-static char langinfo_nam[] = "langinfo";
-
 #ifdef HAVE_LANGINFO_H
 # include <langinfo.h>
 #endif
-
-static Param langinfo_pm;
 
 /**/
 #ifdef HAVE_NL_LANGINFO
@@ -380,7 +376,7 @@ static nl_item nl_vals[] = {
 };
 
 static nl_item *
-liitem(char *name)
+liitem(const char *name)
 {
     char **element;
     nl_item *nlcode;
@@ -396,58 +392,19 @@ liitem(char *name)
 }
 
 /**/
-static void
-shempty(void)
-{
-}
-
-/* Create a simple special hash parameter. */
-
-/**/
-static Param
-createlihash()
-{
-    Param pm;
-    HashTable ht;
-
-    unsetparam(langinfo_nam);
-
-    if (!(pm = createparam(langinfo_nam, PM_SPECIAL|PM_HIDE|PM_HIDEVAL|
-			   PM_REMOVABLE|PM_HASHED)))
-	return NULL;
-
-    pm->level = pm->old ? locallevel : 0;
-    pm->gsu.h = &stdhash_gsu;
-    pm->u.hash = ht = newhashtable(7, langinfo_nam, NULL);
-
-    ht->hash        = hasher;
-    ht->emptytable  = (TableFunc) shempty;
-    ht->filltable   = NULL;
-    ht->addnode     = (AddNodeFunc) shempty;
-    ht->getnode     = ht->getnode2 = getlanginfo;
-    ht->removenode  = (RemoveNodeFunc) shempty;
-    ht->disablenode = NULL;
-    ht->enablenode  = NULL;
-    ht->freenode    = (FreeNodeFunc) shempty;
-    ht->printnode   = printparamnode;
-    ht->scantab     = scanlanginfo;
-
-    return (langinfo_pm = pm);
-}
-
-/**/
 static HashNode
-getlanginfo(UNUSED(HashTable ht), char *name)
+getlanginfo(UNUSED(HashTable ht), const char *name)
 {
     int len, *elem;
-    char *listr;
+    char *listr, *nameu;
     Param pm = NULL;
 
-    unmetafy(name, &len);
+    nameu = dupstring(name);
+    unmetafy(nameu, &len);
 
     pm = (Param) hcalloc(sizeof(struct param));
-    pm->nam = dupstring(name);
-    pm->flags = PM_READONLY | PM_SCALAR;
+    pm->node.nam = nameu;
+    pm->node.flags = PM_READONLY | PM_SCALAR;
     pm->gsu.s = &nullsetscalar_gsu;
 
     if(name)
@@ -460,11 +417,11 @@ getlanginfo(UNUSED(HashTable ht), char *name)
     }
     else
     {
-	/* zwarn("no such lang info: %s", name, 0); */
+	/* zwarn("no such lang info: %s", name); */
 	pm->u.str = dupstring("");
-	pm->flags |= PM_UNSET;
+	pm->node.flags |= PM_UNSET;
     }
-    return (HashNode) pm;
+    return &pm->node;
 }
 
 /**/
@@ -477,21 +434,37 @@ scanlanginfo(UNUSED(HashTable ht), ScanFunc func, int flags)
 
     pm = (Param) hcalloc(sizeof(struct param));
     pm->gsu.s = &nullsetscalar_gsu;
-    pm->flags = PM_READONLY | PM_SCALAR;
+    pm->node.flags = PM_READONLY | PM_SCALAR;
 
     nlcode = &nl_vals[0];
     for (element = (char **)nl_names; *element; element++, nlcode++) {
 	if ((langstr = nl_langinfo(*nlcode)) != NULL) {
 	    pm->u.str = dupstring(langstr);
-	    pm->nam = dupstring(*element);
-	    func((HashNode) pm, flags);
+	    pm->node.nam = dupstring(*element);
+	    func(&pm->node, flags);
 	}
     }
     
 }
 
+static struct paramdef partab[] = {
+    SPECIALPMDEF("langinfo", 0, NULL, getlanginfo, scanlanginfo)
+};
+
 /**/
 #endif /* HAVE_NL_LANGINFO */
+
+static struct features module_features = {
+    NULL, 0,
+    NULL, 0,
+    NULL, 0,
+#ifdef HAVE_NL_LANGINFO
+    partab, sizeof(partab)/sizeof(*partab),
+#else
+    NULL, 0,
+#endif
+    0
+};
 
 /**/
 int
@@ -502,14 +475,23 @@ setup_(UNUSED(Module m))
 
 /**/
 int
+features_(Module m, char ***features)
+{
+    *features = featuresarray(m, &module_features);
+    return 0;
+}
+
+/**/
+int
+enables_(Module m, int **enables)
+{
+    return handlefeatures(m, &module_features, enables);
+}
+
+/**/
+int
 boot_(UNUSED(Module m))
 {
-#ifdef HAVE_NL_LANGINFO
-    if (!createlihash())
-    	return 1;
-#else
-    unsetparam(langinfo_nam);
-#endif
     return 0;
 }
 
@@ -517,16 +499,7 @@ boot_(UNUSED(Module m))
 int
 cleanup_(UNUSED(Module m))
 {
-#ifdef HAVE_NL_LANGINFO
-    Param pm;
-
-    if ((pm = (Param) paramtab->getnode(paramtab, langinfo_nam)) &&
-	pm == langinfo_pm) {
-	pm->flags &= ~PM_READONLY;
-	unsetparam_pm(pm, 0, 1);
-    }
-#endif
-    return 0;
+    return setfeatureenables(m, &module_features, NULL);
 }
 
 /**/

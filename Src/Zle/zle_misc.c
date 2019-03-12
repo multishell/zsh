@@ -30,55 +30,125 @@
 #include "zle.mdh"
 #include "zle_misc.pro"
 
-/* insert a metafied string, with repetition and suffix removal */
+/* insert a zle string, with repetition and suffix removal */
 
 /**/
 void
-doinsert(char *str)
+doinsert(ZLE_STRING_T zstr, int len)
 {
-    char *s;
-    int len = ztrlen(str);
-    int c1 = *str == Meta ? STOUC(str[1])^32 : STOUC(*str);/* first character */
+    ZLE_STRING_T s;
+    ZLE_CHAR_T c1 = *zstr;	     /* first character */
     int neg = zmult < 0;             /* insert *after* the cursor? */
     int m = neg ? -zmult : zmult;    /* number of copies to insert */
+    int count;
+
+    UNMETACHECK();
 
     iremovesuffix(c1, 0);
     invalidatelist();
 
-    if(insmode)
+    if (insmode)
 	spaceinline(m * len);
-    else if(cs + m * len > ll)
-	spaceinline(cs + m * len - ll);
-    while(m--)
-	for(s = str; *s; s++)
-	    line[cs++] = *s == Meta ? *++s ^ 32 : *s;
-    if(neg)
-	cs += zmult * len;
+    else
+#ifdef MULTIBYTE_SUPPORT
+    {
+	int pos = zlecs, diff, i;
+
+	/*
+	 * Calculate the number of character positions we are
+	 * going to be using.  The algorithm is that
+	 * anything that shows up as a logical single character
+	 * (i.e. even if control, or double width, or with combining
+	 * characters) is treated as 1 for the purpose of replacing
+	 * what's there already.
+	 *
+	 * This can cause inserting of a combining character in
+	 * places where it should overwrite, such as the start
+	 * of a line.  However, combining characters aren't
+	 * useful there anyway and this doesn't cause any
+	 * particular harm.
+	 */
+	for (i = 0, count = 0; i < len; i++) {
+	    if (!IS_COMBINING(zstr[i]))
+		count++;
+	}
+	/*
+	 * Ensure we replace a complete combining character
+	 * for each character we overwrite.
+	 */
+	for (i = count; pos < zlell && i--; ) {
+	    INCPOS(pos);
+	}
+	/*
+	 * Calculate how many raw line places we need.
+	 * pos - zlecs is the raw line distance we're replacing,
+	 * m * len the number we're inserting.
+	 */
+	diff = pos - zlecs - m * len;
+	if (diff < 0) {
+	    spaceinline(-diff);
+	} else if (diff > 0) {
+	    /*
+	     * We use shiftchars() here because we don't
+	     * want combining char alignment fixed up: we
+	     * are going to write over any that remain.
+	     */
+	    shiftchars(zlecs, diff);
+	}
+    }
+#else
+    if (zlecs + m * len > zlell)
+	spaceinline(zlecs + m * len - zlell);
+#endif
+    while (m--)
+	for (s = zstr, count = len; count; s++, count--)
+	    zleline[zlecs++] = *s;
+    if (neg)
+	zlecs += zmult * len;
+    /* if we ended up on a combining character, skip over it */
+    CCRIGHT();
 }
 
 /**/
 mod_export int
 selfinsert(UNUSED(char **args))
 {
-    char s[3], *p = s;
+    ZLE_CHAR_T tmp;
 
-    if(imeta(lastchar)) {
-	*p++ = Meta;
-	lastchar ^= 32;
-    }
-    *p++ = lastchar;
-    *p = 0;
-    doinsert(s);
+#ifdef MULTIBYTE_SUPPORT
+    if (!lastchar_wide_valid)
+	if (getrestchar(lastchar) == WEOF)
+	    return 1;
+#endif
+    tmp = LASTFULLCHAR;
+    doinsert(&tmp, 1);
     return 0;
+}
+
+/**/
+mod_export void
+fixunmeta(void)
+{
+    lastchar &= 0x7f;
+    if (lastchar == '\r')
+	lastchar = '\n';
+#ifdef MULTIBYTE_SUPPORT
+    /*
+     * TODO: can we do this better?
+     * We need a wide character to insert.
+     * selfinsertunmeta is intrinsically problematic
+     * with multibyte input.
+     */
+    lastchar_wide = (ZLE_INT_T)lastchar;
+    lastchar_wide_valid = 1;
+#endif
 }
 
 /**/
 mod_export int
 selfinsertunmeta(char **args)
 {
-    lastchar &= 0x7f;
-    if (lastchar == '\r')
-	lastchar = '\n';
+    fixunmeta();
     return selfinsert(args);
 }
 
@@ -86,6 +156,7 @@ selfinsertunmeta(char **args)
 int
 deletechar(char **args)
 {
+    int n;
     if (zmult < 0) {
 	int ret;
 	zmult = -zmult;
@@ -93,12 +164,15 @@ deletechar(char **args)
 	zmult = -zmult;
 	return ret;
     }
-    if (cs + zmult <= ll) {
-	cs += zmult;
-	backdel(zmult);
-	return 0;
+
+    n = zmult;
+    while (n--) {
+	if (zlecs == zlell)
+	    return 1;
+	INCCS();
     }
-    return 1;
+    backdel(zmult, 0);
+    return 0;
 }
 
 /**/
@@ -112,7 +186,7 @@ backwarddeletechar(char **args)
 	zmult = -zmult;
 	return ret;
     }
-    backdel(zmult > cs ? cs : zmult);
+    backdel(zmult > zlecs ? zlecs : zmult, 0);
     return 0;
 }
 
@@ -125,12 +199,12 @@ killwholeline(UNUSED(char **args))
     if (n < 0)
 	return 1;
     while (n--) {
-	if ((fg = (cs && cs == ll)))
-	    cs--;
-	while (cs && line[cs - 1] != '\n')
-	    cs--;
-	for (i = cs; i != ll && line[i] != '\n'; i++);
-	forekill(i - cs + (i != ll), fg);
+	if ((fg = (zlecs && zlecs == zlell)))
+	    zlecs--;
+	while (zlecs && zleline[zlecs - 1] != '\n')
+	    zlecs--;
+	for (i = zlecs; i != zlell && zleline[i] != '\n'; i++);
+	forekill(i - zlecs + (i != zlell), fg ? (CUT_FRONT|CUT_RAW) : CUT_RAW);
     }
     clearlist = 1;
     return 0;
@@ -140,8 +214,8 @@ killwholeline(UNUSED(char **args))
 int
 killbuffer(UNUSED(char **args))
 {
-    cs = 0;
-    forekill(ll, 0);
+    zlecs = 0;
+    forekill(zlell, CUT_RAW);
     clearlist = 1;
     return 0;
 }
@@ -160,34 +234,77 @@ backwardkillline(char **args)
 	return ret;
     }
     while (n--) {
-	if (cs && line[cs - 1] == '\n')
-	    cs--, i++;
+	if (zlecs && zleline[zlecs - 1] == '\n')
+	    zlecs--, i++;
 	else
-	    while (cs && line[cs - 1] != '\n')
-		cs--, i++;
+	    while (zlecs && zleline[zlecs - 1] != '\n')
+		zlecs--, i++;
     }
-    forekill(i, 1);
+    forekill(i, CUT_FRONT|CUT_RAW);
     clearlist = 1;
     return 0;
 }
+
+#ifdef MULTIBYTE_SUPPORT
+/*
+ * Transpose the chunk of the line from start to middle with
+ * that from middle to end.
+ */
+
+static void
+transpose_swap(int start, int middle, int end)
+{
+    int len1, len2;
+    ZLE_STRING_T first;
+
+    len1 = middle - start;
+    len2 = end - middle;
+
+    first = (ZLE_STRING_T)zalloc(len1 * ZLE_CHAR_SIZE);
+    ZS_memcpy(first, zleline + start, len1);
+    /* Move may be overlapping... */
+    ZS_memmove(zleline + start, zleline + middle, len2);
+    ZS_memcpy(zleline + start + len2, first, len1);
+    zfree(first, len1 * ZLE_CHAR_SIZE);
+}
+#endif
 
 /**/
 int
 gosmacstransposechars(UNUSED(char **args))
 {
-    int cc;
+    if (zlecs < 2 || zleline[zlecs - 1] == '\n' || zleline[zlecs - 2] == '\n') {
+	int twice = (zlecs == 0 || zleline[zlecs - 1] == '\n');
 
-    if (cs < 2 || line[cs - 1] == '\n' || line[cs - 2] == '\n') {
-	if (cs == ll || line[cs] == '\n' ||
-	    ((cs + 1 == ll || line[cs + 1] == '\n') &&
-	     (!cs || line[cs - 1] == '\n'))) {
+	if (zlecs == zlell || zleline[zlecs] == '\n')
 	    return 1;
+
+	INCCS();
+	if (twice) {
+	    if (zlecs == zlell || zleline[zlecs] == '\n')
+		return 1;
+	    INCCS();
 	}
-	cs += (cs == 0 || line[cs - 1] == '\n') ? 2 : 1;
     }
-    cc = line[cs - 2];
-    line[cs - 2] = line[cs - 1];
-    line[cs - 1] = cc;
+#ifdef MULTIBYTE_SUPPORT
+    {
+	int start, middle;
+
+	middle = zlecs;
+	DECPOS(middle);
+
+	start = middle;
+	DECPOS(start);
+
+	transpose_swap(start, middle, zlecs);
+    }
+#else
+    {
+	ZLE_CHAR_T cc = zleline[zlecs - 2];
+	zleline[zlecs - 2] = zleline[zlecs - 1];
+	zleline[zlecs - 1] = cc;
+    }
+#endif
     return 0;
 }
 
@@ -195,37 +312,54 @@ gosmacstransposechars(UNUSED(char **args))
 int
 transposechars(UNUSED(char **args))
 {
-    int cc, ct;
+    int ct;
     int n = zmult;
     int neg = n < 0;
 
     if (neg)
 	n = -n;
     while (n--) {
-	if (!(ct = cs) || line[cs - 1] == '\n') {
-	    if (ll == cs || line[cs] == '\n')
+	if (!(ct = zlecs) || zleline[zlecs - 1] == '\n') {
+	    if (zlell == zlecs || zleline[zlecs] == '\n')
 		return 1;
 	    if (!neg)
-		cs++;
-	    ct++;
+		INCCS();
+	    INCPOS(ct);
 	}
 	if (neg) {
-	    if (cs && line[cs - 1] != '\n') {
-		cs--;
-		if (ct > 1 && line[ct - 2] != '\n')
-		    ct--;
+	    if (zlecs && zleline[zlecs - 1] != '\n') {
+		DECCS();
+		if (ct > 1 && zleline[ct - 2] != '\n') {
+		    DECPOS(ct);
+		}
 	    }
 	} else {
-	    if (cs != ll && line[cs] != '\n')
-		cs++;
+	    if (zlecs != zlell && zleline[zlecs] != '\n')
+		INCCS();
 	}
-	if (ct == ll || line[ct] == '\n')
-	    ct--;
-	if (ct < 1 || line[ct - 1] == '\n')
+	if (ct == zlell || zleline[ct] == '\n') {
+	    DECPOS(ct);
+	}
+	if (ct < 1 || zleline[ct - 1] == '\n')
 	    return 1;
-	cc = line[ct - 1];
-	line[ct - 1] = line[ct];
-	line[ct] = cc;
+#ifdef MULTIBYTE_SUPPORT
+	{
+	    /*
+	     * We should keep any accents etc. on their original characters.
+	     */
+	    int start = ct, end = ct;
+	    DECPOS(start);
+	    INCPOS(end);
+
+	    transpose_swap(start, ct, end);
+	}
+#else
+	{
+	    ZLE_CHAR_T cc = zleline[ct - 1];
+	    zleline[ct - 1] = zleline[ct];
+	    zleline[ct] = cc;
+	}
+#endif
     }
     return 0;
 }
@@ -234,28 +368,28 @@ transposechars(UNUSED(char **args))
 int
 poundinsert(UNUSED(char **args))
 {
-    cs = 0;
+    zlecs = 0;
     vifirstnonblank(zlenoargs);
-    if (line[cs] != '#') {
+    if (zleline[zlecs] != '#') {
 	spaceinline(1);
-	line[cs] = '#';
-	cs = findeol();
-	while(cs != ll) {
-	    cs++;
+	zleline[zlecs] = '#';
+	zlecs = findeol();
+	while(zlecs != zlell) {
+	    zlecs++;
 	    vifirstnonblank(zlenoargs);
 	    spaceinline(1);
-	    line[cs] = '#';
-	    cs = findeol();
+	    zleline[zlecs] = '#';
+	    zlecs = findeol();
 	}
     } else {
-	foredel(1);
-	cs = findeol();
-	while(cs != ll) {
-	    cs++;
+	foredel(1, 0);
+	zlecs = findeol();
+	while(zlecs != zlell) {
+	    zlecs++;
 	    vifirstnonblank(zlenoargs);
-	    if(line[cs] == '#')
-		foredel(1);
-	    cs = findeol();
+	    if(zleline[zlecs] == '#')
+		foredel(1, 0);
+	    zlecs = findeol();
 	}
     }
     done = 1;
@@ -274,8 +408,8 @@ acceptline(UNUSED(char **args))
 int
 acceptandhold(UNUSED(char **args))
 {
-    zpushnode(bufstack, metafy((char *)line, ll, META_DUP));
-    stackcs = cs;
+    zpushnode(bufstack, zlelineasstring(zleline, zlell, 0, NULL, NULL, 0));
+    stackcs = zlecs;
     done = 1;
     return 0;
 }
@@ -294,13 +428,13 @@ killline(char **args)
 	return ret;
     }
     while (n--) {
-	if (line[cs] == '\n')
-	    cs++, i++;
+	if (zleline[zlecs] == ZWC('\n'))
+	    zlecs++, i++;
 	else
-	    while (cs != ll && line[cs] != '\n')
-		cs++, i++;
+	    while (zlecs != zlell && zleline[zlecs] != ZWC('\n'))
+		zlecs++, i++;
     }
-    backkill(i, 0);
+    backkill(i, CUT_RAW);
     clearlist = 1;
     return 0;
 }
@@ -309,25 +443,32 @@ killline(char **args)
 int
 killregion(UNUSED(char **args))
 {
-    if (mark > ll)
-	mark = ll;
-    if (mark > cs)
-	forekill(mark - cs, 0);
+    if (mark > zlell)
+	mark = zlell;
+    if (mark > zlecs)
+	forekill(mark - zlecs, CUT_RAW);
     else
-	backkill(cs - mark, 1);
+	backkill(zlecs - mark, CUT_FRONT|CUT_RAW);
     return 0;
 }
 
 /**/
 int
-copyregionaskill(UNUSED(char **args))
+copyregionaskill(char **args)
 {
-    if (mark > ll)
-	mark = ll;
-    if (mark > cs)
-	cut(cs, mark - cs, 0);
-    else
-	cut(mark, cs - mark, 1);
+    if (*args) {
+        int len;
+        ZLE_STRING_T line = stringaszleline(*args, 0, &len, NULL, NULL);
+	cuttext(line, len, CUT_REPLACE);
+	free(line);
+    } else {
+	if (mark > zlell)
+	    mark = zlell;
+	if (mark > zlecs)
+	    cut(zlecs, mark - zlecs, 0);
+	else
+	    cut(mark, zlecs - mark, CUT_FRONT);
+    }
     return 0;
 }
 
@@ -353,14 +494,14 @@ yank(UNUSED(char **args))
 	kctbuf = &cutbuf;
     if (!kctbuf->buf)
 	return 1;
-    mark = cs;
-    yankb = cs;
+    mark = zlecs;
+    yankb = zlecs;
     while (n--) {
 	kct = -1;
 	spaceinline(kctbuf->len);
-	memcpy((char *)line + cs, kctbuf->buf, kctbuf->len);
-	cs += kctbuf->len;
-	yanke = cs;
+	ZS_memcpy(zleline + zlecs, kctbuf->buf, kctbuf->len);
+	zlecs += kctbuf->len;
+	yanke = zlecs;
     }
     return 0;
 }
@@ -412,15 +553,15 @@ yankpop(UNUSED(char **args))
 	 *    was full, we could loop round and round it, otherwise
 	 *    we just stopped when we hit the first empty buffer.
 	 */
-    } while (!buf->buf || !*buf->buf);
+    } while (!buf->buf || *buf->buf == ZWC('\0'));
 
-    cs = yankb;
-    foredel(yanke - yankb);
+    zlecs = yankb;
+    foredel(yanke - yankb, CUT_RAW);
     cc = buf->len;
     spaceinline(cc);
-    memcpy((char *)line + cs, buf->buf, cc);
-    cs += cc;
-    yanke = cs;
+    ZS_memcpy(zleline + zlecs, buf->buf, cc);
+    zlecs += cc;
+    yanke = zlecs;
     return 0;
 }
 
@@ -437,36 +578,39 @@ int
 whatcursorposition(UNUSED(char **args))
 {
     char msg[100];
-    char *s = msg;
-    int bol = findbol();
-    int c = STOUC(line[cs]);
+    char *s = msg, *mbstr;
+    int bol = findbol(), len;
+    ZLE_CHAR_T c = zleline[zlecs];
 
-    if (cs == ll)
+    if (zlecs == zlell)
 	strucpy(&s, "EOF");
     else {
 	strucpy(&s, "Char: ");
 	switch (c) {
-	case ' ':
+	case ZWC(' '):
 	    strucpy(&s, "SPC");
 	    break;
-	case '\t':
+	case ZWC('\t'):
 	    strucpy(&s, "TAB");
 	    break;
-	case '\n':
+	case ZWC('\n'):
 	    strucpy(&s, "LFD");
 	    break;
 	default:
-	    if (imeta(c)) {
-		*s++ = Meta;
-		*s++ = c ^ 32;
-	    } else
-		*s++ = c;
+	    /*
+	     * convert a single character, remembering it may
+	     * turn into a multibyte string or be metafied.
+	     */
+	    mbstr = zlelineasstring(zleline+zlecs, 1, 0, &len, NULL, 1);
+	    strcpy(s, mbstr);
+	    s += len;
 	}
-	sprintf(s, " (0%o, %d, 0x%x)", c, c, c);
+	sprintf(s, " (0%o, %u, 0x%x)", (unsigned int)c,
+		(unsigned int)c, (unsigned int)c);
 	s += strlen(s);
     }
-    sprintf(s, "  point %d of %d(%d%%)  column %d", cs+1, ll+1,
-	    ll ? 100 * cs / ll : 0, cs - bol);
+    sprintf(s, "  point %d of %d(%d%%)  column %d", zlecs+1, zlell+1,
+	    zlell ? 100 * zlecs / zlell : 0, zlecs - bol);
     showmsg(msg);
     return 0;
 }
@@ -489,14 +633,44 @@ quotedinsert(char **args)
     sob.sg_flags = (sob.sg_flags | RAW) & ~ECHO;
     ioctl(SHTTY, TIOCSETN, &sob);
 #endif
-    lastchar = getkey(0);
+    getfullchar(0);
 #ifndef HAS_TIO
     zsetterm();
 #endif
-    if (lastchar < 0)
+    if (LASTFULLCHAR == ZLEEOF)
 	return 1;
     else
 	return selfinsert(args);
+}
+
+static int
+parsedigit(int inkey)
+{
+#ifdef MULTIBYTE_SUPPORT
+    /*
+     * It's too dangerous to allow metafied input.  See
+     * universalargument for comments on (possibly suboptimal) handling
+     * of digits.  We are assuming ASCII is a subset of the multibyte
+     * encoding.
+     */
+#else
+    /* allow metafied as well as ordinary digits */
+    inkey &= 0x7f;
+#endif
+
+    /* remember inkey is not a wide character */
+    if (zmod.base > 10) {
+	if (inkey >= 'a' && inkey < 'a' + zmod.base - 10)
+	    return inkey - 'a' + 10;
+	if (inkey >= 'A' && inkey < 'A' + zmod.base - 10)
+	    return inkey - 'A' + 10;
+	if (idigit(inkey))
+	    return inkey - '0';
+	return -1;
+    }
+    if (inkey >= '0' && inkey < '0' + zmod.base)
+	return inkey - '0';
+    return -1;
 }
 
 /**/
@@ -504,9 +678,9 @@ int
 digitargument(UNUSED(char **args))
 {
     int sign = (zmult < 0) ? -1 : 1;
+    int newdigit = parsedigit(lastchar);
 
-    /* allow metafied as well as ordinary digits */
-    if ((lastchar & 0x7f) < '0' || (lastchar & 0x7f) > '9')
+    if (newdigit < 0)
 	return 1;
 
     if (!(zmod.flags & MOD_TMULT))
@@ -514,10 +688,10 @@ digitargument(UNUSED(char **args))
     if (zmod.flags & MOD_NEG) {
 	/* If we just had a negative argument, this is the digit, *
 	 * rather than the -1 assumed by negargument()            */
-	zmod.tmult = sign * (lastchar & 0xf);
+	zmod.tmult = sign * newdigit;
 	zmod.flags &= ~MOD_NEG;
     } else
-	zmod.tmult = zmod.tmult * 10 + sign * (lastchar & 0xf);
+	zmod.tmult = zmod.tmult * zmod.base + sign * newdigit;
     zmod.flags |= MOD_TMULT;
     prefixflag = 1;
     return 0;
@@ -545,16 +719,35 @@ universalargument(char **args)
 	zmod.flags |= MOD_MULT;
 	return 0;
     }
-    while ((gotk = getkey(0)) != EOF) {
+    /*
+     * TODO: this is quite tricky to do when trying to maintain
+     * compatibility between the old input system and Unicode.
+     * We don't know what follows the digits, so if we try to
+     * read wide characters we may fail (e.g. we may come across an old
+     * \M-style binding).
+     *
+     * If we assume individual bytes are either explicitly ASCII or
+     * not (a la UTF-8), we get away with it; we can back up individual
+     * bytes and everything will work.  We may want to relax this
+     * assumption later.  ("Much later" - (C) Steven Singer,
+     * CSR BlueCore firmware, ca. 2000.)
+     *
+     * Hence for now this remains byte-by-byte.
+     */
+    while ((gotk = getbyte(0L, NULL)) != EOF) {
 	if (gotk == '-' && !digcnt) {
 	    minus = -1;
 	    digcnt++;
-	} else if (gotk >= '0' && gotk <= '9') {
-	    pref = pref * 10 + (gotk & 0xf);
-	    digcnt++;
 	} else {
-	    ungetkey(gotk);
-	    break;
+	    int newdigit = parsedigit(gotk);
+
+	    if (newdigit >= 0) {
+		pref = pref * zmod.base + newdigit;
+		digcnt++;
+	    } else {
+		ungetbyte(gotk);
+		break;
+	    }
 	}
     }
     if (digcnt)
@@ -566,24 +759,75 @@ universalargument(char **args)
     return 0;
 }
 
+/* Set the base for a digit argument. */
+
+/**/
+int
+argumentbase(char **args)
+{
+    int multbase;
+
+    if (*args)
+	multbase = (int)zstrtol(*args, NULL, 0);
+    else
+	multbase = zmod.mult;
+
+    if (multbase < 2 || multbase > ('9' - '0' + 1) + ('z' - 'a' + 1))
+	return 1;
+
+    zmod.base = multbase;
+
+    /* reset modifier, apart from base... */
+    zmod.flags = 0;
+    zmod.mult = 1;
+    zmod.tmult = 1;
+    zmod.vibuf = 0;
+
+    /* ...but indicate we are still operating on a prefix argument. */
+    prefixflag = 1;
+
+    return 0;
+}
+
 /**/
 int
 copyprevword(UNUSED(char **args))
 {
-    int len, t0;
+    int len, t0 = zlecs, t1;
 
-    for (t0 = cs - 1; t0 >= 0; t0--)
-	if (iword(line[t0]))
-	    break;
-    for (; t0 >= 0; t0--)
-	if (!iword(line[t0]))
-	    break;
-    if (t0)
-	t0++;
-    len = cs - t0;
+    if (zmult > 0) {
+	int count = zmult;
+
+	for (;;) {
+	    t1 = t0;
+
+	    while (t0) {
+		int prev = t0;
+		DECPOS(prev);
+		if (ZC_iword(zleline[prev]))
+		    break;
+		t0 = prev;
+	    }
+	    while (t0) {
+		int prev = t0;
+		DECPOS(prev);
+		if (!ZC_iword(zleline[prev]))
+		    break;
+		t0 = prev;
+	    }
+
+	    if (!--count)
+		break;
+	    if (t0 == 0)
+		return 1;
+	}
+    }
+    else
+	return 1;
+    len = t1 - t0;
     spaceinline(len);
-    memcpy((char *)&line[cs], (char *)&line[t0], len);
-    cs += len;
+    ZS_memcpy(zleline + zlecs, zleline + t0, len);
+    zlecs += len;
     return 0;
 }
 
@@ -596,19 +840,29 @@ copyprevshellword(UNUSED(char **args))
     int i;
     char *p = NULL;
 
-    if ((l = bufferwords(NULL, NULL, &i)))
+    if (zmult <= 0)
+	return 1;
+
+    if ((l = bufferwords(NULL, NULL, &i, 0))) {
+	i -= (zmult-1);
+	if (i < 0)
+	    return 1;
         for (n = firstnode(l); n; incnode(n))
             if (!i--) {
                 p = getdata(n);
                 break;
             }
+    }
 
     if (p) {
-	int len = strlen(p);
+	int len;
+	ZLE_STRING_T lineadd = stringaszleline(p, 0, &len, NULL, NULL);
 
 	spaceinline(len);
-	memcpy(line + cs, p, len);
-	cs += len;
+	ZS_memcpy(zleline + zlecs, lineadd, len);
+	zlecs += len;
+
+	free(lineadd);
     }
     return 0;
 }
@@ -625,24 +879,24 @@ sendbreak(UNUSED(char **args))
 int
 quoteregion(UNUSED(char **args))
 {
-    char *str;
+    ZLE_STRING_T str;
     size_t len;
 
-    if (mark > ll)
-	mark = ll;
-    if (mark < cs) {
+    if (mark > zlell)
+	mark = zlell;
+    if (mark < zlecs) {
 	int tmp = mark;
-	mark = cs;
-	cs = tmp;
+	mark = zlecs;
+	zlecs = tmp;
     }
-    str = (char *)hcalloc(len = mark - cs);
-    memcpy(str, (char *)&line[cs], len);
-    foredel(len);
+    str = (ZLE_STRING_T)hcalloc((len = mark - zlecs) * ZLE_CHAR_SIZE);
+    ZS_memcpy(str, zleline + zlecs, len);
+    foredel(len, CUT_RAW);
     str = makequote(str, &len);
     spaceinline(len);
-    memcpy((char *)&line[cs], str, len);
-    mark = cs;
-    cs += len;
+    ZS_memcpy(zleline + zlecs, str, len);
+    mark = zlecs;
+    zlecs += len;
     return 0;
 }
 
@@ -650,45 +904,49 @@ quoteregion(UNUSED(char **args))
 int
 quoteline(UNUSED(char **args))
 {
-    char *str;
-    size_t len = ll;
+    ZLE_STRING_T str;
+    size_t len = zlell;
 
-    str = makequote((char *)line, &len);
+    str = makequote(zleline, &len);
     sizeline(len);
-    memcpy(line, str, len);
-    cs = ll = len;
+    ZS_memcpy(zleline, str, len);
+    zlecs = zlell = len;
     return 0;
 }
 
 /**/
-static char *
-makequote(char *str, size_t *len)
+static ZLE_STRING_T
+makequote(ZLE_STRING_T str, size_t *len)
 {
     int qtct = 0;
-    char *l, *ol;
-    char *end = str + *len;
+    ZLE_STRING_T l, ol;
+    ZLE_STRING_T end = str + *len;
 
     for (l = str; l < end; l++)
-	if (*l == '\'')
+	if (*l == ZWC('\''))
 	    qtct++;
     *len += 2 + qtct*3;
-    l = ol = (char *)zhalloc(*len);
-    *l++ = '\'';
+    l = ol = (ZLE_STRING_T)zhalloc(*len * ZLE_CHAR_SIZE);
+    *l++ = ZWC('\'');
     for (; str < end; str++)
-	if (*str == '\'') {
-	    *l++ = '\'';
-	    *l++ = '\\';
-	    *l++ = '\'';
-	    *l++ = '\'';
+	if (*str == ZWC('\'')) {
+	    *l++ = ZWC('\'');
+	    *l++ = ZWC('\\');
+	    *l++ = ZWC('\'');
+	    *l++ = ZWC('\'');
 	} else
 	    *l++ = *str;
-    *l++ = '\'';
+    *l++ = ZWC('\'');
     return ol;
 }
 
-static char *cmdbuf;
-static LinkList cmdll;
-static int cmdambig;
+/*
+ * cmdstr is the buffer used for execute-named-command converted
+ * to a metafied multibyte string.
+ */
+static char *namedcmdstr;
+static LinkList namedcmdll;
+static int namedcmdambig;
 
 /**/
 static void
@@ -697,37 +955,54 @@ scancompcmd(HashNode hn, UNUSED(int flags))
     int l;
     Thingy t = (Thingy) hn;
 
-    if(strpfx(cmdbuf, t->nam)) {
-	addlinknode(cmdll, t->nam);
-	l = pfxlen(peekfirst(cmdll), t->nam);
-	if (l < cmdambig)
-	    cmdambig = l;
+    if(strpfx(namedcmdstr, t->nam)) {
+	addlinknode(namedcmdll, t->nam);
+	l = pfxlen(peekfirst(namedcmdll), t->nam);
+	if (l < namedcmdambig)
+	    namedcmdambig = l;
     }
 
 }
 
 #define NAMLEN 60
 
+/*
+ * Local keymap used when reading a command name for the
+ * execute-named-command and where-is widgets.
+ */
+
+/**/
+Keymap command_keymap;
+
 /**/
 Thingy
 executenamedcommand(char *prmt)
 {
-    Thingy cmd;
-    int len, l = strlen(prmt), feep = 0, listed = 0, curlist = 0;
+    Thingy cmd, retval = NULL;
+    int l, len, feep = 0, listed = 0, curlist = 0;
     int ols = (listshown && validlist), olll = lastlistlen;
-    char *ptr;
+    char *cmdbuf, *ptr;
     char *okeymap = ztrdup(curkeymapname);
 
     clearlist = 1;
-    cmdbuf = zhalloc(l + NAMLEN + 2);
+    /* prmt may be constant */
+    prmt = ztrdup(prmt);
+    l = strlen(prmt);
+    cmdbuf = (char *)zhalloc(l + NAMLEN + 2
+#ifdef MULTIBYTE_SUPPORT
+			     + 2 * MB_CUR_MAX
+#endif
+			     );
     strcpy(cmdbuf, prmt);
+    zsfree(prmt);
     statusline = cmdbuf;
+    selectlocalmap(command_keymap);
     selectkeymap("main", 1);
     ptr = cmdbuf += l;
     len = 0;
     for (;;) {
 	*ptr = '_';
-	statusll = l + len + 1;
+	ptr[1] = '\0';
 	zrefresh();
 	if (!(cmd = getkeycmd()) || cmd == Th(z_sendbreak)) {
 	    statusline = NULL;
@@ -739,7 +1014,8 @@ executenamedcommand(char *prmt)
 	    } else if (listed)
 		clearlist = listshown = 1;
 
-	    return NULL;
+	    retval = NULL;
+	    goto done;
 	}
 	if(cmd == Th(z_clearscreen)) {
 	    clearscreen(zlenoargs);
@@ -747,7 +1023,7 @@ executenamedcommand(char *prmt)
 		int zmultsav = zmult;
 
 		zmult = 1;
-		listlist(cmdll);
+		listlist(namedcmdll);
 		showinglist = 0;
 		zmult = zmultsav;
 	    }
@@ -757,32 +1033,50 @@ executenamedcommand(char *prmt)
 		int zmultsav = zmult;
 
 		zmult = 1;
-		listlist(cmdll);
+		listlist(namedcmdll);
 		showinglist = 0;
 		zmult = zmultsav;
 	    }
 	} else if(cmd == Th(z_viquotedinsert)) {
 	    *ptr = '^';
 	    zrefresh();
-	    lastchar = getkey(0);
-	    if(lastchar == EOF || !lastchar || len == NAMLEN)
+	    getfullchar(0);
+	    if(LASTFULLCHAR == ZLEEOF || !LASTFULLCHAR || len >= NAMLEN)
 		feep = 1;
-	    else
-		*ptr++ = lastchar, len++, curlist = 0;
+	    else {
+		int ret = zlecharasstring(LASTFULLCHAR, ptr);
+		len += ret;
+		ptr += ret;
+		curlist = 0;
+	    }
 	} else if(cmd == Th(z_quotedinsert)) {
-	    if((lastchar = getkey(0)) == EOF || !lastchar || len == NAMLEN)
+	    if(getfullchar(0) == ZLEEOF ||
+	       !LASTFULLCHAR || len == NAMLEN)
 		feep = 1;
-	    else
-		*ptr++ = lastchar, len++, curlist = 0;
+	    else {
+		int ret = zlecharasstring(LASTFULLCHAR, ptr);
+		len += ret;
+		ptr += ret;
+		curlist = 0;
+	    }
 	} else if(cmd == Th(z_backwarddeletechar) ||
-	    	cmd == Th(z_vibackwarddeletechar)) {
-	    if (len)
-		len--, ptr--, curlist = 0;
+		  cmd == Th(z_vibackwarddeletechar)) {
+	    if (len) {
+		ptr = backwardmetafiedchar(cmdbuf, ptr, NULL);
+		len = ptr - cmdbuf;
+		curlist = 0;
+	    }
 	} else if(cmd == Th(z_killregion) || cmd == Th(z_backwardkillword) ||
 		  cmd == Th(z_vibackwardkillword)) {
 	    if (len)
 		curlist = 0;
-	    while (len && (len--, *--ptr != '-'));
+	    while (len) {
+		convchar_t cc;
+		ptr = backwardmetafiedchar(cmdbuf, ptr, &cc);
+		len = ptr - cmdbuf;
+		if (cc == ZWC('-'))
+		    break;
+	    }
 	} else if(cmd == Th(z_killwholeline) || cmd == Th(z_vikillline) ||
 	    	cmd == Th(z_backwardkillline)) {
 	    len = 0;
@@ -806,28 +1100,30 @@ executenamedcommand(char *prmt)
 			lastlistlen = olll;
 		    } else if (listed)
 			clearlist = listshown = 1;
-		    return r;
+
+		    retval = r;
+		    goto done;
 		}
 		unrefthingy(r);
 	    }
 	    if(cmd == Th(z_selfinsertunmeta)) {
-		lastchar &= 0x7f;
-		if(lastchar == '\r')
-		    lastchar = '\n';
+		fixunmeta();
 		cmd = Th(z_selfinsert);
 	    }
 	    if (cmd == Th(z_listchoices) || cmd == Th(z_deletecharorlist) ||
 		cmd == Th(z_expandorcomplete) || cmd == Th(z_completeword) ||
 		cmd == Th(z_expandorcompleteprefix) || cmd == Th(z_vicmdmode) ||
 		cmd == Th(z_acceptline) || lastchar == ' ' || lastchar == '\t') {
-		cmdambig = 100;
+		namedcmdambig = 100;
 
-		cmdll = newlinklist();
-		*ptr = 0;
+		namedcmdll = newlinklist();
 
+		*ptr = '\0';
+		namedcmdstr = cmdbuf;
 		scanhashtable(thingytab, 1, 0, DISABLED, scancompcmd, 0);
+		namedcmdstr = NULL;
 
-		if (empty(cmdll)) {
+		if (empty(namedcmdll)) {
 		    feep = 1;
 		    if (listed)
 			clearlist = listshown = 1;
@@ -836,47 +1132,70 @@ executenamedcommand(char *prmt)
 		    cmd == Th(z_deletecharorlist)) {
 		    int zmultsav = zmult;
 		    *ptr = '_';
-		    statusll = l + len + 1;
+		    ptr[1] = '\0';
 		    zmult = 1;
-		    listlist(cmdll);
+		    listlist(namedcmdll);
 		    listed = curlist = 1;
 		    showinglist = 0;
 		    zmult = zmultsav;
-		} else if (!nextnode(firstnode(cmdll))) {
-		    strcpy(ptr = cmdbuf, peekfirst(cmdll));
-		    ptr += (len = strlen(ptr));
-		    if(cmd == Th(z_acceptline) || cmd == Th(z_vicmdmode))
+		} else if (!nextnode(firstnode(namedcmdll))) {
+		    strcpy(ptr = cmdbuf, peekfirst(namedcmdll));
+		    len = strlen(ptr);
+		    ptr += len;
+		    if (cmd == Th(z_acceptline) || cmd == Th(z_vicmdmode))
 			goto unambiguous;
 		} else {
-		    strcpy(cmdbuf, peekfirst(cmdll));
-		    ptr = cmdbuf + cmdambig;
+		    strcpy(cmdbuf, peekfirst(namedcmdll));
+		    ptr = cmdbuf + namedcmdambig;
 		    *ptr = '_';
+		    ptr[1] = '\0';
 		    if (isset(AUTOLIST) &&
-			!(isset(LISTAMBIGUOUS) && cmdambig > len)) {
+			!(isset(LISTAMBIGUOUS) && namedcmdambig > len)) {
 			int zmultsav = zmult;
 			if (isset(LISTBEEP))
 			    feep = 1;
-			statusll = l + cmdambig + 1;
 			zmult = 1;
-			listlist(cmdll);
+			listlist(namedcmdll);
 			listed = curlist = 1;
 			showinglist = 0;
 			zmult = zmultsav;
 		    }
-		    len = cmdambig;
+		    len = namedcmdambig;
 		}
 	    } else {
-		if (len == NAMLEN || icntrl(lastchar) ||
-		    cmd != Th(z_selfinsert))
+		if (len == NAMLEN || cmd != Th(z_selfinsert))
 		    feep = 1;
-		else
-		    *ptr++ = lastchar, len++, curlist = 0;
+		else {
+#ifdef MULTIBYTE_SUPPORT
+		    if (!lastchar_wide_valid)
+			getrestchar(lastchar);
+		    if (lastchar_wide == WEOF)
+			feep = 1;
+		    else
+#endif
+		    if (ZC_icntrl(LASTFULLCHAR))
+			feep = 1;
+		    else {
+			int ret = zlecharasstring(LASTFULLCHAR, ptr);
+			len += ret;
+			ptr += ret;
+			if (listed) {
+			    clearlist = listshown = 1;
+			    listed = 0;
+			} else
+			    curlist = 0;
+		    }
+		}
 	    }
 	}
 	if (feep)
 	    handlefeep(zlenoargs);
 	feep = 0;
     }
+
+ done:
+    selectlocalmap(NULL);
+    return retval;
 }
 
 /*****************/
@@ -907,16 +1226,70 @@ executenamedcommand(char *prmt)
  * indicate that it is being permanently fixed.
  */
 
-/* Length of suffix to remove when inserting each possible character value.  *
- * suffixlen[256] is the length to remove for non-insertion editing actions. */
+struct suffixset;
 
-/**/
-mod_export int suffixlen[257];
+/* An element of a suffix specification */
+struct suffixset {
+    struct suffixset *next;	/* Next in the list */
+    int tp;			/* The SUFTYP_* from enum suffixtype */
+    int flags;			/* Some of SUFFLAGS_* */
+    ZLE_STRING_T chars;		/* Set of characters to match (or not) */
+    int lenstr;			/* Length of chars */
+    int lensuf;			/* Length of suffix */
+};
+
+/* The list of suffix structures */
+struct suffixset *suffixlist;
 
 /* Shell function to call to remove the suffix. */
 
 /**/
 static char *suffixfunc;
+
+/* Length associated with the suffix function */
+static int suffixfunclen;
+
+/* Length associated with uninsertable characters */
+/**/
+mod_export int
+suffixnoinslen;
+
+/**/
+mod_export void
+addsuffix(int tp, int flags, ZLE_STRING_T chars, int lenstr, int lensuf)
+{
+    struct suffixset *newsuf = zalloc(sizeof(struct suffixset));
+    newsuf->next = suffixlist;
+    suffixlist = newsuf;
+
+    newsuf->tp = tp;
+    newsuf->flags = flags;
+    if (lenstr) {
+	newsuf->chars = zalloc(lenstr*sizeof(ZLE_CHAR_T));
+	ZS_memcpy(newsuf->chars, chars, lenstr);
+    } else
+	newsuf->chars = NULL;
+    newsuf->lenstr = lenstr;
+    newsuf->lensuf = lensuf;
+}
+
+
+/* Same as addsuffix, but from metafied string */
+
+/**/
+mod_export void
+addsuffixstring(int tp, int flags, char *chars, int lensuf)
+{
+    int slen, alloclen;
+    ZLE_STRING_T suffixstr;
+
+    /* string needs to be writable... I've been regretting this for years.. */
+    chars = ztrdup(chars);
+    suffixstr = stringaszleline(chars, 0, &slen, &alloclen, NULL);
+    addsuffix(tp, flags, suffixstr, slen, lensuf);
+    zfree(suffixstr, alloclen);
+    zsfree(chars);
+}
 
 /* Set up suffix: the last n characters are a suffix that should be *
  * removed in the usual word end conditions.                        */
@@ -925,8 +1298,18 @@ static char *suffixfunc;
 mod_export void
 makesuffix(int n)
 {
-    suffixlen[256] = suffixlen[' '] = suffixlen['\t'] = suffixlen['\n'] = 
-	suffixlen[';'] = suffixlen['&'] = suffixlen['|'] = n;
+    char *suffixchars;
+
+    if (!(suffixchars = getsparam("ZLE_REMOVE_SUFFIX_CHARS")))
+	suffixchars = " \t\n;&|";
+
+    addsuffixstring(SUFTYP_POSSTR, 0, suffixchars, n);
+
+    /* Do this second so it takes precedence */
+    if ((suffixchars = getsparam("ZLE_SPACE_SUFFIX_CHARS")) && *suffixchars)
+	addsuffixstring(SUFTYP_POSSTR, SUFFLAGS_SPACE, suffixchars, n);
+
+    suffixnoinslen = n;
 }
 
 /* Set up suffix for parameter names: the last n characters are a suffix *
@@ -939,13 +1322,16 @@ makesuffix(int n)
 mod_export void
 makeparamsuffix(int br, int n)
 {
-    if(br || unset(KSHARRAYS))
-	suffixlen[':'] = suffixlen['['] = n;
-    if(br) {
-	suffixlen['#'] = suffixlen['%'] = suffixlen['?'] = n;
-	suffixlen['-'] = suffixlen['+'] = suffixlen['='] = n;
-	/*{*/ suffixlen['}'] = suffixlen['/'] = n;
+    ZLE_STRING_T charstr = ZWS(":[#%?-+=");
+    int lenstr = 0;
+
+    if (br || unset(KSHARRAYS)) {
+	lenstr = 2;
+	if (br)
+	    lenstr += 6;
     }
+    if (lenstr)
+	addsuffix(SUFTYP_POSSTR, 0, charstr, lenstr, n);
 }
 
 /* Set up suffix given a string containing the characters on which to   *
@@ -958,39 +1344,55 @@ makesuffixstr(char *f, char *s, int n)
     if (f) {
 	zsfree(suffixfunc);
 	suffixfunc = ztrdup(f);
-	suffixlen[0] = n;
+	suffixfunclen = n;
     } else if (s) {
-	int inv, i, v, z = 0;
+	int inv, i, z = 0;
+	ZLE_STRING_T ws, lasts, wptr;
 
 	if (*s == '^' || *s == '!') {
 	    inv = 1;
 	    s++;
 	} else
 	    inv = 0;
-	s = getkeystring(s, &i, 5, &z);
+	s = getkeystring(s, &i, GETKEYS_SUFFIX, &z);
 	s = metafy(s, i, META_USEHEAP);
-
-	if (inv) {
-	    v = 0;
-	    for (i = 0; i < 257; i++)
-		 suffixlen[i] = n;
-	} else
-	    v = n;
+	ws = stringaszleline(s, 0, &i, NULL, NULL);
 
 	if (z)
-	    suffixlen[256] = v;
-
-	while (*s) {
-	    if (s[1] == '-' && s[2]) {
-		int b = (int) *s, e = (int) s[2];
-
-		while (b <= e)
-		    suffixlen[b++] = v;
-		s += 2;
-	    } else
-		suffixlen[STOUC(*s)] = v;
-	    s++;
+	    suffixnoinslen = inv ? 0 : n;
+	else if (inv) {
+	    /*
+	     * negative match, \- wasn't present, so it *should*
+	     * have this suffix length
+	     */
+	    suffixnoinslen = n;
 	}
+
+	lasts = wptr = ws;
+	while (i) {
+	    if (i >= 3 && wptr[1] == ZWC('-')) {
+		ZLE_CHAR_T str[2];
+
+		if (wptr > lasts)
+		    addsuffix(inv ? SUFTYP_NEGSTR : SUFTYP_POSSTR, 0,
+			      lasts, wptr - lasts, n);
+		str[0] = *wptr;
+		str[1] = wptr[2];
+		addsuffix(inv ? SUFTYP_NEGRNG : SUFTYP_POSRNG, 0,
+			  str, 2, n);
+
+		wptr += 3;
+		i -= 3;
+		lasts = wptr;
+	    } else {
+		wptr++;
+		i--;
+	    }
+	}
+	if (wptr > lasts)
+	    addsuffix(inv ? SUFTYP_NEGSTR : SUFTYP_POSSTR, 0,
+		      lasts, wptr - lasts, n);
+	free(ws);
     } else
 	makesuffix(n);
 }
@@ -999,33 +1401,120 @@ makesuffixstr(char *f, char *s, int n)
 
 /**/
 mod_export void
-iremovesuffix(int c, int keep)
+iremovesuffix(ZLE_INT_T c, int keep)
 {
     if (suffixfunc) {
-	Eprog prog = getshfunc(suffixfunc);
+	Shfunc shfunc = getshfunc(suffixfunc);
 
-	if (prog != &dummy_eprog) {
+	if (shfunc) {
 	    LinkList args = newlinklist();
 	    char buf[20];
 	    int osc = sfcontext;
+	    int wasmeta = (zlemetaline != 0);
 
-	    sprintf(buf, "%d", suffixlen[0]);
+	    if (wasmeta) {
+		/*
+		 * The suffix removal function runs as a normal
+		 * ZLE function, not a completion function, so
+		 * the line should be unmetafied if this was
+		 * called from completion.  (It may not be since
+		 * we may decide to remove the suffix later.)
+		 */
+		unmetafy_line();
+	    }
+
+	    sprintf(buf, "%d", suffixfunclen);
 	    addlinknode(args, suffixfunc);
 	    addlinknode(args, buf);
 
 	    startparamscope();
 	    makezleparams(0);
 	    sfcontext = SFC_COMPLETE;
-	    doshfunc(suffixfunc, prog, args, 0, 1);
+	    doshfunc(shfunc, args, 1);
 	    sfcontext = osc;
 	    endparamscope();
+
+	    if (wasmeta)
+		metafy_line();
 	}
 	zsfree(suffixfunc);
 	suffixfunc = NULL;
     } else {
-	int sl = suffixlen[c];
-	if(sl) {
-	    backdel(sl);
+	int sl = 0, flags = 0;
+	struct suffixset *ss;
+
+	if (c == NO_INSERT_CHAR) {
+	    sl = suffixnoinslen;
+	} else {
+	    ZLE_CHAR_T ch = c;
+	    /*
+	     * Search for a match for ch in the suffix list.
+	     * We stop if we encounter a match in a positive or negative
+	     * list, using the suffix length specified or zero respectively.
+	     * If we reached the end and passed through a negative
+	     * list, we use the suffix length for that, else zero.
+	     * This would break if it were possible to have negative
+	     * sets with different suffix length:  that's not supposed
+	     * to happen.
+	     */
+	    int negsuflen = 0, found = 0;
+
+	    for (ss = suffixlist; ss; ss = ss->next) {
+		switch (ss->tp) {
+		case SUFTYP_POSSTR:
+		    if (ZS_memchr(ss->chars, ch, ss->lenstr)) {
+			sl = ss->lensuf;
+			found = 1;
+		    }
+		    break;
+
+		case SUFTYP_NEGSTR:
+		    if (ZS_memchr(ss->chars, ch, ss->lenstr)) {
+			sl = 0;
+			found = 1;
+		    } else {
+			negsuflen = ss->lensuf;
+		    }
+		    break;
+
+		case SUFTYP_POSRNG:
+		    if (ss->chars[0] <= ch && ch <= ss->chars[1]) {
+			sl = ss->lensuf;
+			found = 1;
+		    }
+		    break;
+
+		case SUFTYP_NEGRNG:
+		    if (ss->chars[0] <= ch && ch <= ss->chars[1]) {
+			sl = 0;
+			found = 1;
+		    } else {
+			negsuflen = ss->lensuf;
+		    }
+		    break;
+		}
+		if (found) {
+		    flags = ss->flags;
+		    break;
+		}
+	    }
+
+	    if (!found)
+		sl = negsuflen;
+	}
+	if (sl) {
+	    /* must be shifting wide character lengths */
+	    backdel(sl, CUT_RAW);
+	    if (flags & SUFFLAGS_SPACE)
+	    {
+		/* Add a space and advance over it */
+		spaceinline(1);
+		if (zlemetaline) {
+		    zlemetaline[zlemetacs++] = ' ';
+		} else {
+		    zleline[zlecs++] = ZWC(' ');
+		}
+	    }
 	    if (!keep)
 		invalidatelist();
 	}
@@ -1039,5 +1528,15 @@ iremovesuffix(int c, int keep)
 mod_export void
 fixsuffix(void)
 {
-    memset(suffixlen, 0, sizeof(suffixlen));
+    while (suffixlist) {
+	struct suffixset *next = suffixlist->next;
+
+	if (suffixlist->lenstr)
+	    zfree(suffixlist->chars, suffixlist->lenstr * sizeof(ZLE_CHAR_T));
+	zfree(suffixlist, sizeof(struct suffixset));
+
+	suffixlist = next;
+    }
+
+    suffixfunclen = suffixnoinslen = 0;
 }

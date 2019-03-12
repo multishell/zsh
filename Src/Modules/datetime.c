@@ -31,6 +31,68 @@
 #include "datetime.pro"
 #include <time.h>
 
+#ifndef HAVE_MKTIME
+#ifdef HAVE_TIMELOCAL
+#define	mktime(x)	timelocal(x)
+#define HAVE_MKTIME	1
+#endif
+#endif
+
+static int
+reverse_strftime(char *nam, char **argv, char *scalar, int quiet)
+{
+#if defined(HAVE_STRPTIME) && defined(HAVE_MKTIME)
+    struct tm tm;
+    zlong mytime;
+    char *endp;
+
+    /*
+     * Initialise all parameters to zero; there's no floating point
+     * so memset() will do the trick.  The exception is that tm_isdst
+     * is set to -1 which, if not overridden, will cause mktime()
+     * to use the current timezone.  This is probably the best guess;
+     * it's the one that will cause dates and times output by strftime
+     * without the -r option and without an explicit timezone to be
+     * converted back correctly.
+     */
+    (void)memset(&tm, 0, sizeof(tm));
+    tm.tm_isdst = -1;
+    endp = strptime(argv[1], argv[0], &tm);
+
+    if (!endp) {
+	/* Conversion failed completely. */
+	if (!quiet)
+	    zwarnnam(nam, "format not matched");
+	return 1;
+    }
+
+    mytime = (zlong)mktime(&tm);
+
+    if (scalar)
+	setiparam(scalar, mytime);
+    else {
+	char buf[DIGBUFSIZE];
+	convbase(buf, mytime, 10);
+	printf("%s\n", buf);
+    }
+
+    if (*endp && !quiet) {
+	/*
+	 * Not everything in the input string was converted.
+	 * This is probably benign, since the format has been satisfied,
+	 * but issue a warning unless the quiet flag is set.
+	 */
+	zwarnnam(nam, "warning: input string not completely matched");
+    }
+
+    return 0;
+#else
+    if (!quiet)
+	zwarnnam(nam, "not implemented on this system");
+    return 2;
+#endif
+}
+
 static int
 bin_strftime(char *nam, char **argv, Options ops, UNUSED(int func))
 {
@@ -42,21 +104,28 @@ bin_strftime(char *nam, char **argv, Options ops, UNUSED(int func))
     if (OPT_ISSET(ops,'s')) {
 	scalar = OPT_ARG(ops, 's');
 	if (!isident(scalar)) {
-	    zwarnnam(nam, "not an identifier: %s", scalar, 0);
+	    zwarnnam(nam, "not an identifier: %s", scalar);
 	    return 1;
 	}
     }
+    if (OPT_ISSET(ops, 'r'))
+	return reverse_strftime(nam, argv, scalar, OPT_ISSET(ops, 'q'));
 
+    errno = 0;
     secs = (time_t)strtoul(argv[1], &endptr, 10);
-    if (secs == (time_t)ULONG_MAX) {
+    if (errno != 0) {
 	zwarnnam(nam, "%s: %e", argv[1], errno);
 	return 1;
     } else if (*endptr != '\0') {
-	zwarnnam(nam, "%s: invalid decimal number", argv[1], 0);
+	zwarnnam(nam, "%s: invalid decimal number", argv[1]);
 	return 1;
     }
 
     t = localtime(&secs);
+    if (!t) {
+	zwarnnam(nam, "%s: unable to convert to time", argv[1]);
+	return 1;
+    }
     bufsize = strlen(argv[0]) * 8;
     buffer = zalloc(bufsize);
 
@@ -67,7 +136,7 @@ bin_strftime(char *nam, char **argv, Options ops, UNUSED(int func))
     }
 
     if (scalar) {
-	setsparam(scalar, ztrdup(buffer));
+	setsparam(scalar, metafy(buffer, -1, META_DUP));
     } else {
 	printf("%s\n", buffer);
     }
@@ -77,21 +146,102 @@ bin_strftime(char *nam, char **argv, Options ops, UNUSED(int func))
 }
 
 static zlong
-getcurrentsecs()
+getcurrentsecs(UNUSED(Param pm))
 {
     return (zlong) time(NULL);
 }
 
+static double
+getcurrentrealtime(Param pm)
+{
+#ifdef HAVE_CLOCK_GETTIME
+    struct timespec now;
+
+    if (clock_gettime(CLOCK_REALTIME, &now) < 0) {
+	zwarn("%s: unable to retrieve time: %e", pm->node.nam, errno);
+	return (double)0.0;
+    }
+
+    return (double)now.tv_sec + (double)now.tv_nsec * 1e-9;
+#else
+    struct timeval now;
+    struct timezone dummy_tz;
+
+    (void)pm;
+    gettimeofday(&now, &dummy_tz);
+
+    return (double)now.tv_sec + (double)now.tv_usec * 1e-6;
+#endif
+}
+
+static char **
+getcurrenttime(Param pm)
+{
+    char **arr;
+    char buf[DIGBUFSIZE];
+
+#ifdef HAVE_CLOCK_GETTIME
+    struct timespec now;
+
+    if (clock_gettime(CLOCK_REALTIME, &now) < 0) {
+	zwarn("%s: unable to retrieve time: %e", pm->node.nam, errno);
+	return NULL;
+    }
+
+    arr = (char **)zhalloc(3 * sizeof(*arr));
+    sprintf(buf, "%ld", (long)now.tv_sec);
+    arr[0] = dupstring(buf);
+    sprintf(buf, "%ld", now.tv_nsec);
+    arr[1] = dupstring(buf);
+    arr[2] = NULL;
+
+    return arr;
+#else
+    struct timeval now;
+    struct timezone dummy_tz;
+
+    (void)pm;
+    gettimeofday(&now, &dummy_tz);
+
+    arr = (char **)zhalloc(3 * sizeof(*arr));
+    sprintf(buf, "%ld", (long)now.tv_sec);
+    arr[0] = dupstring(buf);
+    sprintf(buf, "%ld", (long)now.tv_usec * 1000);
+    arr[1] = dupstring(buf);
+    arr[2] = NULL;
+
+    return arr;
+#endif
+}
+
 static struct builtin bintab[] = {
-    BUILTIN("strftime",    0, bin_strftime,    2,   2, 0, "s:", NULL),
+    BUILTIN("strftime",    0, bin_strftime,    2,   2, 0, "qrs:", NULL),
 };
 
 static const struct gsu_integer epochseconds_gsu =
 { getcurrentsecs, NULL, stdunsetfn };
 
+static const struct gsu_float epochrealtime_gsu =
+{ getcurrentrealtime, NULL, stdunsetfn };
+
+static const struct gsu_array epochtime_gsu =
+{ getcurrenttime, NULL, stdunsetfn };
+
 static struct paramdef patab[] = {
-    PARAMDEF("EPOCHSECONDS", PM_INTEGER|PM_SPECIAL|PM_READONLY,
-		    NULL, &epochseconds_gsu),
+    SPECIALPMDEF("EPOCHSECONDS", PM_INTEGER|PM_READONLY,
+		 &epochseconds_gsu, NULL, NULL),
+    SPECIALPMDEF("EPOCHREALTIME", PM_FFLOAT|PM_READONLY,
+		 &epochrealtime_gsu, NULL, NULL),
+    SPECIALPMDEF("epochtime", PM_ARRAY|PM_READONLY,
+		 &epochtime_gsu, NULL, NULL)
+};
+
+static struct features module_features = {
+    bintab, sizeof(bintab)/sizeof(*bintab),
+    NULL, 0,
+    NULL, 0,
+    patab, sizeof(patab)/sizeof(*patab),
+    0
 };
 
 /**/
@@ -103,26 +253,31 @@ setup_(UNUSED(Module m))
 
 /**/
 int
+features_(Module m, char ***features)
+{
+    *features = featuresarray(m, &module_features);
+    return 0;
+}
+
+/**/
+int
+enables_(Module m, int **enables)
+{
+    return handlefeatures(m, &module_features, enables);
+}
+
+/**/
+int
 boot_(Module m)
 {
-    return !(addbuiltins(m->nam, bintab, sizeof(bintab)/sizeof(*bintab)) |
-	     addparamdefs(m->nam, patab, sizeof(patab)/sizeof(*patab))
-	    );
+    return 0;
 }
 
 /**/
 int
 cleanup_(Module m)
 {
-    Param pm;
-
-    deletebuiltins(m->nam, bintab, sizeof(bintab)/sizeof(*bintab));
-    pm = (Param) paramtab->getnode(paramtab, "EPOCHSECONDS");
-    if (pm && (pm->flags & PM_SPECIAL)) {
-	pm->flags &= ~PM_READONLY;
-	unsetparam_pm(pm, 0, 1);
-    }
-    return 0;
+    return setfeatureenables(m, &module_features, NULL);
 }
 
 /**/

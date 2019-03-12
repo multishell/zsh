@@ -1,4 +1,4 @@
-#!/usr/local/bin/zsh -f
+#!/bin/zsh -f
 # The line above is just for convenience.  Normally tests will be run using
 # a specified version of zsh.  With dynamic loading, any required libraries
 # must already have been installed in that case.
@@ -147,10 +147,14 @@ $ZTST_failmsg"
 ZTST_verbose() {
   local lev=$1
   shift
-  [[ -n $ZTST_verbose && $ZTST_verbose -ge $lev ]] && print -r -- $* >&8
+  if [[ -n $ZTST_verbose && $ZTST_verbose -ge $lev ]]; then
+    print -r -u $ZTST_fd -- $*
+  fi
 }
 ZTST_hashmark() {
-  [[ ZTST_verbose -le 0 && -t 8 ]] && print -nu8 ${(pl:SECONDS::\#::\#\r:)}
+  if [[ ZTST_verbose -le 0 && -t $ZTST_fd ]]; then
+    print -n -u$ZTST_fd -- ${(pl:SECONDS::\#::\#\r:)}
+  fi
   (( SECONDS > COLUMNS+1 && (SECONDS -= COLUMNS) ))
 }
 
@@ -159,8 +163,8 @@ if [[ ! -r $ZTST_testname ]]; then
   exit 1
 fi
 
-exec 8>&1
-exec 9<$ZTST_testname
+exec {ZTST_fd}>&1
+exec {ZTST_input}<$ZTST_testname
 
 # The current line read from the test file.
 ZTST_curline=''
@@ -172,7 +176,7 @@ ZTST_cursect=''
 ZTST_getline() {
   local IFS=
   while true; do
-    read -r ZTST_curline <&9 || return 1
+    read -u $ZTST_input -r ZTST_curline || return 1
     [[ $ZTST_curline == \#* ]] || return 0
   done
 }
@@ -281,12 +285,52 @@ $ZTST_code" && return 0
 
 # diff wrapper
 ZTST_diff() {
-  local diff_out diff_ret
+  emulate -L zsh
+  setopt extendedglob
 
-  diff_out=$(diff "$@")
-  diff_ret="$?"
-  if [[ "$diff_ret" != "0" ]]; then
-    print -r "$diff_out"
+  local diff_out
+  integer diff_pat diff_ret
+
+  case $1 in
+    (p)
+    diff_pat=1
+    ;;
+
+    (d)
+    ;;
+
+    (*)
+    print "Bad ZTST_diff code: d for diff, p for pattern match"
+    ;;
+  esac
+  shift
+      
+  if (( diff_pat )); then
+    local -a diff_lines1 diff_lines2
+    integer failed i
+
+    diff_lines1=("${(f)$(<$argv[-2])}")
+    diff_lines2=("${(f)$(<$argv[-1])}")
+    if (( ${#diff_lines1} != ${#diff_lines2} )); then
+      failed=1
+    else
+      for (( i = 1; i <= ${#diff_lines1}; i++ )); do
+	if [[ ${diff_lines2[i]} != ${~diff_lines1[i]} ]]; then
+	  failed=1
+	  break
+	fi
+      done
+    fi
+    if (( failed )); then
+      print -rl "Pattern match failed:" \<${^diff_lines1} \>${^diff_lines2}
+      diff_ret=1
+    fi
+  else
+    diff_out=$(diff "$@")
+    diff_ret="$?"
+    if [[ "$diff_ret" != "0" ]]; then
+      print -r "$diff_out"
+    fi
   fi
 
   return "$diff_ret"
@@ -294,6 +338,7 @@ ZTST_diff() {
     
 ZTST_test() {
   local last match mbegin mend found substlines
+  local diff_out diff_err
 
   while true; do
     rm -f $ZTST_in $ZTST_out $ZTST_err
@@ -301,6 +346,8 @@ ZTST_test() {
     ZTST_message=''
     ZTST_failmsg=''
     found=0
+    diff_out=d
+    diff_err=d
 
     ZTST_verbose 2 "ZTST_test: looking for new test"
 
@@ -339,10 +386,20 @@ $ZTST_curline"
 	('<'*) ZTST_getredir || return 1
 	  found=1
 	  ;;
-	('>'*) ZTST_getredir || return 1
+	('*>'*)
+	  ZTST_curline=${ZTST_curline[2,-1]}
+	  diff_out=p
+	  ;&
+	('>'*)
+	  ZTST_getredir || return 1
 	  found=1
 	  ;;
-	('?'*) ZTST_getredir || return 1
+	('*?'*)
+	  ZTST_curline=${ZTST_curline[2,-1]}
+	  diff_err=p
+	  ;&
+	('?'*)
+	  ZTST_getredir || return 1
 	  found=1
 	  ;;
 	('F:'*) ZTST_failmsg="${ZTST_failmsg:+${ZTST_failmsg}
@@ -386,7 +443,7 @@ $(<$ZTST_terr)"
 	rm -rf $ZTST_out
 	print -r -- "${(e)substlines}" >$ZTST_out
       fi
-      if [[ $ZTST_flags != *d* ]] && ! ZTST_diff -c $ZTST_out $ZTST_tout; then
+      if [[ $ZTST_flags != *d* ]] && ! ZTST_diff $diff_out -c $ZTST_out $ZTST_tout; then
 	ZTST_testfailed "output differs from expected as shown above for:
 $ZTST_code${$(<$ZTST_terr):+
 Error output:
@@ -398,7 +455,7 @@ $(<$ZTST_terr)}"
 	rm -rf $ZTST_err
 	print -r -- "${(e)substlines}" >$ZTST_err
       fi
-      if [[ $ZTST_flags != *D* ]] && ! ZTST_diff -c $ZTST_err $ZTST_terr; then
+      if [[ $ZTST_flags != *D* ]] && ! ZTST_diff $diff_err -c $ZTST_err $ZTST_terr; then
 	ZTST_testfailed "error output differs from expected as shown above for:
 $ZTST_code"
 	return 1
@@ -463,6 +520,7 @@ done
 
 if [[ -n "$ZTST_unimplemented" ]]; then
   print "$ZTST_testname: skipped ($ZTST_unimplemented)"
+  ZTST_testfailed=2
 elif (( ! $ZTST_testfailed )); then
   print "$ZTST_testname: all tests successful."
 fi

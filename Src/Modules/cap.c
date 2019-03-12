@@ -33,18 +33,19 @@
 #ifdef HAVE_CAP_GET_PROC
 
 static int
-bin_cap(char *nam, char **argv, Options ops, int func)
+bin_cap(char *nam, char **argv, UNUSED(Options ops), UNUSED(int func))
 {
     int ret = 0;
     cap_t caps;
     if(*argv) {
+	unmetafy(*argv, NULL);
 	caps = cap_from_text(*argv);
 	if(!caps) {
-	    zwarnnam(nam, "invalid capability string", NULL, 0);
+	    zwarnnam(nam, "invalid capability string");
 	    return 1;
 	}
 	if(cap_set_proc(caps)) {
-	    zwarnnam(nam, "can't change capabilites: %e", NULL, errno);
+	    zwarnnam(nam, "can't change capabilities: %e", errno);
 	    ret = 1;
 	}
     } else {
@@ -54,7 +55,7 @@ bin_cap(char *nam, char **argv, Options ops, int func)
 	if(caps)
 	    result = cap_to_text(caps, &length);
 	if(!caps || !result) {
-	    zwarnnam(nam, "can't get capabilites: %e", NULL, errno);
+	    zwarnnam(nam, "can't get capabilities: %e", errno);
 	    ret = 1;
 	} else
 	    puts(result);
@@ -64,14 +65,16 @@ bin_cap(char *nam, char **argv, Options ops, int func)
 }
 
 static int
-bin_getcap(char *nam, char **argv, Options ops, int func)
+bin_getcap(char *nam, char **argv, UNUSED(Options ops), UNUSED(int func))
 {
     int ret = 0;
 
     do {
 	char *result = NULL;
 	ssize_t length;
-	cap_t caps = cap_get_file(*argv);
+	cap_t caps;
+
+	caps = cap_get_file(unmetafy(dupstring(*argv), NULL));
 	if(caps)
 	    result = cap_to_text(caps, &length);
 	if (!caps || !result) {
@@ -85,19 +88,20 @@ bin_getcap(char *nam, char **argv, Options ops, int func)
 }
 
 static int
-bin_setcap(char *nam, char **argv, Options ops, int func)
+bin_setcap(char *nam, char **argv, UNUSED(Options ops), UNUSED(int func))
 {
     cap_t caps;
     int ret = 0;
 
+    unmetafy(*argv, NULL);
     caps = cap_from_text(*argv++);
     if(!caps) {
-	zwarnnam(nam, "invalid capability string", NULL, 0);
+	zwarnnam(nam, "invalid capability string");
 	return 1;
     }
 
     do {
-	if(cap_set_file(*argv, caps)) {
+	if(cap_set_file(unmetafy(dupstring(*argv), NULL), caps)) {
 	    zwarnnam(nam, "%s: %e", *argv, errno);
 	    ret = 1;
 	}
@@ -122,6 +126,14 @@ static struct builtin bintab[] = {
     BUILTIN("setcap", 0, bin_setcap, 2, -1, 0, NULL, NULL),
 };
 
+static struct features module_features = {
+    bintab, sizeof(bintab)/sizeof(*bintab),
+    NULL, 0,
+    NULL, 0,
+    NULL, 0,
+    0
+};
+
 /**/
 int
 setup_(UNUSED(Module m))
@@ -131,17 +143,31 @@ setup_(UNUSED(Module m))
 
 /**/
 int
-boot_(Module m)
+features_(Module m, char ***features)
 {
-    return !addbuiltins(m->nam, bintab, sizeof(bintab)/sizeof(*bintab));
+    *features = featuresarray(m, &module_features);
+    return 0;
+}
+
+/**/
+int
+enables_(Module m, int **enables)
+{
+    return handlefeatures(m, &module_features, enables);
+}
+
+/**/
+int
+boot_(UNUSED(Module m))
+{
+    return 0;
 }
 
 /**/
 int
 cleanup_(Module m)
 {
-    deletebuiltins(m->nam, bintab, sizeof(bintab)/sizeof(*bintab));
-    return 0;
+    return setfeatureenables(m, &module_features, NULL);
 }
 
 /**/

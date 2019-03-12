@@ -24,6 +24,18 @@
 0:read specified number of chars
 >foo
 
+ for char in y Y n N X $'\n'; do
+   read -q -u0 <<<$char
+   print $?
+ done
+0:read yes or no, default no
+>0
+>0
+>1
+>1
+>1
+>1
+
  read -d: <<<foo:bar
  print $REPLY
 0:read up to delimiter
@@ -76,3 +88,25 @@
  print ${#line}
 0:read with trailing metafied characters
 >24
+
+ (typeset -r foo
+  read foo) <<<bar
+1:return status on failing to set parameter
+?(eval):2: read-only variable: foo
+
+  read -AE array <<<'one two three'
+  print ${(j.:.)array}
+0:Behaviour of -A and -E combination
+>one
+>two
+>three
+>one:two:three
+
+  array=()
+  read -Ae array <<<'four five six'
+  print ${(j.:.)array}
+0:Behaviour of -A and -e combination
+>four
+>five
+>six
+>

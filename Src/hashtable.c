@@ -59,7 +59,7 @@ struct scanstatus {
     int sorted;
     union {
 	struct {
-	    HashNode *tab;
+	    HashNode *hashtab;
 	    int ct;
 	} s;
 	HashNode u;
@@ -78,7 +78,7 @@ static HashTable firstht, lastht;
 
 /**/
 mod_export unsigned
-hasher(char *str)
+hasher(const char *str)
 {
     unsigned hashval = 0, c;
 
@@ -187,11 +187,11 @@ addhashnode2(HashTable ht, char *nam, void *nodeptr)
 	hn->next = hp->next;
 	if(ht->scan) {
 	    if(ht->scan->sorted) {
-		HashNode *tab = ht->scan->u.s.tab;
+		HashNode *hashtab = ht->scan->u.s.hashtab;
 		int i;
 		for(i = ht->scan->u.s.ct; i--; )
-		    if(tab[i] == hp)
-			tab[i] = hn;
+		    if(hashtab[i] == hp)
+			hashtab[i] = hn;
 	    } else if(ht->scan->u.u == hp)
 		ht->scan->u.u = hn;
 	}
@@ -223,7 +223,7 @@ addhashnode2(HashTable ht, char *nam, void *nodeptr)
 
 /**/
 mod_export HashNode
-gethashnode(HashTable ht, char *nam)
+gethashnode(HashTable ht, const char *nam)
 {
     unsigned hashval;
     HashNode hp;
@@ -247,7 +247,7 @@ gethashnode(HashTable ht, char *nam)
 
 /**/
 mod_export HashNode
-gethashnode2(HashTable ht, char *nam)
+gethashnode2(HashTable ht, const char *nam)
 {
     unsigned hashval;
     HashNode hp;
@@ -267,7 +267,7 @@ gethashnode2(HashTable ht, char *nam)
 
 /**/
 mod_export HashNode
-removehashnode(HashTable ht, char *nam)
+removehashnode(HashTable ht, const char *nam)
 {
     unsigned hashval;
     HashNode hp, hq;
@@ -286,11 +286,11 @@ removehashnode(HashTable ht, char *nam)
 	ht->ct--;
 	if(ht->scan) {
 	    if(ht->scan->sorted) {
-		HashNode *tab = ht->scan->u.s.tab;
+		HashNode *hashtab = ht->scan->u.s.hashtab;
 		int i;
 		for(i = ht->scan->u.s.ct; i--; )
-		    if(tab[i] == hp)
-			tab[i] = NULL;
+		    if(hashtab[i] == hp)
+			hashtab[i] = NULL;
 	    } else if(ht->scan->u.u == hp)
 		ht->scan->u.u = hp->next;
 	}
@@ -337,7 +337,7 @@ hnamcmp(const void *ap, const void *bp)
 {
     HashNode a = *(HashNode *)ap;
     HashNode b = *(HashNode *)bp;
-    return ztrcmp((unsigned char *) a->nam, (unsigned char *) b->nam);
+    return ztrcmp(a->nam, b->nam);
 }
 
 /* Scan the nodes in a hash table and execute scanfunc on nodes based on
@@ -355,37 +355,60 @@ hnamcmp(const void *ap, const void *bp)
  * the scanfunc.  Replaced elements will appear in the scan exactly once,
  * the new version if it was not scanned before the replacement was made.
  * Added elements might or might not appear in the scan.
+ *
+ * pprog, if non-NULL, is a pattern that must match the name
+ * of the node.
+ *
+ * The function returns the number of matches, as reduced by pprog, flags1
+ * and flags2.
  */
 
 /**/
-mod_export void
-scanhashtable(HashTable ht, int sorted, int flags1, int flags2, ScanFunc scanfunc, int scanflags)
+mod_export int
+scanmatchtable(HashTable ht, Patprog pprog, int sorted,
+	       int flags1, int flags2, ScanFunc scanfunc, int scanflags)
 {
+    int match = 0;
     struct scanstatus st;
 
-    if (ht->scantab) {
+    /*
+     * scantab is currently only used by modules to scan
+     * tables where the contents are generated on the fly from
+     * other objects.  Note the fact that in this case pprog,
+     * sorted, flags1 and flags2 are ignore.
+     */
+    if (!pprog && ht->scantab) {
 	ht->scantab(ht, scanfunc, scanflags);
-	return;
+	return ht->ct;
     }
     if (sorted) {
 	int i, ct = ht->ct;
 	VARARR(HashNode, hnsorttab, ct);
 	HashNode *htp, hn;
 
+	/*
+	 * Because the structure might change under our feet,
+	 * we can't apply the flags and the pattern before sorting,
+	 * tempting though that is.
+	 */
 	for (htp = hnsorttab, i = 0; i < ht->hsize; i++)
 	    for (hn = ht->nodes[i]; hn; hn = hn->next)
 		*htp++ = hn;
 	qsort((void *)hnsorttab, ct, sizeof(HashNode), hnamcmp);
 
 	st.sorted = 1;
-	st.u.s.tab = hnsorttab;
+	st.u.s.hashtab = hnsorttab;
 	st.u.s.ct = ct;
 	ht->scan = &st;
 
-	for (htp = hnsorttab, i = 0; i < ct; i++, htp++)
-	    if (*htp && ((*htp)->flags & flags1) + !flags1 &&
-		!((*htp)->flags & flags2))
+	for (htp = hnsorttab, i = 0; i < ct; i++, htp++) {
+	    if ((!flags1 || ((*htp)->flags & flags1)) &&
+		!((*htp)->flags & flags2) &&
+		(!pprog || pattry(pprog, (*htp)->nam))) {
+		match++;
 		scanfunc(*htp, scanflags);
+	    }
+	}
 
 	ht->scan = NULL;
     } else {
@@ -399,49 +422,27 @@ scanhashtable(HashTable ht, int sorted, int flags1, int flags2, ScanFunc scanfun
 	    for (st.u.u = nodes[i]; st.u.u; ) {
 		HashNode hn = st.u.u;
 		st.u.u = st.u.u->next;
-		if ((hn->flags & flags1) + !flags1 && !(hn->flags & flags2))
+		if ((!flags1 || (hn->flags & flags1)) && !(hn->flags & flags2)
+		    && (!pprog || pattry(pprog, hn->nam))) {
+		    match++;
 		    scanfunc(hn, scanflags);
+		}
 	    }
 
 	ht->scan = NULL;
     }
-}
-
-/* Scan all nodes in a hash table and executes scanfunc on the *
- * nodes which meet all the following criteria:                *
- * The hash key must match the glob pattern given by `com'.    *
- * If (flags1 > 0), then any flag in flags1 must be set.       *
- * If (flags2 > 0), then all flags in flags2 must NOT be set.  *
- *                                                             *
- * scanflags is passed unchanged to scanfunc (if executed).    *
- * The return value is the number of matches.                  */
-
-/**/
-int
-scanmatchtable(HashTable ht, Patprog pprog, int flags1, int flags2, ScanFunc scanfunc, int scanflags)
-{
-    int i, hsize = ht->hsize;
-    HashNode *nodes = ht->nodes;
-    int match = 0;
-    struct scanstatus st;
-
-    st.sorted = 0;
-    ht->scan = &st;
-
-    for (i = 0; i < hsize; i++)
-	for (st.u.u = nodes[i]; st.u.u; ) {
-	    HashNode hn = st.u.u;
-	    st.u.u = st.u.u->next;
-	    if ((hn->flags & flags1) + !flags1 && !(hn->flags & flags2) &&
-		pattry(pprog, hn->nam)) {
-		scanfunc(hn, scanflags);
-		match++;
-	    }
-	}
-
-    ht->scan = NULL;
 
     return match;
+}
+
+
+/**/
+mod_export int
+scanhashtable(HashTable ht, int sorted, int flags1, int flags2,
+	      ScanFunc scanfunc, int scanflags)
+{
+    return scanmatchtable(ht, NULL, sorted, flags1, flags2,
+			  scanfunc, scanflags);
 }
 
 /* Expand hash tables when they get too many entries. *
@@ -587,7 +588,7 @@ mod_export HashTable cmdnamtab;
  
 /**/
 mod_export char **pathchecked;
- 
+
 /* Create a new command hash table */
  
 /**/
@@ -629,20 +630,52 @@ hashdir(char **dirp)
 {
     Cmdnam cn;
     DIR *dir;
-    char *fn;
+    char *fn, *unmetadir, *pathbuf, *pathptr;
+    int dirlen;
 #if defined(_WIN32) || defined(__CYGWIN__)
     char *exe;
 #endif /* _WIN32 || _CYGWIN__ */
 
-    if (isrelative(*dirp) || !(dir = opendir(unmeta(*dirp))))
+    if (isrelative(*dirp))
 	return;
+    unmetadir = unmeta(*dirp);
+    if (!(dir = opendir(unmetadir)))
+	return;
+
+    dirlen = strlen(unmetadir);
+    pathbuf = (char *)zalloc(dirlen + PATH_MAX + 2);
+    sprintf(pathbuf, "%s/", unmetadir);
+    pathptr = pathbuf + dirlen + 1;
 
     while ((fn = zreaddir(dir, 1))) {
 	if (!cmdnamtab->getnode(cmdnamtab, fn)) {
-	    cn = (Cmdnam) zshcalloc(sizeof *cn);
-	    cn->flags = 0;
-	    cn->u.name = dirp;
-	    cmdnamtab->addnode(cmdnamtab, ztrdup(fn), cn);
+	    char *fname = ztrdup(fn);
+	    struct stat statbuf;
+	    int add = 0, dummylen;
+
+	    unmetafy(fn, &dummylen);
+	    if (strlen(fn) > PATH_MAX) {
+		/* Too heavy to do all the allocation */
+		add = 1;
+	    } else {
+		strcpy(pathptr, fn);
+		/*
+		 * This is the same test as for the glob qualifier for
+		 * executable plain files.
+		 */
+		if (unset(HASHEXECUTABLESONLY) ||
+		    (access(pathbuf, X_OK) == 0 &&
+		     stat(pathbuf, &statbuf) == 0 &&
+		     S_ISREG(statbuf.st_mode) && (statbuf.st_mode & S_IXUGO)))
+		    add = 1;
+	    }
+	    if (add) {
+		cn = (Cmdnam) zshcalloc(sizeof *cn);
+		cn->node.flags = 0;
+		cn->u.name = dirp;
+		cmdnamtab->addnode(cmdnamtab, fname, cn);
+	    } else
+		zsfree(fname);
 	}
 #if defined(_WIN32) || defined(__CYGWIN__)
 	/* Hash foo.exe as foo, since when no real foo exists, foo.exe
@@ -655,7 +688,7 @@ hashdir(char **dirp)
 	    *exe = 0;
 	    if (!cmdnamtab->getnode(cmdnamtab, fn)) {
 		cn = (Cmdnam) zshcalloc(sizeof *cn);
-		cn->flags = 0;
+		cn->node.flags = 0;
 		cn->u.name = dirp;
 		cmdnamtab->addnode(cmdnamtab, ztrdup(fn), cn);
 	    }
@@ -663,6 +696,7 @@ hashdir(char **dirp)
 #endif /* _WIN32 || __CYGWIN__ */
     }
     closedir(dir);
+    zfree(pathbuf, dirlen + PATH_MAX + 2);
 }
 
 /* Go through user's PATH and add everything to *
@@ -686,8 +720,8 @@ freecmdnamnode(HashNode hn)
 {
     Cmdnam cn = (Cmdnam) hn;
  
-    zsfree(cn->nam);
-    if (cn->flags & HASHED)
+    zsfree(cn->node.nam);
+    if (cn->node.flags & HASHED)
 	zsfree(cn->u.cmd);
  
     zfree(cn, sizeof(struct cmdnam));
@@ -702,36 +736,36 @@ printcmdnamnode(HashNode hn, int printflags)
     Cmdnam cn = (Cmdnam) hn;
 
     if (printflags & PRINT_WHENCE_WORD) {
-	printf("%s: %s\n", cn->nam, (cn->flags & HASHED) ? 
+	printf("%s: %s\n", cn->node.nam, (cn->node.flags & HASHED) ? 
 	       "hashed" : "command");
 	return;
     }
 
     if ((printflags & PRINT_WHENCE_CSH) || (printflags & PRINT_WHENCE_SIMPLE)) {
-	if (cn->flags & HASHED) {
+	if (cn->node.flags & HASHED) {
 	    zputs(cn->u.cmd, stdout);
 	    putchar('\n');
 	} else {
 	    zputs(*(cn->u.name), stdout);
 	    putchar('/');
-	    zputs(cn->nam, stdout);
+	    zputs(cn->node.nam, stdout);
 	    putchar('\n');
 	}
 	return;
     }
 
     if (printflags & PRINT_WHENCE_VERBOSE) {
-	if (cn->flags & HASHED) {
-	    nicezputs(cn->nam, stdout);
+	if (cn->node.flags & HASHED) {
+	    nicezputs(cn->node.nam, stdout);
 	    printf(" is hashed to ");
 	    nicezputs(cn->u.cmd, stdout);
 	    putchar('\n');
 	} else {
-	    nicezputs(cn->nam, stdout);
+	    nicezputs(cn->node.nam, stdout);
 	    printf(" is ");
 	    nicezputs(*(cn->u.name), stdout);
 	    putchar('/');
-	    nicezputs(cn->nam, stdout);
+	    nicezputs(cn->node.nam, stdout);
 	    putchar('\n');
 	}
 	return;
@@ -740,21 +774,21 @@ printcmdnamnode(HashNode hn, int printflags)
     if (printflags & PRINT_LIST) {
 	printf("hash ");
 
-	if(cn->nam[0] == '-')
+	if(cn->node.nam[0] == '-')
 	    printf("-- ");
     }
 
-    if (cn->flags & HASHED) {
-	quotedzputs(cn->nam, stdout);
+    if (cn->node.flags & HASHED) {
+	quotedzputs(cn->node.nam, stdout);
 	putchar('=');
 	quotedzputs(cn->u.cmd, stdout);
 	putchar('\n');
     } else {
-	quotedzputs(cn->nam, stdout);
+	quotedzputs(cn->node.nam, stdout);
 	putchar('=');
 	quotedzputs(*(cn->u.name), stdout);
 	putchar('/');
-	quotedzputs(cn->nam, stdout);
+	quotedzputs(cn->node.nam, stdout);
 	putchar('\n');
     }
 }
@@ -794,7 +828,7 @@ createshfunctable(void)
 
 /**/
 static HashNode
-removeshfuncnode(UNUSED(HashTable ht), char *nam)
+removeshfuncnode(UNUSED(HashTable ht), const char *nam)
 {
     HashNode hn;
     int signum;
@@ -818,9 +852,10 @@ disableshfuncnode(HashNode hn, UNUSED(int flags))
     hn->flags |= DISABLED;
     if (!strncmp(hn->nam, "TRAP", 4)) {
 	int signum = getsignum(hn->nam + 4);
-	sigtrapped[signum] &= ~ZSIG_FUNC;
-	sigfuncs[signum] = NULL;
-	unsettrap(signum);
+	if (signum != -1) {
+	    sigtrapped[signum] &= ~ZSIG_FUNC;
+	    unsettrap(signum);
+	}
     }
 }
 
@@ -834,12 +869,11 @@ enableshfuncnode(HashNode hn, UNUSED(int flags))
 {
     Shfunc shf = (Shfunc) hn;
 
-    shf->flags &= ~DISABLED;
-    if (!strncmp(shf->nam, "TRAP", 4)) {
-	int signum = getsignum(shf->nam + 4);
+    shf->node.flags &= ~DISABLED;
+    if (!strncmp(shf->node.nam, "TRAP", 4)) {
+	int signum = getsignum(shf->node.nam + 4);
 	if (signum != -1) {
-	    settrap(signum, shf->funcdef);
-	    sigtrapped[signum] |= ZSIG_FUNC;
+	    settrap(signum, NULL, ZSIG_FUNC);
 	}
     }
 }
@@ -850,9 +884,10 @@ freeshfuncnode(HashNode hn)
 {
     Shfunc shf = (Shfunc) hn;
 
-    zsfree(shf->nam);
+    zsfree(shf->node.nam);
     if (shf->funcdef)
 	freeeprog(shf->funcdef);
+    zsfree(shf->filename);
     zfree(shf, sizeof(struct shfunc));
 }
 
@@ -868,27 +903,27 @@ printshfuncnode(HashNode hn, int printflags)
     if ((printflags & PRINT_NAMEONLY) ||
 	((printflags & PRINT_WHENCE_SIMPLE) &&
 	!(printflags & PRINT_WHENCE_FUNCDEF))) {
-	zputs(f->nam, stdout);
+	zputs(f->node.nam, stdout);
 	putchar('\n');
 	return;
     }
  
     if ((printflags & (PRINT_WHENCE_VERBOSE|PRINT_WHENCE_WORD)) &&
 	!(printflags & PRINT_WHENCE_FUNCDEF)) {
-	nicezputs(f->nam, stdout);
+	nicezputs(f->node.nam, stdout);
 	printf((printflags & PRINT_WHENCE_WORD) ? ": function\n" :
 	       " is a shell function\n");
 	return;
     }
  
-    quotedzputs(f->nam, stdout);
-    if (f->funcdef || f->flags & PM_UNDEFINED) {
+    quotedzputs(f->node.nam, stdout);
+    if (f->funcdef || f->node.flags & PM_UNDEFINED) {
 	printf(" () {\n\t");
-	if (f->flags & PM_UNDEFINED)
+	if (f->node.flags & PM_UNDEFINED)
 	    printf("%c undefined\n\t", hashchar);
 	else
-	    t = getpermtext(f->funcdef, NULL);
-	if (f->flags & PM_TAGGED)
+	    t = getpermtext(f->funcdef, NULL, 1);
+	if (f->node.flags & PM_TAGGED)
 	    printf("%c traced\n\t", hashchar);
 	if (!t) {
 	    char *fopt = "Utkz";
@@ -899,13 +934,13 @@ printshfuncnode(HashNode hn, int printflags)
 
 	    zputs("builtin autoload -X", stdout);
 	    for (fl=0;fopt[fl];fl++)
-		if (f->flags & flgs[fl]) putchar(fopt[fl]);
+		if (f->node.flags & flgs[fl]) putchar(fopt[fl]);
 	} else {
 	    zputs(t, stdout);
 	    zsfree(t);
 	    if (f->funcdef->flags & EF_RUN) {
 		printf("\n\t");
-		quotedzputs(f->nam, stdout);
+		quotedzputs(f->node.nam, stdout);
 		printf(" \"$@\"");
 	    }
 	}   
@@ -922,31 +957,31 @@ printshfuncnode(HashNode hn, int printflags)
 /* Nodes for reserved word hash table */
 
 static struct reswd reswds[] = {
-    {NULL, "!", 0, BANG},
-    {NULL, "[[", 0, DINBRACK},
-    {NULL, "{", 0, INBRACE},
-    {NULL, "}", 0, OUTBRACE},
-    {NULL, "case", 0, CASE},
-    {NULL, "coproc", 0, COPROC},
-    {NULL, "do", 0, DOLOOP},
-    {NULL, "done", 0, DONE},
-    {NULL, "elif", 0, ELIF},
-    {NULL, "else", 0, ELSE},
-    {NULL, "end", 0, ZEND},
-    {NULL, "esac", 0, ESAC},
-    {NULL, "fi", 0, FI},
-    {NULL, "for", 0, FOR},
-    {NULL, "foreach", 0, FOREACH},
-    {NULL, "function", 0, FUNC},
-    {NULL, "if", 0, IF},
-    {NULL, "nocorrect", 0, NOCORRECT},
-    {NULL, "repeat", 0, REPEAT},
-    {NULL, "select", 0, SELECT},
-    {NULL, "then", 0, THEN},
-    {NULL, "time", 0, TIME},
-    {NULL, "until", 0, UNTIL},
-    {NULL, "while", 0, WHILE},
-    {NULL, NULL, 0, 0}
+    {{NULL, "!", 0}, BANG},
+    {{NULL, "[[", 0}, DINBRACK},
+    {{NULL, "{", 0}, INBRACE},
+    {{NULL, "}", 0}, OUTBRACE},
+    {{NULL, "case", 0}, CASE},
+    {{NULL, "coproc", 0}, COPROC},
+    {{NULL, "do", 0}, DOLOOP},
+    {{NULL, "done", 0}, DONE},
+    {{NULL, "elif", 0}, ELIF},
+    {{NULL, "else", 0}, ELSE},
+    {{NULL, "end", 0}, ZEND},
+    {{NULL, "esac", 0}, ESAC},
+    {{NULL, "fi", 0}, FI},
+    {{NULL, "for", 0}, FOR},
+    {{NULL, "foreach", 0}, FOREACH},
+    {{NULL, "function", 0}, FUNC},
+    {{NULL, "if", 0}, IF},
+    {{NULL, "nocorrect", 0}, NOCORRECT},
+    {{NULL, "repeat", 0}, REPEAT},
+    {{NULL, "select", 0}, SELECT},
+    {{NULL, "then", 0}, THEN},
+    {{NULL, "time", 0}, TIME},
+    {{NULL, "until", 0}, UNTIL},
+    {{NULL, "while", 0}, WHILE},
+    {{NULL, NULL, 0}, 0}
 };
 
 /* hash table containing the reserved words */
@@ -977,8 +1012,8 @@ createreswdtable(void)
     reswdtab->freenode    = NULL;
     reswdtab->printnode   = printreswdnode;
 
-    for (rw = reswds; rw->nam; rw++)
-	reswdtab->addnode(reswdtab, rw->nam, rw);
+    for (rw = reswds; rw->node.nam; rw++)
+	reswdtab->addnode(reswdtab, rw->node.nam, rw);
 }
 
 /* Print a reserved word */
@@ -990,22 +1025,22 @@ printreswdnode(HashNode hn, int printflags)
     Reswd rw = (Reswd) hn;
 
     if (printflags & PRINT_WHENCE_WORD) {
-	printf("%s: reserved\n", rw->nam);
+	printf("%s: reserved\n", rw->node.nam);
 	return;
     }
 
     if (printflags & PRINT_WHENCE_CSH) {
-	printf("%s: shell reserved word\n", rw->nam);
+	printf("%s: shell reserved word\n", rw->node.nam);
 	return;
     }
 
     if (printflags & PRINT_WHENCE_VERBOSE) {
-	printf("%s is a reserved word\n", rw->nam);
+	printf("%s is a reserved word\n", rw->node.nam);
 	return;
     }
 
     /* default is name only */
-    printf("%s\n", rw->nam);
+    printf("%s\n", rw->node.nam);
 }
 
 /********************************/
@@ -1073,7 +1108,7 @@ createaliasnode(char *txt, int flags)
     Alias al;
 
     al = (Alias) zshcalloc(sizeof *al);
-    al->flags = flags;
+    al->node.flags = flags;
     al->text = txt;
     al->inuse = 0;
     return al;
@@ -1085,7 +1120,7 @@ freealiasnode(HashNode hn)
 {
     Alias al = (Alias) hn;
  
-    zsfree(al->nam);
+    zsfree(al->node.nam);
     zsfree(al->text);
     zfree(al, sizeof(struct alias));
 }
@@ -1099,13 +1134,13 @@ printaliasnode(HashNode hn, int printflags)
     Alias a = (Alias) hn;
 
     if (printflags & PRINT_NAMEONLY) {
-	zputs(a->nam, stdout);
+	zputs(a->node.nam, stdout);
 	putchar('\n');
 	return;
     }
 
     if (printflags & PRINT_WHENCE_WORD) {
-	printf("%s: alias\n", a->nam);
+	printf("%s: alias\n", a->node.nam);
 	return;
     }
 
@@ -1116,11 +1151,11 @@ printaliasnode(HashNode hn, int printflags)
     }
 
     if (printflags & PRINT_WHENCE_CSH) {
-	nicezputs(a->nam, stdout);
+	nicezputs(a->node.nam, stdout);
 	printf(": ");
-	if (a->flags & ALIAS_SUFFIX)
+	if (a->node.flags & ALIAS_SUFFIX)
 	    printf("suffix ");
-	else if (a->flags & ALIAS_GLOBAL)
+	else if (a->node.flags & ALIAS_GLOBAL)
 	    printf("globally ");
 	printf ("aliased to ");
 	nicezputs(a->text, stdout);
@@ -1129,11 +1164,11 @@ printaliasnode(HashNode hn, int printflags)
     }
 
     if (printflags & PRINT_WHENCE_VERBOSE) {
-	nicezputs(a->nam, stdout);
+	nicezputs(a->node.nam, stdout);
 	printf(" is a");
-	if (a->flags & ALIAS_SUFFIX)
+	if (a->node.flags & ALIAS_SUFFIX)
 	    printf(" suffix");
-	else if (a->flags & ALIAS_GLOBAL)
+	else if (a->node.flags & ALIAS_GLOBAL)
 	    printf(" global");
 	else
 	    printf("n");
@@ -1145,287 +1180,21 @@ printaliasnode(HashNode hn, int printflags)
 
     if (printflags & PRINT_LIST) {
 	printf("alias ");
-	if (a->flags & ALIAS_SUFFIX)
+	if (a->node.flags & ALIAS_SUFFIX)
 	    printf("-s ");
-	else if (a->flags & ALIAS_GLOBAL)
+	else if (a->node.flags & ALIAS_GLOBAL)
 	    printf("-g ");
 
 	/* If an alias begins with `-', then we must output `-- ' *
 	 * first, so that it is not interpreted as an option.     */
-	if(a->nam[0] == '-')
+	if(a->node.nam[0] == '-')
 	    printf("-- ");
     }
 
-    quotedzputs(a->nam, stdout);
+    quotedzputs(a->node.nam, stdout);
     putchar('=');
     quotedzputs(a->text, stdout);
 
-    putchar('\n');
-}
-
-/****************************************/
-/* Named Directory Hash Table Functions */
-/****************************************/
-
-#ifdef HAVE_NIS_PLUS
-# include <rpcsvc/nis.h>
-#else
-# ifdef HAVE_NIS
-#  include	<rpc/types.h>
-#  include	<rpc/rpc.h>
-#  include	<rpcsvc/ypclnt.h>
-#  include	<rpcsvc/yp_prot.h>
-# endif
-#endif
-
-/* hash table containing named directories */
-
-/**/
-mod_export HashTable nameddirtab;
- 
-/* != 0 if all the usernames have already been *
- * added to the named directory hash table.    */
-
-static int allusersadded;
-
-/* Create new hash table for named directories */
-
-/**/
-void
-createnameddirtable(void)
-{
-    nameddirtab = newhashtable(201, "nameddirtab", NULL);
-
-    nameddirtab->hash        = hasher;
-    nameddirtab->emptytable  = emptynameddirtable;
-    nameddirtab->filltable   = fillnameddirtable;
-    nameddirtab->cmpnodes    = strcmp;
-    nameddirtab->addnode     = addnameddirnode;
-    nameddirtab->getnode     = gethashnode;
-    nameddirtab->getnode2    = gethashnode2;
-    nameddirtab->removenode  = removenameddirnode;
-    nameddirtab->disablenode = NULL;
-    nameddirtab->enablenode  = NULL;
-    nameddirtab->freenode    = freenameddirnode;
-    nameddirtab->printnode   = printnameddirnode;
-
-    allusersadded = 0;
-    finddir(NULL);		/* clear the finddir cache */
-}
-
-/* Empty the named directories table */
-
-/**/
-static void
-emptynameddirtable(HashTable ht)
-{
-    emptyhashtable(ht);
-    allusersadded = 0;
-    finddir(NULL);		/* clear the finddir cache */
-}
-
-/* Add all the usernames in the password file/database *
- * to the named directories table.                     */
-
-#ifdef HAVE_NIS_PLUS
-static int
-add_userdir(nis_name table, nis_object *object, void *userdata)
-{
-    if (object->zo_data.objdata_u.en_data.en_cols.en_cols_len >= 6) {
-	static char name[40], dir[PATH_MAX + 1];
-	register entry_col *ec =
-	    object->zo_data.objdata_u.en_data.en_cols.en_cols_val;
-	register int nl = minimum(ec[0].ec_value.ec_value_len, 39);
-	register int dl = minimum(ec[5].ec_value.ec_value_len, PATH_MAX);
-
-	memcpy(name, ec[0].ec_value.ec_value_val, nl);
-	name[nl] = '\0';
-	memcpy(dir, ec[5].ec_value.ec_value_val, dl);
-	dir[dl] = '\0';
-
-	adduserdir(name, dir, ND_USERNAME, 1);
-    }
-    return 0;
-}
-#else
-# ifdef HAVE_NIS
-static int
-add_userdir(int status, char *key, int keylen, char *val, int vallen, char *dummy)
-{
-    char *p, *d, *de;
-
-    if (status != YP_TRUE)
-	return 1;
-
-    if (vallen > keylen && *(p = val + keylen) == ':') {
-	*p++ = '\0';
-	for (de = val + vallen - 1; *de != ':' && de > val; de--);
-	if (de > val) {
-	    *de = '\0';
-	    if ((d = strrchr(p, ':'))) {
-		if (*++d && val[0])
-		    adduserdir(val, d, ND_USERNAME, 1);
-	    }
-	}
-    }
-    return 0;
-}
-# endif /* HAVE_NIS */
-#endif  /* HAVE_NIS_PLUS */
-
-/**/
-static void
-fillnameddirtable(UNUSED(HashTable ht))
-{
-    if (!allusersadded) {
-#if defined(HAVE_NIS) || defined(HAVE_NIS_PLUS)
-	FILE *pwf;
-	char buf[BUFSIZ], *p, *d, *de;
-	int skipping, oldct = nameddirtab->ct, usepwf = 1;
-
-# ifndef HAVE_NIS_PLUS
-	char domain[YPMAXDOMAIN];
-	struct ypall_callback cb;
-
-	/* Get potential matches from NIS and cull those without local accounts */
-	if (getdomainname(domain, YPMAXDOMAIN) == 0) {
-	    cb.foreach = (int (*)()) add_userdir;
-	    cb.data = NULL;
-	    yp_all(domain, PASSWD_MAP, &cb);
-    }
-# else  /* HAVE_NIS_PLUS */
-	/* Maybe we should turn this string into a #define'd constant...? */
-
-	nis_list("passwd.org_dir", EXPAND_NAME|ALL_RESULTS|FOLLOW_LINKS|FOLLOW_PATH,
-		 add_userdir, 0);
-# endif
-	if (nameddirtab->ct == oldct) {
-	    /* Using NIS or NIS+ didn't add any user directories. This seems
-	     * fishy, so we fall back to using getpwent(). If we don't have
-	     * that, we only use the passwd file. */
-#ifdef HAVE_GETPWENT
-	    struct passwd *pw;
- 
-	    setpwent();
- 
-	    /* loop through the password file/database *
-	     * and add all entries returned.           */
-	    while ((pw = getpwent()) && !errflag)
-		adduserdir(pw->pw_name, pw->pw_dir, ND_USERNAME, 1);
- 
-	    endpwent();
-	    usepwf = 0;
-#endif /* HAVE_GETPWENT */
-	}
-	if (usepwf) {
-	    /* Don't forget the non-NIS matches from the flat passwd file */
-	    if ((pwf = fopen(PASSWD_FILE, "r")) != NULL) {
-		skipping = 0;
-		while (fgets(buf, BUFSIZ, pwf) != NULL) {
-		    if (strchr(buf, '\n') != NULL) {
-			if (!skipping) {
-			    if ((p = strchr(buf, ':')) != NULL) {
-				*p++ = '\0';
-				if ((de = strrchr(p, ':'))) {
-				    *de = '\0';
-				    if ((d = strrchr(p, ':'))) {
-					if (*++d && buf[0])
-					    adduserdir(buf, d, ND_USERNAME, 1);
-				    }
-				}
-			    }
-			} else
-			    skipping = 0;
-		    } else
-			skipping = 1;
-		}
-		fclose(pwf);
-	    }
-	}
-#else  /* no NIS or NIS_PLUS */
-#ifdef HAVE_GETPWENT
-	struct passwd *pw;
- 
-	setpwent();
- 
-	/* loop through the password file/database *
-	 * and add all entries returned.           */
-	while ((pw = getpwent()) && !errflag)
-	    adduserdir(pw->pw_name, pw->pw_dir, ND_USERNAME, 1);
- 
-	endpwent();
-#endif /* HAVE_GETPWENT */
-#endif
-	allusersadded = 1;
-    }
-}
-
-/* Add an entry to the named directory hash *
- * table, clearing the finddir() cache and  *
- * initialising the `diff' member.          */
-
-/**/
-static void
-addnameddirnode(HashTable ht, char *nam, void *nodeptr)
-{
-    Nameddir nd = (Nameddir) nodeptr;
-
-    nd->diff = strlen(nd->dir) - strlen(nam);
-    finddir(NULL);		/* clear the finddir cache */
-    addhashnode(ht, nam, nodeptr);
-}
-
-/* Remove an entry from the named directory  *
- * hash table, clearing the finddir() cache. */
-
-/**/
-static HashNode
-removenameddirnode(HashTable ht, char *nam)
-{
-    HashNode hn = removehashnode(ht, nam);
-
-    if(hn)
-	finddir(NULL);		/* clear the finddir cache */
-    return hn;
-}
-
-/* Free up the memory used by a named directory hash node. */
-
-/**/
-static void
-freenameddirnode(HashNode hn)
-{
-    Nameddir nd = (Nameddir) hn;
- 
-    zsfree(nd->nam);
-    zsfree(nd->dir);
-    zfree(nd, sizeof(struct nameddir));
-}
-
-/* Print a named directory */
-
-/**/
-static void
-printnameddirnode(HashNode hn, int printflags)
-{
-    Nameddir nd = (Nameddir) hn;
-
-    if (printflags & PRINT_NAMEONLY) {
-	zputs(nd->nam, stdout);
-	putchar('\n');
-	return;
-    }
-    
-    if (printflags & PRINT_LIST) {
-      printf("hash -d ");
-
-      if(nd->nam[0] == '-')
-	    printf("-- ");
-    }
-
-    quotedzputs(nd->nam, stdout);
-    putchar('=');
-    quotedzputs(nd->dir, stdout);
     putchar('\n');
 }
 
@@ -1455,7 +1224,7 @@ createhisttable(void)
 
 /**/
 unsigned
-histhasher(char *str)
+histhasher(const char *str)
 {
     unsigned hashval = 0;
 
@@ -1514,11 +1283,11 @@ addhistnode(HashTable ht, char *nam, void *nodeptr)
     HashNode oldnode = addhashnode2(ht, nam, nodeptr);
     Histent he = (Histent)nodeptr;
     if (oldnode && oldnode != (HashNode)nodeptr) {
-	if (he->flags & HIST_MAKEUNIQUE
-	 || (he->flags & HIST_FOREIGN && (Histent)oldnode == he->up)) {
+	if (he->node.flags & HIST_MAKEUNIQUE
+	 || (he->node.flags & HIST_FOREIGN && (Histent)oldnode == he->up)) {
 	    (void) addhashnode2(ht, oldnode->nam, oldnode); /* restore hash */
-	    he->flags |= HIST_DUP;
-	    he->flags &= ~HIST_MAKEUNIQUE;
+	    he->node.flags |= HIST_DUP;
+	    he->node.flags &= ~HIST_MAKEUNIQUE;
 	}
 	else {
 	    oldnode->flags |= HIST_DUP;
@@ -1527,7 +1296,7 @@ addhistnode(HashTable ht, char *nam, void *nodeptr)
 	}
     }
     else
-	he->flags &= ~HIST_MAKEUNIQUE;
+	he->node.flags &= ~HIST_MAKEUNIQUE;
 }
 
 /**/
@@ -1545,10 +1314,10 @@ freehistdata(Histent he, int unlink)
     if (!he)
 	return;
 
-    if (!(he->flags & (HIST_DUP | HIST_TMPSTORE)))
-	removehashnode(histtab, he->text);
+    if (!(he->node.flags & (HIST_DUP | HIST_TMPSTORE)))
+	removehashnode(histtab, he->node.nam);
 
-    zsfree(he->text);
+    zsfree(he->node.nam);
     if (he->nwords)
 	zfree(he->words, he->nwords*2*sizeof(short));
 

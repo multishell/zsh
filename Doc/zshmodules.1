@@ -1,4 +1,4 @@
-.TH "ZSHMODULES" "1" "December 17, 2007" "zsh 4\&.2\&.7"
+.TH "ZSHMODULES" "1" "July 21, 2012" "zsh 5\&.0\&.0"
 .SH "NAME"
 zshmodules \- zsh loadable modules
 .\" Yodl file: Zsh/modules.yo
@@ -7,13 +7,19 @@ Some optional parts of zsh are in modules, separate from the core
 of the shell\&.  Each of these modules may be linked in to the
 shell at build time,
 or can be dynamically linked while the shell is running
-if the installation supports this feature\&.  The modules that
-are bundled with the zsh distribution are:
+if the installation supports this feature\&.
+Modules are linked at runtime with the \fBzmodload\fP command,
+see \fIzshbuiltins\fP(1)\&.
+.PP
+The modules that are bundled with the zsh distribution are:
 .PP
 .\" Yodl file: Zsh/modlist.yo
 .PD 0
 .TP
 .PD
+\fBzsh/attr\fP
+Builtins for manipulating extended attributes (xattr)\&.
+.TP
 \fBzsh/cap\fP
 Builtins for manipulating POSIX\&.1e (POSIX\&.6) capability (privilege) sets\&.
 .TP
@@ -33,6 +39,9 @@ Completion listing extensions\&.
 A module with utility builtins needed for the shell function based
 completion system\&.
 .TP
+\fBzsh/curses\fP
+curses windowing commands
+.TP
 \fBzsh/datetime\fP
 Some date/time commands and parameters\&.
 .TP
@@ -51,11 +60,17 @@ Access to external files via a special associative array\&.
 \fBzsh/mathfunc\fP
 Standard scientific functions for use in mathematical evaluations\&.
 .TP
+\fBzsh/newuser\fP
+Arrange for files for new users to be installed\&.
+.TP
 \fBzsh/parameter\fP
 Access to internal hash tables via special associative arrays\&.
 .TP
 \fBzsh/pcre\fP
 Interface to the PCRE library\&.
+.TP
+\fBzsh/regex\fP
+Interface to the POSIX regex library\&.
 .TP
 \fBzsh/sched\fP
 A builtin that provides a timed execution facility within the shell\&.
@@ -100,6 +115,39 @@ Block and return when file descriptors are ready\&.
 Some utility builtins, e\&.g\&. the one for supporting configuration via 
 styles\&.
 .\" Yodl file: Zsh/modmenu.yo
+.SH "THE ZSH/ATTR MODULE"
+.\" Yodl file: Zsh/mod_attr.yo
+
+The \fBzsh/attr\fP module is used for manipulating extended attributes\&.
+The \fB\-h\fP option causes all commands to operate on symbolic links instead
+of their targets\&.
+The builtins in this module are:
+.PP
+.PD 0
+.TP
+.PD
+\fBzgetattr\fP [ \fB\-h\fP ] \fIfilename\fP \fIattribute\fP [ \fIparameter\fP ]
+Get the extended attribute \fIattribute\fP from the specified
+\fIfilename\fP\&. If the optional argument \fIparameter\fP is given, the
+attribute is set on that parameter instead of being printed to stdout\&.
+.TP
+\fBzsetattr\fP [ \fB\-h\fP ] \fIfilename\fP \fIattribute\fP \fIvalue\fP
+Set the extended attribute \fIattribute\fP on the specified
+\fIfilename\fP to \fIvalue\fP\&.
+.TP
+\fBzdelattr\fP [ \fB\-h\fP ] \fIfilename\fP \fIattribute\fP
+Remove the extended attribute \fIattribute\fP from the specified
+\fIfilename\fP\&.
+.TP
+\fBzlistattr\fP [ \fB\-h\fP ] \fIfilename\fP [ \fIparameter\fP ]
+List the extended attributes currently set on the specified
+\fIfilename\fP\&. If the optional argument \fIparameter\fP is given, the
+list of attributes is set on that parameter instead of being printed to stdout\&.
+.PP
+\fBzgetattr\fP and \fBzlistattr\fP allocate memory dynamically\&.  If the
+attribute or list of attributes grows between the allocation and the call
+to get them, they return 2\&.  On all other errors, 1 is returned\&.  This
+allows the calling function to check for this case and retry\&.
 .SH "THE ZSH/CAP MODULE"
 .\" Yodl file: Zsh/mod_cap.yo
 
@@ -138,7 +186,7 @@ parameters are changed appropriately\&.  \fB$!\fP is set to zero in the new
 shell, and to the new shell\&'s PID in the original shell\&.
 .RS
 .PP
-The return value of the builtin is zero in both shells if successful,
+The return status of the builtin is zero in both shells if successful,
 and non\-zero on error\&.
 .PP
 The target of \fBclone\fP should be an unused terminal, such as an unused virtual
@@ -161,7 +209,7 @@ the cloned shell will have job control disabled, and the job
 .PP
 This does not apply when cloning to an \fBunused\fP vc\&.
 .PP
-Cloning to an used (and unprepared) terminal will result in two
+Cloning to a used (and unprepared) terminal will result in two
 processes reading simultaneously from the same terminal, with
 input bytes going randomly to either process\&.
 .PP
@@ -220,7 +268,9 @@ for regular files
 for directories
 .TP
 \fBln 36\fP
-for symbolic links
+for symbolic links\&.  If this has the special value \fBtarget\fP,
+symbolic links are dereferenced and the target file used to
+determine the display format\&.
 .TP
 \fBpi 31\fP
 for named pipes (FIFOs)
@@ -234,11 +284,34 @@ for block devices
 \fBcd 44;37\fP
 for character devices
 .TP
-\fBex 35\fP
-for executable files
+\fBor\fP \fInone\fP
+for a symlink to nonexistent file (default is the value defined for \fBln\fP)
 .TP
 \fBmi\fP \fInone\fP
-for a non\-existent file (default is the value defined for \fBfi\fP)
+for a non\-existent file (default is the value defined for \fBfi\fP); this code
+is currently not used
+.TP
+\fBsu 37;41\fP
+for files with setuid bit set
+.TP
+\fBsg 30;43\fP
+for files with setgid bit set
+.TP
+\fBtw 30;42\fP
+for world writable directories with sticky bit set
+.TP
+\fBow 34;43\fP
+for world writable directories without sticky bit set
+.TP
+\fBsa\fP \fInone\fP
+for files with an associated suffix alias; this is only tested
+after specific suffixes, as described below
+.TP
+\fBst 37;44\fP
+for directories with sticky bit set but not world writable
+.TP
+\fBex 35\fP
+for executable files
 .TP
 \fBlc \ee[\fP
 for the left code (see below)
@@ -260,13 +333,14 @@ Apart from these strings, the \fIname\fP may also be an asterisk
 (`\fB*\fP\&') followed by any string\&. The \fIvalue\fP given for such a
 string will be used for all files whose name ends with the string\&.
 The \fIname\fP may also be an equals sign (`\fB=\fP\&') followed by a
-pattern\&.  The \fIvalue\fP given for this pattern will be used for all
+pattern; the \fBEXTENDED_GLOB\fP option will be turned on for evaluation
+of the pattern\&.  The \fIvalue\fP given for this pattern will be used for all
 matches (not just filenames) whose display string are matched by
-the pattern\&.  Definitions for both of these take precedence over the
-values defined for file types and the form with the leading asterisk 
-takes precedence over the form with the leading equal sign\&.
+the pattern\&.  Definitions for the form with the leading equal sign take
+precedence over the values defined for file types, which in turn take
+precedence over the form with the leading asterisk (file extensions)\&.
 .PP
-The last form also allows different parts of the displayed
+The leading\-equals form also allows different parts of the displayed
 strings to be colored differently\&.  For this, the pattern has to use the
 `\fB(#b)\fP\&' globbing flag and pairs of parentheses surrounding the
 parts of the strings that are to be colored differently\&.  In this case 
@@ -316,7 +390,8 @@ To enable scrolling through a completion list, the \fBLISTPROMPT\fP
 parameter must be set\&.  Its value will be used as the prompt; if it
 is the empty string, a default prompt will be used\&.  The value may
 contain escapes of the form `\fB%x\fP\&'\&.  It supports the escapes
-`\fB%B\fP\&', `\fB%b\fP', `\fB%S\fP', `\fB%s\fP', `\fB%U\fP', `\fB%u\fP' and
+`\fB%B\fP\&', `\fB%b\fP', `\fB%S\fP', `\fB%s\fP', `\fB%U\fP', `\fB%u\fP', `\fB%F\fP',
+`\fB%f\fP\&', `\fB%K\fP', `\fB%k\fP' and
 `\fB%{\&.\&.\&.%}\fP\&' used also in shell prompts as well as three pairs of
 additional sequences: a `\fB%l\fP\&' or `\fB%L\fP' is replaced by the number
 of the last line shown and the total number of lines in the form
@@ -354,6 +429,9 @@ scrolls forward one line
 .PD
 \fBexpand\-or\-complete\-prefix\fP, \fBmenu\-complete\-or\-expand\fP
 scrolls forward one screenful
+.TP
+\fBaccept\-search\fP
+stop listing but take no other action
 .PP
 Every other character stops listing and immediately processes the key
 as usual\&.  Any key that is not bound in the \fBlistscroll\fP keymap or
@@ -438,13 +516,17 @@ Selecting matches is done by moving the mark around using the zle movement
 functions\&.  When not all matches can be shown on the screen at the same 
 time, the list will scroll up and down when crossing the top or
 bottom line\&.  The following zle functions have special meaning during
-menu selection:
+menu selection\&.  Note that the following always
+perform the same task within the menu selection map and cannot be
+replaced by user defined widgets, nor can the set of functions
+be extended:
 .PP
 .PD 0
 .TP
 .PD
-\fBaccept\-line\fP
-accepts the current match and leaves menu selection
+\fBaccept\-line\fP, \fBaccept\-search\fP
+accept the current match and leave menu selection (but do
+not cause the command line to be accepted)
 .TP
 \fBsend\-break\fP
 leaves menu selection and restores the previous contents of the
@@ -546,7 +628,10 @@ make the longest unambiguous string be inserted in the command line
 and \fBundo\fP and \fBbackward\-delete\-char\fP go back to the previous set
 of matches
 .TP
-\fBhistory\-incremental\-search\-forward\fP,
+.PD 0
+\fBhistory\-incremental\-search\-forward\fP
+.TP
+.PD
 \fBhistory\-incremental\-search\-backward\fP
 this starts incremental searches in the list of completions displayed;
 in this mode, \fBaccept\-line\fP only leaves incremental search, going
@@ -647,7 +732,7 @@ done as if there is some prefix before the values of the parameters,
 so that a leading equal sign will not be quoted\&.
 .RS
 .PP
-The return value is non\-zero in case of an error and zero otherwise\&.
+The return status is non\-zero in case of an error and zero otherwise\&.
 .RE
 .TP
 .PD 0
@@ -659,6 +744,309 @@ These implement the internals of the tags mechanism\&.
 .TP
 \fBcompvalues\fP
 Like \fBcomparguments\fP, but for the \fB_values\fP function\&.
+.SH "THE ZSH/CURSES MODULE"
+.\" Yodl file: Zsh/mod_curses.yo
+
+The \fBzsh/curses\fP module makes available one builtin command and
+various parameters\&.
+.PP
+.SS "Builtin"
+.PP
+.PD 0
+.TP
+.PD 0
+\fBzcurses\fP \fBinit\fP
+.TP
+.PD 0
+\fBzcurses\fP \fBend\fP
+.TP
+.PD 0
+\fBzcurses\fP \fBaddwin\fP \fItargetwin\fP \fInlines\fP \fIncols\fP \fIbegin_y\fP \fIbegin_x\fP [ \fIparentwin\fP ] 
+.TP
+.PD 0
+\fBzcurses\fP \fBdelwin\fP \fItargetwin\fP 
+.TP
+.PD 0
+\fBzcurses\fP \fBrefresh\fP [ \fItargetwin\fP \&.\&.\&. ] 
+.TP
+.PD 0
+\fBzcurses\fP \fBtouch\fP \fItargetwin\fP \&.\&.\&.
+.TP
+.PD 0
+\fBzcurses\fP \fBmove\fP \fItargetwin\fP \fInew_y\fP \fInew_x\fP 
+.TP
+.PD 0
+\fBzcurses\fP \fBclear\fP \fItargetwin\fP [ \fBredraw\fP | \fBeol\fP | \fBbot\fP ]
+.TP
+.PD 0
+\fBzcurses\fP \fBposition\fP \fItargetwin\fP \fIarray\fP
+.TP
+.PD 0
+\fBzcurses\fP \fBchar\fP \fItargetwin\fP \fIcharacter\fP 
+.TP
+.PD 0
+\fBzcurses\fP \fBstring\fP \fItargetwin\fP \fIstring\fP 
+.TP
+.PD 0
+\fBzcurses\fP \fBborder\fP \fItargetwin\fP \fIborder\fP 
+.TP
+.PD 0
+\fBzcurses\fP \fBattr\fP \fItargetwin\fP [ \fI{+/\-}attribute\fP | \fIfg_col\fP\fB/\fP\fIbg_col\fP ] [\&.\&.\&.]
+.TP
+.PD 0
+\fBzcurses\fP \fBbg\fP \fItargetwin\fP [ \fI{+/\-}attribute\fP | \fIfg_col\fP\fB/\fP\fIbg_col\fP | \fB@\fP\fIchar\fP ] [\&.\&.\&.]
+.TP
+.PD 0
+\fBzcurses\fP \fBscroll\fP \fItargetwin\fP [ \fBon\fP | \fBoff\fP | {+/\-}\fIlines\fP ]
+.TP
+.PD 0
+\fBzcurses\fP \fBinput\fP \fItargetwin\fP [ \fIparam\fP [ \fIkparam\fP [ \fImparam\fP ] ] ]
+.TP
+.PD 0
+\fBzcurses\fP \fBmouse\fP [ \fBdelay\fP \fInum\fP | {+/\-}\fBmotion\fP ]
+.TP
+.PD 0
+\fBzcurses\fP \fBtimeout\fP \fItargetwin\fP \fIintval\fP
+.TP
+.PD
+\fBzcurses\fP \fBquerychar\fP \fItargetwin\fP [ \fIparam\fP ]
+Manipulate curses windows\&.  All uses of this command should be
+bracketed by `\fBzcurses init\fP\&' to initialise use of curses, and
+`\fBzcurses end\fP\&' to end it; omitting `\fBzcurses end\fP' can cause
+the terminal to be in an unwanted state\&.
+.RS
+.PP
+The subcommand \fBaddwin\fP creates a window with \fInlines\fP lines and
+\fIncols\fP columns\&.  Its upper left corner will be placed at row
+\fIbegin_y\fP and column
+\fIbegin_x\fP of the screen\&.  \fItargetwin\fP is a string and refers
+to the name of a window that is not currently assigned\&.  Note
+in particular the curses convention that vertical values appear
+before horizontal values\&.
+.PP
+If \fBaddwin\fP is given an existing window as the final argument, the new
+window is created as a subwindow of \fIparentwin\fP\&.  This differs from an
+ordinary new window in that the memory of the window contents is shared
+with the parent\&'s memory\&.  Subwindows must be deleted before their parent\&.
+Note that the coordinates of subwindows are relative to the screen, not
+the parent, as with other windows\&.
+.PP
+Use the subcommand \fBdelwin\fP to delete a window created with
+\fBaddwin\fP\&.  Note that \fBend\fP does \fInot\fP implicitly delete windows,
+and that \fBdelwin\fP does not erase the screen image of the window\&.
+.PP
+The window corresponding to the full visible screen is called
+\fBstdscr\fP; it always exists after `\fBzcurses init\fP\&' and cannot
+be delete with \fBdelwin\fP\&.
+.PP
+The subcommand \fBrefresh\fP will refresh window \fItargetwin\fP; this is
+necessary to make any pending changes (such as characters you have
+prepared for output with \fBchar\fP) visible on the screen\&.  \fBrefresh\fP
+without an argument causes the screen to be cleared and redrawn\&.
+If multiple windows are given, the screen is updated once at the end\&.
+.PP
+The subcommand \fBtouch\fP marks the \fItargetwin\fPs listed as changed\&.
+This is necessary before \fBrefresh\fPing windows if a window that
+was in front of another window (which may be \fBstdscr\fP) is deleted\&.
+.PP
+The subcommand \fBmove\fP moves the cursor position in \fItargetwin\fP to
+new coordinates \fInew_y\fP and \fInew_x\fP\&.  Note that the 
+subcommand \fBstring\fP (but not the subcommand \fBchar\fP) advances the
+cursor position over the characters added\&.
+.PP
+The subcommand \fBclear\fP erases the contents of \fItargetwin\fP\&.  One
+(and no more than one) of three options may be specified\&.  With the
+option \fBredraw\fP, in addition the next \fBrefresh\fP of \fItargetwin\fP
+will cause the screen to be cleared and repainted\&.  With the option
+\fBeol\fP, \fItargetwin\fP is only cleared to the end of the current cursor
+line\&.  With the option
+\fBbot\fP, \fItargetwin\fP is cleared to the end of the window, i\&.e
+everything to the right and below the cursor is cleared\&.
+.PP
+The subcommand \fBposition\fP writes various positions associated with
+\fItargetwin\fP into the array named \fIarray\fP\&.
+These are, in order:
+.PD 0
+.TP
+
+The y and x coordinates of the cursor relative to the top left
+of \fItargetwin\fP
+.TP
+
+The y and x coordinates of the top left of \fItargetwin\fP on the
+screen
+.TP
+
+The size of \fItargetwin\fP in y and x dimensions\&.
+.PD
+.PP
+Outputting characters and strings are achieved by \fBchar\fP and \fBstring\fP
+respectively\&.
+.PP
+To draw a border around window \fItargetwin\fP, use \fBborder\fP\&.  Note
+that the border is not subsequently handled specially:  in other words,
+the border is simply a set of characters output at the edge of the
+window\&.  Hence it can be overwritten, can scroll off the window, etc\&.
+.PP
+The subcommand \fBattr\fP will set \fItargetwin\fP\&'s attributes or
+foreground/background color pair for any successive character output\&.
+Each \fIattribute\fP given on the line may be prepended by a \fB+\fP to set
+or a \fB\-\fP to unset that attribute; \fB+\fP is assumed if absent\&.  The
+attributes supported are \fBblink\fP, \fBbold\fP, \fBdim\fP, \fBreverse\fP,
+\fBstandout\fP, and \fBunderline\fP\&.
+.PP
+Each \fIfg_col\fP\fB/\fP\fIbg_col\fP attribute (to be read as
+`\fIfg_col\fP on \fIbg_col\fP\&') sets the foreground and background color
+for character output\&.  The color \fBdefault\fP is sometimes available
+(in particular if the library is ncurses), specifying the foreground
+or background color with which the terminal started\&.  The color pair
+\fBdefault/default\fP is always available\&.
+.PP
+\fBbg\fP overrides the color and other attributes of all characters in the
+window\&.  Its usual use is to set the background initially, but it will
+overwrite the attributes of any characters at the time when it is called\&.
+In addition to the arguments allowed with \fBattr\fP, an argument \fB@\fP\fIchar\fP
+specifies a character to be shown in otherwise blank areas of the window\&.
+Owing to limitations of curses this cannot be a multibyte character
+(use of ASCII characters only is recommended)\&.  As the specified set
+of attributes override the existing background, turning attributes
+off in the arguments is not useful, though this does not cause an error\&.
+.PP
+The subcommand \fBscroll\fP can be used with \fBon\fP or \fBoff\fP to enabled
+or disable scrolling of a window when the cursor would otherwise move
+below the window due to typing or output\&.  It can also be used with a
+positive or negative integer to scroll the window up or down the given
+number of lines without changing the current cursor position (which
+therefore appears to move in the opposite direction relative to the
+window)\&.  In the second case, if scrolling is \fBoff\fP it is temporarily
+turned \fBon\fP to allow the window to be scrolled\&.
+.PP
+The subcommand \fBinput\fP reads a single character from the window
+without echoing it back\&.  If \fIparam\fP is supplied the character is
+assigned to the parameter \fIparam\fP, else it is assigned to the
+parameter \fIREPLY\fP\&.
+.PP
+If both \fIparam\fP and \fIkparam\fP are supplied, the key is read in
+`keypad\&' mode\&.  In this mode special keys such as function keys and
+arrow keys return the name of the key in the parameter \fIkparam\fP\&.  The
+key names are the macros defined in the \fBcurses\&.h\fP or \fBncurses\&.h\fP
+with the prefix `\fBKEY_\fP\&' removed; see also the description of the
+parameter \fBzcurses_keycodes\fP below\&.  Other keys cause a value to be
+set in \fIparam\fP as before\&.  On a successful return only one of
+\fIparam\fP or \fIkparam\fP contains a non\-empty string; the other is set
+to an empty string\&.
+.PP
+If \fImparam\fP is also supplied, \fBinput\fP attempts to handle mouse
+input\&.  This is only available with the ncurses library; mouse handling
+can be detected by checking for the exit status of `\fBzcurses mouse\fP\&' with
+no arguments\&.  If a mouse
+button is clicked (or double\- or triple\-clicked, or pressed or released with
+a configurable delay from being clicked) then \fBkparam\fP is set to the string
+\fBMOUSE\fP, and \fImparam\fP is set to an array consisting of the
+following elements:
+.PD 0
+.TP
+\-
+An identifier to discriminate different input devices; this
+is only rarely useful\&.
+.TP
+\-
+The x, y and z coordinates of the mouse click relative to
+the full screen, as three elements in that order (i\&.e\&. the y coordinate
+is, unusually, after the x coordinate)\&.  The z coordinate is only
+available for a few unusual input devices and is otherwise set to zero\&.
+.TP
+\-
+Any events that occurred as separate items; usually
+there will be just one\&.  An event consists of \fBPRESSED\fP, \fBRELEASED\fP,
+\fBCLICKED\fP, \fBDOUBLE_CLICKED\fP or \fBTRIPLE_CLICKED\fP followed
+immediately (in the same element) by the number of the button\&.
+.TP
+\-
+If the shift key was pressed, the string \fBSHIFT\fP\&.
+.TP
+\-
+If the control key was pressed, the string \fBCTRL\fP\&.
+.TP
+\-
+If the alt key was pressed, the string \fBALT\fP\&.
+.PD
+.PP
+Not all mouse events may be passed through to the terminal window;
+most terminal emulators handle some mouse events themselves\&.  Note
+that the ncurses manual implies that using input both with and
+without mouse handling may cause the mouse cursor to appear and
+disappear\&.
+.PP
+The subcommand \fBmouse\fP can be used to configure the use of the mouse\&.
+There is no window argument; mouse options are global\&.
+`\fBzcurses mouse\fP\&' with no arguments returns status 0 if mouse handling
+is possible, else status 1\&.  Otherwise, the possible arguments (which
+may be combined on the same command line) are as follows\&.
+\fBdelay\fP \fInum\fP sets the maximum delay in milliseconds between press and
+release events to be considered as a click; the value 0 disables click
+resolution, and the default is one sixth of a second\&.  \fBmotion\fP proceeded
+by an optional `\fB+\fP\&' (the default) or \fB\-\fP turns on or off
+reporting of mouse motion in addition to clicks, presses and releases,
+which are always reported\&.  However, it appears reports for mouse
+motion are not currently implemented\&.
+.PP
+The subcommand \fBtimeout\fP specifies a timeout value for input from
+\fItargetwin\fP\&.  If \fIintval\fP is negative, `\fBzcurses input\fP\&' waits
+indefinitely for a character to be typed; this is the default\&.  If
+\fIintval\fP is zero, `\fBzcurses input\fP\&' returns immediately; if there
+is typeahead it is returned, else no input is done and status 1 is
+returned\&.  If \fIintval\fP is positive, `\fBzcurses input\fP\&' waits
+\fIintval\fP milliseconds for input and if there is none at the end of
+that period returns status 1\&.
+.PP
+The subcommand \fBquerychar\fP queries the character at the current cursor
+position\&.  The return values are stored in the array named \fIparam\fP if
+supplied, else in the array \fBreply\fP\&.  The first value is the character
+(which may be a multibyte character if the system supports them); the
+second is the color pair in the usual \fIfg_col\fP\fB/\fP\fIbg_col\fP
+notation, or \fB0\fP if color is not supported\&.  Any attributes other than
+color that apply to the character, as set with the subcommand \fBattr\fP,
+appear as additional elements\&.
+.RE
+.RE
+.PP
+.SS "Parameters"
+.PP
+.PD 0
+.TP
+.PD
+\fBZCURSES_COLORS\fP
+Readonly integer\&.  The maximum number of colors the terminal
+supports\&.  This value is initialised by the curses library and is not
+available until the first time \fBzcurses init\fP is run\&.
+.TP
+\fBZCURSES_COLOR_PAIRS\fP
+Readonly integer\&.  The maximum number of color pairs
+\fIfg_col\fP\fB/\fP\fIbg_col\fP that may be defined in `\fBzcurses attr\fP\&'
+commands; note this limit applies to all color pairs that have been
+used whether or not they are currently active\&.  This value is initialised
+by the curses library and is not available until the first time \fBzcurses
+init\fP is run\&.
+.TP
+\fBzcurses_attrs\fP
+Readonly array\&.  The attributes supported by \fBzsh/curses\fP; available
+as soon as the module is loaded\&.
+.TP
+\fBzcurses_colors\fP
+Readonly array\&.  The colors supported by \fBzsh/curses\fP; available
+as soon as the module is loaded\&.
+.TP
+\fBzcurses_keycodes\fP
+Readonly array\&.  The values that may be returned in the second
+parameter supplied to `\fBzcurses input\fP\&' in the order in which they
+are defined internally by curses\&.  Not all function keys
+are listed, only \fBF0\fP; curses reserves space for \fBF0\fP up to \fBF63\fP\&.
+.TP
+\fBzcurses_windows\fP
+Readonly array\&.  The current list of windows, i\&.e\&. all windows that
+have been created with `\fBzcurses addwin\fP\&' and not removed with
+`\fBzcurses delwin\fP\&'\&.
 .SH "THE ZSH/DATETIME MODULE"
 .\" Yodl file: Zsh/mod_datetime.yo
 
@@ -666,25 +1054,70 @@ The \fBzsh/datetime\fP module makes available one builtin command:
 .PP
 .PD 0
 .TP
-.PD
+.PD 0
 \fBstrftime\fP [ \fB\-s\fP \fIscalar\fP ] \fIformat\fP \fIepochtime\fP 
+.TP
+.PD
+\fBstrftime\fP \fB\-r\fP [ \fB\-q\fP ] [ \fB\-s\fP \fIscalar\fP ] \fIformat\fP \fItimestring\fP 
 Output the date denoted by \fIepochtime\fP in the \fIformat\fP
 specified\&.
 .RS
 .PP
-If \fB\-s\fP \fIscalar\fP is given, assign the date to \fIscalar\fP instead
-of printing it\&.
+With the option \fB\-r\fP (reverse), use the format \fIformat\fP to parse the
+input string \fItimestring\fP and output the number of seconds since the
+epoch at which the time occurred\&.  If no timezone is parsed, the current
+timezone is used; other parameters are set to zero if not present\&.  If
+\fItimestring\fP does not match \fIformat\fP the command returns status 1; it
+will additionally print an error message unless the option \fB\-q\fP (quiet)
+is given\&.  If \fItimestring\fP matches \fIformat\fP but not all characters in
+\fItimestring\fP were used, the conversion succeeds; however, a warning is
+issued unless the option \fB\-q\fP is given\&.  The matching is implemented by
+the system function \fBstrptime\fP; see \fIstrptime\fP(3)\&.  This means that
+zsh format extensions are not available, however for reverse lookup they
+are not required\&.  If the function is not implemented, the command returns
+status 2 and (unless \fB\-q\fP is given) prints a message\&.
+.PP
+If \fB\-s\fP \fIscalar\fP is given, assign the date string (or epoch time
+in seconds if \fB\-r\fP is given) to \fIscalar\fP instead of printing it\&.
 .RE
 .RE
 .PP
-The \fBzsh/datetime\fP module makes available one parameter:
+The \fBzsh/datetime\fP module makes available several parameters;
+all are readonly:
 .PP
 .PD 0
 .TP
 .PD
+\fBEPOCHREALTIME\fP
+A floating point value representing the number of seconds since
+the epoch\&.  The notional accuracy is to nanoseconds if the
+\fBclock_gettime\fP call is available and to microseconds otherwise,
+but in practice the range of double precision floating point and
+shell scheduling latencies may be significant effects\&.
+.TP
 \fBEPOCHSECONDS\fP
 An integer value representing the number of seconds since the
 epoch\&.
+.TP
+\fBepochtime\fP
+An array value containing the number of seconds since the epoch
+in the first element and the remainder of the time since the epoch
+in nanoseconds in the second element\&.  To ensure the two elements
+are consistent the array should be copied or otherwise referenced
+as a single substitution before the values are used\&.  The following
+idiom may be used:
+.RS
+.PP
+.RS
+.nf
+\fBfor secs nsecs in $epochtime; do
+  \&.\&.\&.
+done\fP
+.fi
+.RE
+.PP
+.RE
+.RE
 .SH "THE ZSH/DELTOCHAR MODULE"
 .\" Yodl file: Zsh/mod_deltochar.yo
 
@@ -718,7 +1151,17 @@ module\&.
 .SH "THE ZSH/FILES MODULE"
 .\" Yodl file: Zsh/mod_files.yo
 
-The \fBzsh/files\fP module makes some standard commands available as builtins:
+The \fBzsh/files\fP module makes available some common commands for file
+manipulation as builtins; these commands are probably not needed for
+many normal situations but can be useful in emergency recovery
+situations with constrained resources\&.  The commands do not implement
+all features now required by relevant standards committees\&.
+.PP
+For all commands, a variant beginning \fBzf_\fP is also available and loaded
+automatically\&.  Using the features capability of zmodload will let you load
+only those names you want\&.
+.PP
+The commands loaded by default are:
 .PP
 .PD 0
 .TP
@@ -779,10 +1222,10 @@ a result of directories being moved up the tree\&.
 .RE
 .TP
 .PD 0
-\fBln\fP [ \fB\-dfis\fP ] \fIfilename\fP \fIdest\fP
+\fBln\fP [ \fB\-dfhins\fP ] \fIfilename\fP \fIdest\fP
 .TP
 .PD
-\fBln\fP [ \fB\-dfis\fP ] \fIfilename\fP \&.\&.\&. \fIdir\fP
+\fBln\fP [ \fB\-dfhins\fP ] \fIfilename\fP \&.\&.\&. \fIdir\fP
 Creates hard (or, with \fB\-s\fP, symbolic) links\&.  In the first form, the
 specified \fIdest\fPination is created, as a link to the specified
 \fIfilename\fP\&.  In the second form, each of the \fIfilename\fPs is
@@ -800,6 +1243,16 @@ By default, existing files cannot be replaced by links\&.
 The \fB\-i\fP option causes the user to be queried about replacing
 existing files\&.  The \fB\-f\fP option causes existing files to be
 silently deleted, without querying\&.  \fB\-f\fP takes precedence\&.
+.PP
+The \fB\-h\fP and \fB\-n\fP options are identical and both exist for
+compatibility; either one indicates that if the target is a symlink
+then it should not be dereferenced\&.
+Typically this is used in combination with \fB\-sf\fP so that if an
+existing link points to a directory then it will be removed,
+instead of followed\&.
+If this option is used with multiple filenames and the target
+is a symbolic link pointing to a directory then the result is
+an error\&.
 .RE
 .TP
 \fBmkdir\fP [ \fB\-p\fP ] [ \fB\-m\fP \fImode\fP ] \fIdir\fP \&.\&.\&.
@@ -904,15 +1357,21 @@ every file in the current directory without the usual `\fBrm *\fP\&' test\&.
 .PP
 The parameter \fBmapfile\fP may be made read\-only; in that case, files
 referenced may not be written or deleted\&.
+.PP
+A file may conveniently be read into an array as one line per element
+with the form
+`\fIarray\fP\fB=("${(f)mapfile[\fP\fIfilename\fP\fB]}")\fP\&'\&.
+The double quotes are necessary to prevent empty lines from being
+removed\&.
 .RE
 .RE
 .PP
 .SS "Limitations"
 .PP
 Although reading and writing of the file in question is efficiently
-handled, zsh\&'s internal memory management may be arbitrarily baroque\&.  Thus
-it should not automatically be assumed that use of \fBmapfile\fP represents a
-gain in efficiency over use of other mechanisms\&.  Note in particular that
+handled, zsh\&'s internal memory management may be arbitrarily baroque;
+however, \fBmapfile\fP is usually very much more efficient than
+anything involving a loop\&.  Note in particular that
 the whole contents of the file will always reside physically in memory when
 accessed (possibly multiple times, due to standard parameter substitution
 operations)\&.  In particular, this means handling of sufficiently long files
@@ -1021,6 +1480,52 @@ the seeds used for the two initialisations, so for more secure uses, you
 should generate your own 12\-byte seed\&.  The third call returns to the same
 sequence of random numbers used in the first call, unaffected by the
 intervening \fBrand48()\fP\&.
+.SH "THE ZSH/NEWUSER MODULE"
+.\" Yodl file: Zsh/mod_newuser.yo
+
+The \fBzsh/newuser\fP module is loaded at boot if it is
+available, the \fBRCS\fP option is set, and the \fBPRIVILEGED\fP option is not
+set (all three are true by default)\&.  This takes
+place immediately after commands in the global \fBzshenv\fP file (typically
+\fB/etc/zshenv\fP), if any, have been executed\&.  If the module is not
+available it is silently ignored by the shell; the module may safely be
+removed from \fB$MODULE_PATH\fP by the administrator if it is not required\&.
+.PP
+On loading, the module tests if any of the start\-up files \fB\&.zshenv\fP,
+\fB\&.zprofile\fP, \fB\&.zshrc\fP or \fB\&.zlogin\fP exist in the directory given by
+the environment variable \fBZDOTDIR\fP, or the user\&'s home directory if that
+is not set\&.  The test is not performed and the module halts processing if
+the shell was in an emulation mode (i\&.e\&. had been invoked as some other
+shell than zsh)\&.
+.PP
+If none of the start\-up files were found, the module then looks for the
+file \fBnewuser\fP first in a sitewide directory, usually the parent
+directory of the \fBsite\-functions\fP directory, and if that is not found the
+module searches in a version\-specific directory, usually the parent of the
+\fBfunctions\fP directory containing version\-specific functions\&.  (These
+directories can be configured when zsh is built using the
+\fB\-\-enable\-site\-scriptdir=\fP\fIdir\fP and \fB\-\-enable\-scriptdir=\fP\fIdir\fP
+flags to \fBconfigure\fP, respectively; the defaults are
+\fIprefix\fP\fB/share/zsh\fP and \fIprefix\fP\fB/share/zsh/$ZSH_VERSION\fP where
+the default \fIprefix\fP is \fB/usr/local\fP\&.)
+.PP
+If the file \fBnewuser\fP is found, it is then sourced in the same manner as
+a start\-up file\&.  The file is expected to contain code to install start\-up
+files for the user, however any valid shell code will be executed\&.
+.PP
+The \fBzsh/newuser\fP module is then unconditionally unloaded\&.
+.PP
+Note that it is possible to achieve exactly the same effect as the
+\fBzsh/newuser\fP module by adding code to \fB/etc/zshenv\fP\&.  The module
+exists simply to allow the shell to make arrangements for new users without
+the need for intervention by package maintainers and system administrators\&.
+.PP
+The script supplied with the module invokes the shell function
+\fBzsh\-newuser\-install\fP\&.  This may be invoked directly by the user
+even if the \fBzsh/newuser\fP module is disabled\&.  Note, however, that
+if the module is not installed the function will not be installed either\&.
+The function is documented in
+the section User Configuration Functions in \fIzshcontrib\fP(1)\&.
 .SH "THE ZSH/PARAMETER MODULE"
 .\" Yodl file: Zsh/mod_parameter.yo
 
@@ -1125,10 +1630,22 @@ A special array containing the words stored in the history\&.
 \fBjobdirs\fP
 This associative array maps job numbers to the directories from which the
 job was started (which may not be the current directory of the job)\&.
+.RS
+.PP
+The keys of the associative arrays are usually valid job numbers,
+and these are the values output with, for example, \fB${(k)jobdirs}\fP\&.
+Non\-numeric job references may be used when looking up a value;
+for example, \fB${jobdirs[%+]}\fP refers to the current job\&.
+.RE
 .TP
 \fBjobtexts\fP
 This associative array maps job numbers to the texts of the command lines
 that were used to start the jobs\&.
+.RS
+.PP
+Handling of the keys of the associative array is as described for
+\fBjobdirs\fP above\&.
+.RE
 .TP
 \fBjobstates\fP
 This associative array gives information about the states of the jobs
@@ -1141,6 +1658,11 @@ strings of the form
 otherwise\&. This is followed by one `\fIpid\fP\fB=\fP\fIstate\fP\&' for every
 process in the job\&. The \fIpid\fPs are, of course, the process IDs and
 the \fIstate\fP describes the state of that process\&.
+.RS
+.PP
+Handling of the keys of the associative array is as described for
+\fBjobdirs\fP above\&.
+.RE
 .TP
 \fBnameddirs\fP
 This associative array maps the names of named directories to the pathnames
@@ -1150,15 +1672,51 @@ they stand for\&.
 This associative array maps user names to the pathnames of their home
 directories\&.
 .TP
+\fBusergroups\fP
+This associative array maps names of system groups of which the current
+user is a member to the corresponding group identifiers\&.  The contents
+are the same as the groups output by the \fBid\fP command\&.
+.TP
+\fBfuncfiletrace\fP
+This array contains the absolute line numbers and corresponding file
+names for the point where the current function, sourced file, or (if
+\fBEVAL_LINENO\fP is set) \fBeval\fP command was
+called\&.  The array is of the same length as \fBfuncsourcetrace\fP and
+\fBfunctrace\fP, but differs from \fBfuncsourcetrace\fP in that the line and
+file are the point of call, not the point of definition, and differs
+from \fBfunctrace\fP in that all values are absolute line numbers in
+files, rather than relative to the start of a function, if any\&.
+.TP
+\fBfuncsourcetrace\fP
+This array contains the file names and line numbers of the
+points where the functions, sourced files, and (if \fBEVAL_LINENO\fP is set)
+\fBeval\fP commands currently being executed were
+defined\&.  The line number is the line where the `\fBfunction\fP \fIname\fP\&'
+or `\fIname\fP \fB()\fP\&' started\&.  In the case of an autoloaded
+function  the line number is reported as zero\&.
+The format of each element is \fIfilename\fP\fB:\fP\fIlineno\fP\&.
+For functions autoloaded from a file in native zsh format, where only the
+body of the function occurs in the file, or for files that have been
+executed by the \fBsource\fP or `\fB\&.\fP\&' builtins, the trace information is
+shown as \fIfilename\fP\fB:\fP\fI0\fP, since the entire file is the definition\&.
+.RS
+.PP
+Most users will be interested in the information in the
+\fBfuncfiletrace\fP array instead\&.
+.RE
+.TP
 \fBfuncstack\fP
-This array contains the names of the functions currently being
+This array contains the names of the functions, sourced files,
+and (if \fBEVAL_LINENO\fP is set) \fBeval\fP commands\&. currently being
 executed\&. The first element is the name of the function using the
 parameter\&.
 .TP
 \fBfunctrace\fP
 This array contains the names and line numbers of the callers
 corresponding to the functions currently being executed\&.
-The format of each element is name:lineno\&.
+The format of each element is \fIname\fP\fB:\fP\fIlineno\fP\&.
+Callers are also shown for sourced files; the caller is the point
+where the \fBsource\fP or `\fB\&.\fP\&' command was executed\&.
 .SH "THE ZSH/PCRE MODULE"
 .\" Yodl file: Zsh/mod_pcre.yo
 
@@ -1167,7 +1725,7 @@ The \fBzsh/pcre\fP module makes some commands available as builtins:
 .PD 0
 .TP
 .PD
-\fBpcre_compile\fP [ \fB\-aimx\fP ] \fIPCRE\fP
+\fBpcre_compile\fP [ \fB\-aimxs\fP ] \fIPCRE\fP
 Compiles a perl\-compatible regular expression\&.
 .RS
 .PP
@@ -1177,21 +1735,61 @@ Option \fB\-m\fP will compile a multi\-line pattern; that is,
 \fB^\fP and \fB$\fP will match newlines within the pattern\&.
 Option \fB\-x\fP will compile an extended pattern, wherein
 whitespace and \fB#\fP comments are ignored\&.
+Option \fB\-s\fP makes the dot metacharacter match all characters,
+including those that indicate newline\&.
 .RE
 .TP
 \fBpcre_study\fP
 Studies the previously\-compiled PCRE which may result in faster
 matching\&.
 .TP
-\fBpcre_match\fP [ \fB\-a\fP \fIarr\fP ] \fIstring\fP
+\fBpcre_match\fP [ \fB\-v\fP \fIvar\fP ] [ \fB\-a\fP \fIarr\fP ] [ \fB\-n\fP \fIoffset\fP ] [ \fB\-b\fP ] \fIstring\fP
 Returns successfully if \fBstring\fP matches the previously\-compiled
 PCRE\&.
 .RS
 .PP
-If the expression captures substrings within parentheses,
+Upon successful match,
+if the expression captures substrings within parentheses,
 \fBpcre_match\fP will set the array \fI$match\fP to those
 substrings, unless the \fB\-a\fP option is given, in which
-case it will set the array \fIarr\fP\&.
+case it will set the array \fIarr\fP\&.  Similarly, the variable
+\fIMATCH\fP will be set to the entire matched portion of the
+string, unless the \fB\-v\fP option is given, in which case the variable
+\fIvar\fP will be set\&.
+No variables are altered if there is no successful match\&.
+A \fB\-n\fP option starts searching for a match from the
+byte \fIoffset\fP position in \fIstring\fP\&.  If the \fB\-b\fP option is given,
+the variable \fIZPCRE_OP\fP will be set to an offset pair string,
+representing the byte offset positions of the entire matched portion
+within the \fIstring\fP\&.  For example, a \fIZPCRE_OP\fP set to "32 45" indicates
+that the matched portion began on byte offset 32 and ended on byte offset 44\&.
+Here, byte offset position 45 is the position directly after the matched
+portion\&.  Keep in mind that the byte position isn\&'t necessarily the same
+as the character position when UTF\-8 characters are involved\&.
+Consequently, the byte offset positions are only to be relied on in the
+context of using them for subsequent searches on \fIstring\fP, using an offset
+position as an argument to the \fB\-n\fP option\&.  This is mostly
+used to implement the "find all non\-overlapping matches" functionality\&.
+.PP
+A simple example of "find all non\-overlapping matches":
+.PP
+.RS
+.nf
+\fB
+string="The following zip codes: 78884 90210 99513"
+pcre_compile \-m "\ed{5}"
+accum=()
+pcre_match \-b \-\- $string
+while [[ $? \-eq 0 ]] do
+    b=($=ZPCRE_OP)
+    accum+=$MATCH
+    pcre_match \-b \-n $b[2] \-\- $string
+done
+print \-l $accum
+.PP
+\fP
+.fi
+.RE
 .RE
 .RE
 .PP
@@ -1208,23 +1806,109 @@ For example,
 [[ "$text" \-pcre\-match ^d+$ ]] && print text variable contains only "d\&'s"\&.
 .RE
 .RE
+.SH "THE ZSH/REGEX MODULE"
+.\" Yodl file: Zsh/mod_regex.yo
+
+The \fBzsh/regex\fP module makes available the following test condition:
+.PD 0
+.TP
+.PD
+\fIexpr\fP \fB\-regex\-match\fP \fIregex\fP
+Matches a string against a POSIX extended regular expression\&.
+On successful match,
+matched portion of the string will normally be placed in the \fBMATCH\fP
+variable\&.  If there are any capturing parentheses within the regex, then
+the \fBmatch\fP array variable will contain those\&.
+If the match is not successful, then the variables will not be altered\&.
+.RS
+.PP
+For example,
+.PP
+.RS
+.nf
+\fB[[ alphabetical \-regex\-match ^a([^a]+)a([^a]+)a ]] &&
+print \-l $MATCH X $match\fP
+.fi
+.RE
+.PP
+If the option \fBREMATCH_PCRE\fP is not set, then the \fB=~\fP operator will
+automatically load this module as needed and will invoke the
+\fB\-regex\-match\fP operator\&.
+.PP
+If \fBBASH_REMATCH\fP is set, then the array \fBBASH_REMATCH\fP will be set
+instead of \fBMATCH\fP and \fBmatch\fP\&.
+.RE
+.RE
 .SH "THE ZSH/SCHED MODULE"
 .\" Yodl file: Zsh/mod_sched.yo
 
-The \fBzsh/sched\fP module makes available one builtin command:
+The \fBzsh/sched\fP module makes available one builtin command and one
+parameter\&.
 .PP
 .PD 0
 .TP
 .PD 0
-\fBsched\fP [\fB+\fP]\fIhh\fP\fB:\fP\fImm\fP \fIcommand\fP \&.\&.\&.
+\fBsched\fP [\fB\-o\fP] [\fB+\fP]\fIhh\fP\fB:\fP\fImm\fP[:\fIss\fP] \fIcommand\fP \&.\&.\&.
+.TP
+.PD 0
+\fBsched\fP [\fB\-o\fP] [\fB+\fP]\fIseconds\fP \fIcommand\fP \&.\&.\&.
 .TP
 .PD
 \fBsched\fP [ \fB\-\fP\fIitem\fP ]
 Make an entry in the scheduled list of commands to execute\&.
-The time may be specified in either absolute or relative time\&.
-With no arguments, prints the list of scheduled commands\&.
+The time may be specified in either absolute or relative time,
+and either as hours, minutes and (optionally) seconds separated by a
+colon, or seconds alone\&.
+An absolute number of seconds indicates the time since the epoch
+(1970/01/01 00:00); this is useful in combination with the features in
+the \fBzsh/datetime\fP module, see
+the zsh/datetime module entry in \fIzshmodules\fP(1)\&.
+.RS
+.PP
+With no arguments, prints the list of scheduled commands\&.  If the
+scheduled command has the \fB\-o\fP flag set, this is shown at the
+start of the command\&.
+.PP
 With the argument `\fB\-\fP\fIitem\fP\&', removes the given item
-from the list\&.
+from the list\&.  The numbering of the list is continuous and entries are
+in time order, so the numbering can change when entries are added or
+deleted\&.
+.PP
+Commands are executed either immediately before a prompt, or while
+the shell\&'s line editor is waiting for input\&.  In the latter case
+it is useful to be able to produce output that does not interfere
+with the line being edited\&.  Providing the option \fB\-o\fP causes
+the shell to clear the command line before the event and redraw it
+afterwards\&.  This should be used with any scheduled event that produces
+visible output to the terminal; it is not needed, for example, with
+output that updates a terminal emulator\&'s title bar\&.
+.PP
+The \fBsched\fP builtin is not made available by default when the shell
+starts in a mode emulating another shell\&.  It can be made available
+with the command `\fBzmodload \-F zsh/sched b:sched\fP\&'\&.
+.RE
+.RE
+.PP
+.PD 0
+.TP
+.PD
+zsh_scheduled_events
+A readonly array corresponding to the events scheduled by the
+\fBsched\fP builtin\&.  The indices of the array correspond to the numbers
+shown when \fBsched\fP is run with no arguments (provided that the
+\fBKSH_ARRAYS\fP option is not set)\&.  The value of the array
+consists of the scheduled time in seconds since the epoch
+(see the section `The zsh/datetime Module\&' for facilities for
+using this number), followed by a colon, followed by any options
+(which may be empty but will be preceded by a `\fB\-\fP\&' otherwise),
+followed by a colon, followed by the command to be executed\&.
+.RS
+.PP
+The \fBsched\fP builtin should be used for manipulating the events\&.  Note
+that this will have an immediate effect on the contents of the array,
+so that indices may become invalid\&.
+.RE
+.RE
 .SH "THE ZSH/NET/SOCKET MODULE"
 .\" Yodl file: Zsh/mod_socket.yo
 
@@ -1297,21 +1981,30 @@ In order to elicit more verbose output, use \fB\-v\fP\&.
 .SH "THE ZSH/STAT MODULE"
 .\" Yodl file: Zsh/mod_stat.yo
 
-The \fBzsh/stat\fP module makes available one builtin command:
+The \fBzsh/stat\fP module makes available one builtin command under
+two possible names:
 .PP
 .PD 0
 .TP
+.PD 0
+\fBzstat\fP [ \fB\-gnNolLtTrs\fP ] [ \fB\-f\fP \fIfd\fP ] [ \fB\-H\fP \fIhash\fP ] [ \fB\-A\fP \fIarray\fP ] [ \fB\-F\fP \fIfmt\fP ] [ \fB+\fP\fIelement\fP ] [ \fIfile\fP \&.\&.\&. ]
+.TP
 .PD
-\fBstat\fP [ \fB\-gnNolLtTrs\fP ] [ \fB\-f\fP \fIfd\fP ] [ \fB\-H\fP \fIhash\fP ] [ \fB\-A\fP \fIarray\fP ] [ \fB\-F\fP \fIfmt\fP ] [ \fB+\fP\fIelement\fP ] [ \fIfile\fP \&.\&.\&. ]
+\fBstat\fP \fI\&.\&.\&.\fP
 The command acts as a front end to the \fBstat\fP system call (see
-\fIstat\fP(2))\&.
+\fIstat\fP(2))\&.  The same command is provided with two names; as
+the name \fBstat\fP is often used by an external command it is recommended
+that only the \fBzstat\fP form of the command is used\&.  This can be
+arranged by loading the module with the command `\fBzmodload \-F zsh/stat
+b:zstat\fP\&'\&.
+.RS
+.PP
 If the \fBstat\fP call fails, the appropriate system error message
 printed and status 1 is returned\&.
 The fields of \fBstruct stat\fP give information about
 the files provided as arguments to the command\&.  In addition to those
 available from the \fBstat\fP call, an extra element `\fBlink\fP\&' is provided\&.
 These elements are:
-.RS
 .PP
 .PD 0
 .TP
@@ -1370,7 +2063,7 @@ The number of disk blocks used by the file\&.
 \fBlink\fP
 If the file is a link and the \fB\-L\fP option is in
 effect, this contains the name of the file linked to, otherwise
-it is empty\&.  Note that if this element is selected (``\fBstat +link\fP\&'')
+it is empty\&.  Note that if this element is selected (``\fBzstat +link\fP\&'')
 then the \fB\-L\fP option is automatically used\&.
 .PP
 A particular element may be selected by including its name
@@ -1421,6 +2114,8 @@ Perform an \fBlstat\fP (see \fIlstat\fP(2)) rather than a \fBstat\fP
 system call\&.  In this case, if the file is a link, information
 about the link itself rather than the target file is returned\&.
 This option is required to make the \fBlink\fP element useful\&.
+It\&'s important to note that this is the exact opposite from \fIls\fP(1),
+etc\&.
 .TP
 \fB\-n\fP
 Always show the names of files\&.  Usually these are
@@ -1459,10 +2154,10 @@ Never show the type names of the \fBstruct stat\fP elements\&.
 .SH "THE ZSH/SYSTEM MODULE"
 .\" Yodl file: Zsh/mod_system.yo
 
-The \fBzsh/system\fP module makes available three builtin commands and
-a parameter\&.
+The \fBzsh/system\fP module makes available various builtin commands and
+parameters\&.
 .PP
-.SH "BUILTINS"
+.SS "Builtins"
 .PP
 .PD 0
 .TP
@@ -1482,10 +2177,10 @@ message, with no intervening space\&.
 If \fIerrvar\fP is supplied, the entire message, without a newline, is
 assigned to the parameter names \fIerrvar\fP and nothing is output\&.
 .PP
-A return value of 0 indicates the message was successfully printed
+A return status of 0 indicates the message was successfully printed
 (although it may not be useful if the error number was out of the
-system\&'s range), a return value of 1 indicates an error in the
-parameters, and a return value of 2 indicates the error name was
+system\&'s range), a return status of 1 indicates an error in the
+parameters, and a return status of 2 indicates the error name was
 not recognised (no message is printed for this)\&.
 .RE
 .TP
@@ -1523,7 +2218,7 @@ The error \fBEINTR\fP (interrupted system call) is handled internally so
 that shell interrupts are transparent to the caller\&.  Any other error
 causes a return\&.
 .PP
-The possible return values are
+The possible return statuses are
 .PD 0
 .TP
 .PD
@@ -1575,9 +2270,62 @@ to the command, or 2 for an error on the write; no error message is
 printed in the last case, but the parameter \fBERRNO\fP will reflect
 the error that occurred\&.
 .RE
-.RE
+.TP
+.PD 0
+\fBzsystem flock [ \-t\fP \fItimeout\fP \fB] [ \-f\fP \fIvar\fP \fB] [\-er]\fP \fIfile\fP
+.TP
+.PD
+\fBzsystem flock \-u\fP \fIfd_expr\fP
+The builtin \fBzsystem\fP\&'s subcommand \fBflock\fP performs advisory file
+locking (via the \fIfcntl\fP(2) system call) over the entire contents
+of the given file\&.  This form of locking requires the processes
+accessing the file to cooperate; its most obvious use is between two
+instances of the shell itself\&.
+.RS
 .PP
-.SH "PARAMETERS"
+In the first form the named \fIfile\fP, which must already exist, is
+locked by opening a file descriptor to the file and applying a lock to
+the file descriptor\&.  The lock terminates when the shell process that
+created the lock exits; it is therefore often convenient to create file
+locks within subshells, since the lock is automatically released when
+the subshell exits\&.  Status 0 is returned if the lock succeeds, else
+status 1\&.
+.PP
+In the second form the file descriptor given by the arithmetic
+expression \fBfd_expr\fP is closed, releasing a lock\&.  The file descriptor
+can be queried by using the `\fB\-f\fP \fIvar\fP\&' form during the lock;
+on a successful lock, the shell variable \fIvar\fP is set to the file
+descriptor used for locking\&.  The lock will be released if the
+file descriptor is closed by any other means, for example using
+`\fBexec {\fP\fIvar\fP\fB}>&\-\fP\&'; however, the form described here performs
+a safety check that the file descriptor is in use for file locking\&.
+.PP
+By default the shell waits indefinitely for the lock to succeed\&.
+The option \fB\-t\fP \fItimeout\fP specifies a timeout for the lock in
+seconds; currently this must be an integer\&.  The shell will attempt
+to lock the file once a second during this period\&.  If the attempt
+times out, status 2 is returned\&.
+.PP
+If the option \fB\-e\fP is given, the file descriptor for the lock is
+preserved when the shell uses \fBexec\fP to start a new process;
+otherwise it is closed at that point and the lock released\&.
+.PP
+If the option \fB\-r\fP is given, the lock is only for reading, otherwise
+it is for reading and writing\&.  The file descriptor is opened
+accordingly\&.
+.RE
+.TP
+\fBzsystem supports\fP \fIsubcommand\fP
+The builtin \fBzsystem\fP\&'s subcommand \fBsupports\fP tests whether a
+given subcommand is supported\&.  It returns status 0 if so, else
+status 1\&.  It operates silently unless there was a syntax error
+(i\&.e\&. the wrong number of arguments), in which case status 255
+is returned\&.  Status 1 can indicate one of two things:  \fIsubcommand\fP
+is known but not supported by the current operating system, or
+\fIsubcommand\fP is not known (possibly because this is an older
+version of the shell before it was implemented)\&.
+.PP
+.SS "Parameters"
 .PP
 .PD 0
 .TP
@@ -1593,6 +2341,21 @@ before the last known error which have no name are given the name
 .PP
 Note that aliases for errors are not handled; only the canonical name is
 used\&.
+.RE
+.TP
+\fBsysparams\fP
+A readonly associative array\&.  The keys are:
+.PD 0
+.TP
+.PD
+\fBpid\fP
+Returns the process ID of the current process, even in subshells\&.  Compare
+\fB$$\fP, which returns the process ID of the main shell process\&.
+.TP
+\fBppid\fP
+Returns the process ID of the parent of the current process, even in
+subshells\&.  Compare \fB$PPID\fP, which returns the process ID of the parent
+of the main shell process\&.
 .RE
 .RE
 .SH "THE ZSH/NET/TCP MODULE"
@@ -2411,18 +3174,18 @@ at least once\&.  This summary is sorted in decreasing order of the
 amount of time spent in each\&.  The lines contain
 the number of the function in order, which is used in 
 other parts of the list in suffixes of the form
-`\fB[\fP\fInum\fP\fB]\fP\&'.RE, then the number of calls made to the function\&.
+`\fB[\fP\fInum\fP\fB]\fP\&', then the number of calls made to the function\&.
 The next three columns list the time in
-milliseconds spent in the function and its descendents, the average
-time in milliseconds spent in the function and its descendents per
+milliseconds spent in the function and its descendants, the average
+time in milliseconds spent in the function and its descendants per
 call and the percentage of time spent in all shell functions used in
-this function and its descendents\&.  The following three columns give
+this function and its descendants\&.  The following three columns give
 the same information, but counting only the time spent in the function 
 itself\&.  The final column shows the name of the function\&.
 .PP
 After the summary, detailed information about every function that was
 invoked is listed, sorted in decreasing order of the amount of time spent
-in each function and its descendents\&.  Each of these entries consists of
+in each function and its descendants\&.  Each of these entries consists of
 descriptions for the functions that called the function described, the
 function itself, and the functions that were called from it\&.  The
 description for the function itself has the same format as in the summary
@@ -2434,10 +3197,10 @@ the section from the surrounding lines\&.
 The information shown in this case is almost the same as in the summary,
 but only refers to the call hierarchy being displayed\&.  For example, for a
 calling function the column showing the total running time lists the time
-spent in the described function and its descendents only for the times when
+spent in the described function and its descendants only for the times when
 it was called from that particular calling function\&.  Likewise, for a
 called function, this columns lists the total time spent in the called
-function and its descendents only for the times when it was called from the
+function and its descendants only for the times when it was called from the
 function described\&.
 .PP
 Also in this case, the column showing the number of calls to a function
@@ -2449,7 +3212,7 @@ multiple invocations of the \fBzprof\fP builtin command will show the
 times and numbers of calls since the module was loaded\&.  With the
 \fB\-c\fP option, the \fBzprof\fP builtin command will reset its internal
 counters and will not show the listing\&.
-)
+.RE
 .RE
 .SH "THE ZSH/ZPTY MODULE"
 .\" Yodl file: Zsh/mod_zpty.yo
@@ -2496,40 +3259,44 @@ were typed, so beware when sending special tty driver characters such as
 word\-erase, line\-kill, and end\-of\-file\&.
 .RE
 .TP
-\fBzpty\fP \fB\-r\fP [ \fB\-t\fP ] \fIname\fP [ \fIparam\fP [ \fIpattern\fP ] ]
+\fBzpty\fP \fB\-r\fP [ \fB\-mt\fP ] \fIname\fP [ \fIparam\fP [ \fIpattern\fP ] ]
 The \fB\-r\fP option can be used to read the output of the command \fIname\fP\&.
 With only a \fIname\fP argument, the output read is copied to the standard
 output\&.  Unless the pseudo\-terminal is non\-blocking, copying continues
 until the command under the pseudo\-terminal exits; when non\-blocking, only
-as much output as is immediately available is copied\&.  The return value is
+as much output as is immediately available is copied\&.  The return status is
 zero if any output is copied\&.
 .RS
 .PP
 When also given a \fIparam\fP argument, at most one line is read and stored
 in the parameter named \fIparam\fP\&.  Less than a full line may be read if
-the pseudo\-terminal is non\-blocking\&.  The return value is zero if at least
+the pseudo\-terminal is non\-blocking\&.  The return status is zero if at least
 one character is stored in \fIparam\fP\&.
 .PP
 If a \fIpattern\fP is given as well, output is read until the whole string
 read matches the \fIpattern\fP, even in the non\-blocking case\&.  The return
-value is zero if the string read matches the pattern, or if the command
-has exited but at least one character could still be read\&.  As of this
-writing, a maximum of one megabyte of output can be consumed this way; if
-a full megabyte is read without matching the pattern, the return value is
-non\-zero\&.
+status is zero if the string read matches the pattern, or if the command
+has exited but at least one character could still be read\&.  If the option
+\fB\-m\fP is present, the return status is zero only if the pattern matches\&.
+As of this writing, a maximum of one megabyte of output can be consumed
+this way; if a full megabyte is read without matching the pattern, the
+return status is non\-zero\&.
 .PP
-In all cases, the return value is non\-zero if nothing could be read, and
+In all cases, the return status is non\-zero if nothing could be read, and
 is \fB2\fP if this is because the command has finished\&.
 .PP
 If the \fB\-r\fP option is combined with the \fB\-t\fP option, \fBzpty\fP tests
 whether output is available before trying to read\&.  If no output is
-available, \fBzpty\fP immediately returns the value \fB1\fP\&.
+available, \fBzpty\fP immediately returns the status \fB1\fP\&.  When used
+with a \fIpattern\fP, the behaviour on a failed poll is similar to
+when the command has exited:  the return value is zero if at least
+one character could still be read even if the pattern failed to match\&.
 .RE
 .TP
 \fBzpty\fP \fB\-t\fP \fIname\fP
 The \fB\-t\fP option without the \fB\-r\fP option can be used to test
 whether the command \fIname\fP is still running\&.  It returns a zero
-value if the command is running and a non\-zero value otherwise\&.
+status if the command is running and a non\-zero value otherwise\&.
 .TP
 \fBzpty\fP [ \fB\-L\fP ]
 The last form, without any arguments, is used to list the commands
@@ -2573,7 +3340,7 @@ The option `\fB\-t\fP \fItimeout\fP\&' specifies a timeout in hundredths of a
 second\&.  This may be zero, in which case the file descriptors will simply
 be polled and \fBzselect\fP will return immediately\&.  It is possible to call
 zselect with no file descriptors and a non\-zero timeout for use as a
-finer\-grained replacement for `sleep\&'; not, however, the return status is
+finer\-grained replacement for `sleep\&'; note, however, the return status is
 always 1 for a timeout\&.
 .PP
 The option `\fB\-a\fP \fIarray\fP\&' indicates that \fBarray\fP should be set to
@@ -2614,7 +3381,7 @@ The \fBzsh/zutil\fP module only adds some builtins:
 .PD 0
 .TP
 .PD 0
-\fBzstyle\fP [ \fB\-L\fP ]
+\fBzstyle\fP [ \fB\-L\fP [ \fIpattern\fP [ \fIstyle\fP ] ] ]
 .TP
 .PD 0
 \fBzstyle\fP [ \fB\-e\fP | \fB\-\fP | \fB\-\fP\fB\-\fP ] \fIpattern\fP \fIstyle\fP \fIstrings\fP \&.\&.\&.
@@ -2650,9 +3417,20 @@ simple strings are considered to be more specific than patterns and
 complex patterns are considered to be more specific than the pattern
 `\fB*\fP\&'\&.
 .PP
-The first form (without arguments) lists the definitions in the order
-\fBzstyle\fP will test them\&. If the \fB\-L\fP option is given, listing is
-done in the form of calls to \fBzstyle\fP\&.  Forms with arguments:
+The first form (without arguments) lists the definitions\&.  Styles
+are shown in alphabetic order and patterns are shown in the order
+\fBzstyle\fP will test them\&.
+.PP
+If the \fB\-L\fP option is given, listing is done in the form of calls to
+\fBzstyle\fP\&.  The optional first argument is a pattern which will be matched
+against the string supplied as the pattern for the context; note that
+this means, for example, `\fBzstyle \-L ":completion:*"\fP\&' will
+match any supplied pattern beginning `\fB:completion:\fP\&', not
+just \fB":completion:*"\fP:  use \fB":completion:\e*"\fP to match that\&.
+The optional second argument limits the output to a specific style (not a
+pattern)\&.  \fB\-L\fP is not compatible with any other options\&.
+.PP
+The other forms are the following:
 .PP
 .PD 0
 .TP
@@ -2714,11 +3492,12 @@ style is defined for at least one matching pattern, has only one string in
 its value, and that is equal to one of `\fBtrue\fP\&', `\fByes\fP', `\fBon\fP' or
 `\fB1\fP\&'\&. If any \fIstrings\fP are given the status is zero if and only if
 at least one of the \fIstrings\fP is equal to at least one of the strings
-in the value\&. If the style is not defined, the status is \fB2\fP\&.
+in the value\&. If the style is defined but doesn\&'t match, the return status
+is \fB1\fP\&. If the style is not defined, the status is \fB2\fP\&.
 .RS
 .PP
 The \fB\-T\fP option tests the values of the style like \fB\-t\fP, but it
-returns zero (rather than \fB2\fP) if the style is not defined for any
+returns status zero (rather than \fB2\fP) if the style is not defined for any
 matching pattern\&.
 .RE
 .TP
@@ -2798,7 +3577,7 @@ The resulting strings are stored in the \fIarray\fP\&.
 \fBzregexparse\fP
 This implements some internals of the \fB_regex_arguments\fP function\&.
 .TP
-\fBzparseopts\fP [ \fB\-D\fP ] [ \fB\-K\fP ] [ \fB\-E\fP ] [ \fB\-a\fP \fIarray\fP ] [ \fB\-A\fP \fIassoc\fP ] \fIspecs\fP
+\fBzparseopts\fP [ \fB\-D\fP ] [ \fB\-K\fP ] [ \fB\-M\fP ] [ \fB\-E\fP ] [ \fB\-a\fP \fIarray\fP ] [ \fB\-A\fP \fIassoc\fP ] \fIspecs\fP
 This builtin simplifies the parsing of options in positional parameters,
 i\&.e\&. the set of arguments given by \fB$*\fP\&.  Each \fIspec\fP describes one
 option and must be of the form `\fIopt\fP[\fB=\fP\fIarray\fP]\&'\&.  If an option
@@ -2828,7 +3607,7 @@ backslash\&.
 \fIname\fP\fB+\fP
 The \fIname\fP is the name of the option without the leading `\fB\-\fP\&'\&.  To
 specify a GNU\-style long option, one of the usual two leading `\fB\-\fP\&' must
-be included in \fIname\fP; for example, a `\fB\-\-file\fP\&' option is
+be included in \fIname\fP; for example, a `\fB\-\fP\fB\-file\fP\&' option is
 represented by a \fIname\fP of `\fB\-file\fP\&'\&.
 .RS
 .PP
@@ -2890,6 +3669,15 @@ options and with the `\fB=\fP\fIarray\fP\&' forms are kept unchanged when none
 of the \fIspecs\fP for them is used\&.  This allows assignment of default
 values to them before calling \fBzparseopts\fP\&.
 .TP
+\fB\-M\fP
+This changes the assignment rules to implement a map among equivalent
+option names\&.  If any \fIspec\fP uses the `\fB=\fP\fIarray\fP\&' form, the
+string \fIarray\fP is interpreted as the name of another \fIspec\fP,
+which is used to choose where to store the values\&.  If no other \fIspec\fP
+is found, the values are stored as usual\&.  This changes only the way the
+values are stored, not the way \fB$*\fP is parsed, so results may be
+unpredicable if the `\fIname\fP\fB+\fP\&' specifier is used inconsistently\&.
+.TP
 \fB\-E\fP
 This changes the parsing rules to \fInot\fP stop at the first string
 that isn\&'t described by one of the \fIspec\fPs\&.  It can be used to test
@@ -2937,5 +3725,23 @@ set \-\- \-a x \-c z arg1 arg2\fP
 .PP
 I\&.e\&., the option \fB\-b\fP and its arguments are taken from the
 positional parameters and put into the array \fBbar\fP\&.
+.PP
+The \fB\-M\fP option can be used like this:
+.PP
+.RS
+.nf
+\fBset \-\- \-a \-bx \-c y \-cz baz \-cend
+zparseopts \-A bar \-M a=foo b+: c:=b\fP
+.fi
+.RE
+.PP
+to have the effect of
+.PP
+.RS
+.nf
+\fBfoo=(\-a)
+bar=(\-a \&'' \-b xyz)\fP
+.fi
+.RE
 .RE
 .RE

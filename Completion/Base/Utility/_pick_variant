@@ -6,7 +6,7 @@ local -A opts
 
 (( $+_cmd_variant )) || typeset -gA _cmd_variant
 
-zparseopts -D -A opts c: r:
+zparseopts -D -A opts b: c: r:
 : ${opts[-c]:=$words[1]}
 
 while [[ $1 = *=* ]]; do
@@ -19,13 +19,19 @@ if (( $+_cmd_variant[$opts[-c]] )); then
   return 0
 fi
 
+if [[ $+opts[-b] -eq 1 && -n $builtins[$opts[-c]] ]]; then
+  _cmd_variant[$opts[-c]]=$opts[-b]
+  (( $+opts[-r] )) && eval "${opts[-r]}=${_cmd_variant[$opts[-c]]}"
+  return 0
+fi
+
 output="$(_call_program variant $opts[-c] "${@[2,-1]}" </dev/null 2>&1)"
 
 for cmd pat in "$var[@]"; do
   if [[ $output = *$~pat* ]]; then
     (( $+opts[-r] )) && eval "${opts[-r]}=$cmd"
     _cmd_variant[$opts[-c]]="$cmd"
-    return
+    return 0
   fi
 done
 

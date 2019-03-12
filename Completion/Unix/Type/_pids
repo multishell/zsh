@@ -37,7 +37,7 @@ else
   desc=()
 fi
 
-_wanted processes expl 'process ID' \
+_wanted -V processes expl 'process ID' \
     compadd "$@" "$desc[@]" "$all[@]" -a - pids && ret=0
 
 if [[ -n "$all" ]]; then
@@ -45,7 +45,8 @@ if [[ -n "$all" ]]; then
 
   case "$out" in
   menu)   compstate[insert]=menu ;;
-  single) [[ $compstate[nmatches] -ne nm+1 ]] && compstate[insert]= ;;
+  single) [[ $compstate[nmatches] -ne nm+1 && $compstate[insert] != menu ]] &&
+              compstate[insert]= ;;
   *)      [[ ${#:-$PREFIX$SUFFIX} -gt ${#compstate[unambiguous]} ]] &&
               compstate[insert]=menu ;;
   esac

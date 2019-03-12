@@ -40,16 +40,18 @@ typedef struct cdrun *Cdrun;
 struct cdstate {
     int showd;			/* != 0 if descriptions should be shown */
     char *sep;			/* the separator string */
-    int slen;			/* its length */
+    int slen;			/* its metafied length */
+    int swidth;			/* its screen width */
     int maxmlen;                /* maximum length to allow for the matches */
     Cdset sets;			/* the sets of matches */
-    int pre;                    /* longest prefix (before description) */
+    int pre;                    /* longest prefix length (before description) */
+    int premaxw;		/* ... and its screen width */
     int suf;                    /* longest suffix (description) */
     int maxg;                   /* size of largest group */
     int maxglen;                /* columns for matches of largest group */
     int groups;                 /* number of groups */
     int descs;                  /* number of non-group matches with desc */
-    int gpre;                   /* prefix length for group display */
+    int gprew;                   /* prefix screen width for group display */
     Cdrun runs;                 /* runs to report to shell code */
 };
 
@@ -58,7 +60,9 @@ struct cdstr {
     char *str;                  /* the string to display */
     char *desc;                 /* the description or NULL */
     char *match;                /* the match to add */
+    char *sortstr;		/* unmetafied string used to sort matches */
     int len;                    /* length of str or match */
+    int width;			/* ... and its screen width */
     Cdstr other;                /* next string with the same description */
     int kind;                   /* 0: not in a group, 1: the first, 2: other */
     Cdset set;                  /* the set this string is in */
@@ -102,6 +106,7 @@ freecdsets(Cdset p)
 	    freearray(p->opts);
         for (s = p->strs; s; s = sn) {
             sn = s->next;
+	    zfree(s->sortstr, strlen(s->str) + 1);
             zsfree(s->str);
             zsfree(s->desc);
             if (s->match != s->str)
@@ -123,7 +128,7 @@ cd_group(int maxg)
 {
     Cdset set1, set2;
     Cdstr str1, str2, *strp;
-    int num, len;
+    int num, width;
 
     cd_state.groups = cd_state.descs = cd_state.maxglen = 0;
     cd_state.maxg = 0;
@@ -140,20 +145,20 @@ cd_group(int maxg)
                 continue;
 
             num = 1;
-            len = str1->len + cd_state.slen;
-            if (len > cd_state.maxglen)
-                cd_state.maxglen = len;
+            width = str1->width + cd_state.swidth;
+            if (width > cd_state.maxglen)
+                cd_state.maxglen = width;
             strp = &(str1->other);
 
             for (set2 = set1; set2; set2 = set2->next) {
                 for (str2 = (set2 == set1 ? str1->next : set2->strs);
                      str2; str2 = str2->next)
                     if (str2->desc && !strcmp(str1->desc, str2->desc)) {
-                        len += 2 + str2->len;
-                        if (len > cd_state.maxmlen || num == maxg)
+                        width += CM_SPACE + str2->width;
+                        if (width > cd_state.maxmlen || num == maxg)
                             break;
-                        if (len > cd_state.maxglen)
-                            cd_state.maxglen = len;
+                        if (width > cd_state.maxglen)
+                            cd_state.maxglen = width;
                         str1->kind = 1;
                         str2->kind = 2;
                         num++;
@@ -194,6 +199,8 @@ cd_calc()
             set->count++;
             if ((l = strlen(str->str)) > cd_state.pre)
                 cd_state.pre = l;
+            if ((l = MB_METASTRWIDTH(str->str)) > cd_state.premaxw)
+                cd_state.premaxw = l;
             if (str->desc) {
                 set->desc++;
                 if ((l = strlen(str->desc)) > cd_state.suf)
@@ -206,7 +213,7 @@ cd_calc()
 static int
 cd_sort(const void *a, const void *b)
 {
-    return strcmp((*((Cdstr *) a))->str, (*((Cdstr *) b))->str);
+    return zstrcmp((*((Cdstr *) a))->sortstr, (*((Cdstr *) b))->sortstr, 0);
 }
 
 static int
@@ -219,8 +226,8 @@ cd_prep()
     runp = &(cd_state.runs);
 
     if (cd_state.groups) {
-        int lines = cd_state.groups + cd_state.descs;
-        VARARR(Cdstr, grps, lines);
+        int preplines = cd_state.groups + cd_state.descs;
+        VARARR(Cdstr, grps, preplines);
         VARARR(int, wids, cd_state.maxg);
         Cdstr gs, gp, gn, *gpp;
         int i, j, d;
@@ -234,8 +241,8 @@ cd_prep()
             for (str = set->strs; str; str = str->next) {
                 if (str->kind != 1) {
                     if (!str->kind && str->desc) {
-                        if (str->len > wids[0])
-                            wids[0] = str->len;
+                        if (str->width > wids[0])
+                            wids[0] = str->width;
                         str->other = NULL;
                         *strp++ = str;
                     }
@@ -248,28 +255,37 @@ cd_prep()
                 for (; gp; gp = gn) {
                     gn = gp->other;
                     gp->other = NULL;
-                    for (gpp = &gs; *gpp && (*gpp)->len > gp->len;
+                    for (gpp = &gs; *gpp && (*gpp)->width > gp->width;
                          gpp = &((*gpp)->other));
                     gp->other = *gpp;
                     *gpp = gp;
                 }
                 for (gp = gs, i = 0; gp; gp = gp->other, i++)
-                    if (gp->len > wids[i])
-                        wids[i] = gp->len;
+                    if (gp->width > wids[i])
+                        wids[i] = gp->width;
 
                 *strp++ = gs;
             }
 
-        cd_state.gpre = 0;
-        for (i = 0; i < cd_state.maxg; i++)
-            cd_state.gpre += wids[i] + 2;
+        cd_state.gprew = 0;
+        for (i = 0; i < cd_state.maxg; i++) {
+            cd_state.gprew += wids[i] + CM_SPACE;
+	}
 
-        if (cd_state.gpre > cd_state.maxmlen && cd_state.maxglen > 1)
+        if (cd_state.gprew > cd_state.maxmlen && cd_state.maxglen > 1)
             return 1;
 
-        qsort(grps, lines, sizeof(Cdstr), cd_sort);
+	for (i = 0; i < preplines; i++) {
+	    Cdstr s = grps[i];
+	    int dummy;
 
-        for (i = lines, strp = grps; i > 1; i--, strp++) {
+	    s->sortstr = ztrdup(s->str);
+	    unmetafy(s->sortstr, &dummy);
+	}
+
+        qsort(grps, preplines, sizeof(Cdstr), cd_sort);
+
+        for (i = preplines, strp = grps; i > 1; i--, strp++) {
             strp2 = strp + 1;
             if (!strcmp((*strp)->desc, (*strp2)->desc))
                 continue;
@@ -287,9 +303,9 @@ cd_prep()
         expl =  (Cdrun) zalloc(sizeof(*run));
         expl->type = CRT_EXPL;
         expl->strs = grps[0];
-        expl->count = lines;
+        expl->count = preplines;
 
-        for (i = lines, strp = grps, strp2 = NULL; i; i--, strp++) {
+        for (i = preplines, strp = grps, strp2 = NULL; i; i--, strp++) {
             str = *strp;
             *strp = str->other;
             if (strp2)
@@ -305,7 +321,7 @@ cd_prep()
         *strp2 = NULL;
 
         for (i = cd_state.maxg - 1; i; i--) {
-            for (d = 0, j = lines, strp = grps; j; j--, strp++) {
+            for (d = 0, j = preplines, strp = grps; j; j--, strp++) {
                 if ((str = *strp)) {
                     if (d) {
                         *runp = run = (Cdrun) zalloc(sizeof(*run));
@@ -443,12 +459,13 @@ cd_init(char *nam, char *hide, char *mlen, char *sep,
     }
     setp = &(cd_state.sets);
     cd_state.sep = ztrdup(sep);
-    cd_state.slen = ztrlen(sep);
+    cd_state.slen = strlen(sep);
+    cd_state.swidth = MB_METASTRWIDTH(sep);
     cd_state.sets = NULL;
     cd_state.showd = disp;
     cd_state.maxg = cd_state.groups = cd_state.descs = 0;
     cd_state.maxmlen = atoi(mlen);
-    itmp = columns - cd_state.slen - 4;
+    itmp = zterm_columns - cd_state.swidth - 4;
     if (cd_state.maxmlen > itmp)
         cd_state.maxmlen = itmp;
     if (cd_state.maxmlen < 4)
@@ -465,7 +482,7 @@ cd_init(char *nam, char *hide, char *mlen, char *sep,
         set->strs = NULL;
 
 	if (!(ap = get_user_var(*args))) {
-	    zwarnnam(nam, "invalid argument: %s", *args, 0);
+	    zwarnnam(nam, "invalid argument: %s", *args);
             zsfree(cd_state.sep);
             freecdsets(cd_state.sets);
 	    return 1;
@@ -489,13 +506,15 @@ cd_init(char *nam, char *hide, char *mlen, char *sep,
             *tmp = '\0';
             str->str = str->match = ztrdup(rembslash(*ap));
             str->len = strlen(str->str);
+            str->width = MB_METASTRWIDTH(str->str);
+	    str->sortstr = NULL;
         }
         if (str)
             str->next = NULL;
 
 	if (*++args && **args != '-') {
 	    if (!(ap = get_user_var(*args))) {
-		zwarnnam(nam, "invalid argument: %s", *args, 0);
+		zwarnnam(nam, "invalid argument: %s", *args);
                 zsfree(cd_state.sep);
                 freecdsets(cd_state.sets);
 		return 1;
@@ -526,7 +545,7 @@ cd_init(char *nam, char *hide, char *mlen, char *sep,
 	    args++;
     }
     if (disp && grp) {
-        int mg = columns;
+        int mg = zterm_columns;
 
         do {
             cd_group(mg);
@@ -600,24 +619,62 @@ cd_get(char **params)
 
         case CRT_DESC:
             {
+		/*
+		 * The buffer size:
+		 *     max prefix length (cd_state.pre) +
+		 *     max padding (cd_state.premaxw generously :) +
+		 *     separator length (cd_state.slen) +
+		 *     inter matches gap (CM_SPACE) +
+		 *     max description length (cd_state.suf) +
+		 *     trailing \0
+		 */
                 VARARR(char, buf,
-                       cd_state.pre + cd_state.suf + cd_state.slen + 3);
-                char *sufp = NULL;
-
-                memcpy(buf + cd_state.pre + 2, cd_state.sep, cd_state.slen);
-                buf[cd_state.pre] = buf[cd_state.pre + 1] = ' ';
-                sufp = buf + cd_state.pre + cd_state.slen + 2;
-
+                       cd_state.pre + cd_state.suf +
+		       cd_state.premaxw + cd_state.slen + 3);
                 mats = mp = (char **) zalloc((run->count + 1) * sizeof(char *));
                 dpys = dp = (char **) zalloc((run->count + 1) * sizeof(char *));
 
                 for (str = run->strs; str; str = str->run) {
+		    char *p = buf, *pp, *d;
+		    int l, remw, w;
+
                     *mp++ = ztrdup(str->match);
-                    memset(buf, ' ', cd_state.pre);
-                    memcpy(buf, str->str, str->len);
-                    strcpy(sufp, str->desc);
-                    if (strlen(buf) >= columns - 1)
-                        buf[columns - 1] = '\0';
+		    strcpy(p, str->str);
+		    p += str->len;
+                    memset(p, ' ', (l = (cd_state.premaxw - str->width + CM_SPACE)));
+		    p += l;
+		    strcpy(p, cd_state.sep);
+		    p += cd_state.slen;
+
+		    /*
+		     * copy a character at once until no more screen width
+		     * is available. Leave 1 character at the end of screen
+		     * as safety margin
+		     */
+		    remw = zterm_columns - cd_state.premaxw -
+			cd_state.swidth - 3;
+		    d = str->desc;
+		    w = MB_METASTRWIDTH(d);
+		    if (w <= remw)
+			strcpy(p, d);
+		    else {
+			pp = p;
+			while (remw > 0 && *d) {
+			    l = MB_METACHARLEN(d);
+			    memcpy(pp, d, l);
+			    pp[l] = '\0';
+			    w = MB_METASTRWIDTH(pp);
+			    if (w > remw) {
+				*pp = '\0';
+				break;
+			    }
+
+			    pp += l;
+			    d += l;
+			    remw -= w;
+			}
+		    }
+
                     *dp++ = ztrdup(buf);
                 }
                 *mp = *dp = NULL;
@@ -670,10 +727,11 @@ cd_get(char **params)
 	default: /* This silences the "might be used uninitialized" warnings */
         case CRT_EXPL:
             {
-                int dlen = columns - cd_state.gpre - cd_state.slen;
-                VARARR(char, dbuf, dlen + cd_state.slen);
-                char buf[20];
-                int i = run->count;
+		/* add columns as safety margin */
+                VARARR(char, dbuf, cd_state.suf + cd_state.slen +
+		       zterm_columns);
+                char buf[20], *p, *pp, *d;
+                int i = run->count, remw, w, l;
 
                 sprintf(buf, "-E%d", i);
 
@@ -685,13 +743,37 @@ cd_get(char **params)
                         *dp++ = ztrdup("");
                         continue;
                     }
-                    memset(dbuf + cd_state.slen, ' ', dlen - 1);
-                    dbuf[dlen + cd_state.slen - 1] = '\0';
+
                     strcpy(dbuf, cd_state.sep);
-                    memcpy(dbuf + cd_state.slen,
-                           str->desc,
-                           ((int)strlen(str->desc) >= dlen ? dlen - 1 :
-                            (int)strlen(str->desc)));
+		    remw = zterm_columns - cd_state.gprew -
+			cd_state.swidth - CM_SPACE;
+		    p = pp = dbuf + cd_state.slen;
+		    d = str->desc;
+		    w = MB_METASTRWIDTH(d);
+		    if (w <= remw) {
+			strcpy(p, d);
+			remw -= w;
+			pp += strlen(d);
+		    } else
+			while (remw > 0 && *d) {
+			    l = MB_METACHARLEN(d);
+			    memcpy(pp, d, l);
+			    pp[l] = '\0';
+			    w = MB_METASTRWIDTH(pp);
+			    if (w > remw) {
+				*pp = '\0';
+				break;
+			    }
+
+			    pp += l;
+			    d += l;
+			    remw -= w;
+			}
+
+		    while (remw-- > 0)
+			*pp++ = ' ';
+		    *pp = '\0';
+
                     *dp++ = ztrdup(dbuf);
                 }
                 mats[0] = *dp = NULL;
@@ -722,31 +804,31 @@ bin_compdescribe(char *nam, char **args, UNUSED(Options ops), UNUSED(int func))
     int n = arrlen(args);
 
     if (incompfunc != 1) {
-	zwarnnam(nam, "can only be called from completion function", NULL, 0);
+	zwarnnam(nam, "can only be called from completion function");
 	return 1;
     }
     if (!args[0][0] || !args[0][1] || args[0][2]) {
-	zwarnnam(nam, "invalid argument: %s", args[0], 0);
+	zwarnnam(nam, "invalid argument: %s", args[0]);
 	return 1;
     }
     switch (args[0][1]) {
     case 'i':
         if (n < 3) {
-            zwarnnam(nam, "not enough arguments", NULL, 0);
+            zwarnnam(nam, "not enough arguments");
 
             return 1;
         }
 	return cd_init(nam, args[1], args[2], "", NULL, args + 3, 0);
     case 'I':
         if (n < 6) {
-            zwarnnam(nam, "not enough arguments", NULL, 0);
+            zwarnnam(nam, "not enough arguments");
 
             return 1;
         } else {
             char **opts;
 
             if (!(opts = getaparam(args[4]))) {
-		zwarnnam(nam, "unknown parameter: %s", args[4], 0);
+		zwarnnam(nam, "unknown parameter: %s", args[4]);
 		return 1;
             }
             return cd_init(nam, args[1], args[2], args[3], opts, args + 5, 1);
@@ -755,16 +837,16 @@ bin_compdescribe(char *nam, char **args, UNUSED(Options ops), UNUSED(int func))
 	if (cd_parsed) {
 	    if (n != 5) {
 		zwarnnam(nam, (n < 5 ? "not enough arguments" :
-			      "too many arguments"), NULL, 0);
+			      "too many arguments"));
 		return 1;
 	    }
 	    return cd_get(args + 1);
 	} else {
-	    zwarnnam(nam, "no parsed state", NULL, 0);
+	    zwarnnam(nam, "no parsed state");
 	    return 1;
 	}
     }
-    zwarnnam(nam, "invalid option: %s", args[0], 0);
+    zwarnnam(nam, "invalid option: %s", args[0]);
     return 1;
 }
 
@@ -1055,7 +1137,7 @@ parse_cadef(char *nam, char **args)
 {
     Cadef all, ret;
     Caopt *optp;
-    char **oargs = args, *p, *q, *match = "r:|[_-]=* r:|=*", **xor, **sargs;
+    char **orig_args = args, *p, *q, *match = "r:|[_-]=* r:|=*", **xor, **sargs;
     char *adpre, *adsuf, *axor = NULL, *doset = NULL, **setp = NULL;
     char *nonarg = NULL;
     int single = 0, anum = 1, xnum, nopts, ndopts, nodopts, flags = 0;
@@ -1127,7 +1209,7 @@ parse_cadef(char *nam, char **args)
 
     /* Looks good. Optimistically allocate the cadef structure. */
 
-    all = ret = alloc_cadef(oargs, single, match, nonarg, flags);
+    all = ret = alloc_cadef(orig_args, single, match, nonarg, flags);
     optp = &(ret->opts);
     anum = 1;
 
@@ -1199,7 +1281,7 @@ parse_cadef(char *nam, char **args)
 	    /* Oops, end-of-string. */
 	    if (*p != ')') {
 		freecadef(all);
-		zwarnnam(nam, "invalid argument: %s", *args, 0);
+		zwarnnam(nam, "invalid argument: %s", *args);
 		return NULL;
 	    }
 	    if (doset && axor)
@@ -1252,7 +1334,7 @@ parse_cadef(char *nam, char **args)
 	    }
 	    if (!p[1]) {
 		freecadef(all);
-		zwarnnam(nam, "invalid argument: %s", *args, 0);
+		zwarnnam(nam, "invalid argument: %s", *args);
 		return NULL;
 	    }
 
@@ -1289,7 +1371,7 @@ parse_cadef(char *nam, char **args)
 
 		if (!*p) {
 		    freecadef(all);
-		    zwarnnam(nam, "invalid option definition: %s", *args, 0);
+		    zwarnnam(nam, "invalid option definition: %s", *args);
 		    return NULL;
 		}
 		*p++ = '\0';
@@ -1299,7 +1381,7 @@ parse_cadef(char *nam, char **args)
 
 	    if (c && c != ':') {
 		freecadef(all);
-		zwarnnam(nam, "invalid option definition: %s", *args, 0);
+		zwarnnam(nam, "invalid option definition: %s", *args);
 		return NULL;
 	    }
 	    /* Add the option name to the xor list if not `*-...'. */
@@ -1345,7 +1427,7 @@ parse_cadef(char *nam, char **args)
 			    freecadef(all);
 			    freecaargs(oargs);
 			    zwarnnam(nam, "invalid option definition: %s",
-				    *args, 0);
+				    *args);
 			    return NULL;
 			}
 			if (*++p == ':') {
@@ -1429,12 +1511,12 @@ parse_cadef(char *nam, char **args)
 
 	    if (*++p != ':') {
 		freecadef(all);
-		zwarnnam(nam, "invalid rest argument definition: %s", *args, 0);
+		zwarnnam(nam, "invalid rest argument definition: %s", *args);
 		return NULL;
 	    }
 	    if (ret->rest) {
 		freecadef(all);
-		zwarnnam(nam, "doubled rest argument definition: %s", *args, 0);
+		zwarnnam(nam, "doubled rest argument definition: %s", *args);
 		return NULL;
 	    }
 	    if (*++p == ':') {
@@ -1469,7 +1551,9 @@ parse_cadef(char *nam, char **args)
 
 	    if (*p != ':') {
 		freecadef(all);
-		zwarnnam(nam, "invalid argument: %s", *args, 0);
+		zwarnnam(nam, "invalid argument: %s", *args);
+		if (xor)
+		    free(xor);
 		return NULL;
 	    }
 	    if (*++p == ':') {
@@ -1490,7 +1574,7 @@ parse_cadef(char *nam, char **args)
 	    if (tmp && tmp->num == anum - 1) {
 		freecadef(all);
 		freecaargs(arg);
-		zwarnnam(nam, "doubled argument definition: %s", *args, 0);
+		zwarnnam(nam, "doubled argument definition: %s", *args);
 		return NULL;
 	    }
 	    arg->next = tmp;
@@ -1533,7 +1617,16 @@ get_cadef(char *nam, char **args)
     return new;
 }
 
-/* Get the option used in a word from the line, if any. */
+/*
+ * Get the option used in a word from the line, if any.
+ *
+ * "d" is a complete set of argument/option definitions to scan.
+ * "line" is the word we are scanning.
+ * "full" indicates that the option must match a full word; otherwise
+ *   we look for "=" arguments or prefixes.
+ * *"end" is set to point to the end of the option, in some cases
+ *   leaving an option argument after it.
+ */
 
 static Caopt
 ca_get_opt(Cadef d, char *line, int full, char **end)
@@ -1683,7 +1776,7 @@ ca_inactive(Cadef d, char **xor, int cur, int opts, char *optname)
 	    } else if (x[0] == '*' && !x[1]) {
 		if (d->rest && (!set || d->rest->set))
 		    d->rest->active = 0;
-	    } else if (x[0] >= '0' && x[0] <= '9') {
+	    } else if (idigit(x[0])) {
 		int n = atoi(x);
 		Caarg a = d->args;
 
@@ -1705,6 +1798,12 @@ ca_inactive(Cadef d, char **xor, int cur, int opts, char *optname)
 /* State when parsing a command line. */
 
 typedef struct castate *Castate;
+
+/*
+ *           **** DOCUMENT ME ****
+ *
+ * This structure and its use are a nightmare.
+ */
 
 struct castate {
     Castate snext;
@@ -1770,21 +1869,21 @@ ca_parse_line(Cadef d, int multi, int first)
     Caopt ptr, wasopt = NULL, dopt;
     struct castate state;
     char *line, *oline, *pe, **argxor = NULL;
-    int cur, doff, argend, arglast, ne;
+    int cur, doff, argend, arglast;
     Patprog endpat = NULL, napat = NULL;
     LinkList sopts = NULL;
+#if 0
+    int ne;
+#endif
 
     /* Free old state. */
 
     if (first && ca_alloced) {
 	Castate s = &ca_laststate, ss;
-	int f = 1;
 
 	while (s) {
 	    ss = s->snext;
 	    freecastate(s);
-	    if (!f)
-		zfree(s, sizeof(*s));
 	    s = ss;
 	}
     }
@@ -1808,7 +1907,7 @@ ca_parse_line(Cadef d, int multi, int first)
     state.argbeg = state.optbeg = state.nargbeg = state.restbeg = state.actopts =
 	state.nth = state.inopt = state.inarg = state.opt = state.arg = 1;
     state.argend = argend = arrlen(compwords) - 1;
-    state.inrest = state.doff = state.singles = state.doff = state.oopt = 0;
+    state.inrest = state.doff = state.singles = state.oopt = 0;
     state.curpos = compcurrent;
     state.args = znewlinklist();
     state.oargs = (LinkList *) zalloc(d->nopts * sizeof(LinkList));
@@ -1834,13 +1933,24 @@ ca_parse_line(Cadef d, int multi, int first)
 	dopt = NULL;
 	doff = state.singles = arglast = 0;
 
-        /* remove quotes */
         oline = line;
+#if 0
+        /*
+	 * remove quotes.
+	 * This is commented out:  it doesn't allow you to discriminate
+	 * between command line values that can be expanded and those
+	 * that can't, and in some cases this generates inconsistency;
+	 * for example, ~/foo\[bar unqotes to ~/foo[bar which doesn't
+	 * work either way---it's wrong if the ~ is quoted, and
+	 * wrong if the [ isn't quoted..  So it's now up to the caller to
+	 * unquote.
+	 */
         line = dupstring(line);
         ne = noerrs;
         noerrs = 2;
         parse_subst_string(line);
         noerrs = ne;
+#endif
         remnulargs(line);
         untokenize(line);
 
@@ -2026,6 +2136,23 @@ ca_parse_line(Cadef d, int multi, int first)
 	    if ((adef = state.def = ca_get_arg(d, state.nth)) &&
 		(state.def->type == CAA_RREST ||
 		 state.def->type == CAA_RARGS)) {
+
+		/* Bart 2009/11/17:
+		 * We've reached the "rest" definition.  If at this point
+		 * we already found another definition that describes the
+		 * current word, use that instead.  If not, prep for the
+		 * "narrowing" of scope to only the remaining words.
+		 *
+		 * We can't test ca_laststate.def in the loop conditions
+		 * at the top because this same loop also handles the
+		 * ':*PATTERN:MESSAGE:ACTION' form for multiple arguments
+		 * after an option, which may need to continue scanning.
+		 * There might be an earlier point at which this test can
+		 * be made but tracking it down is not worth the effort.
+		 */
+		if (ca_laststate.def)
+		    break;
+
 		state.inrest = 0;
 		state.opt = (cur == state.nargbeg + 1 &&
 			     (!multi || !*line || 
@@ -2165,9 +2292,18 @@ ca_colonlist(LinkList l)
 	return ztrdup("");
 }
 
+/*
+ * This function adds the current set of descriptions, actions,
+ * and subcontext descriptions to the given linked list for passing
+ * up in comparguments -D and comparguments -L.  opt is the
+ * option string (may be NULL if this isn't an option argument) and arg the
+ * argument structure (either an option argument or a normal argument
+ * as determined by arg->type).
+ */
+
 static void
 ca_set_data(LinkList descr, LinkList act, LinkList subc,
-	    char *opt, Caarg arg, int single)
+	    char *opt, Caarg arg, Caopt optdef, int single)
 {
     LinkNode dnode, anode;
     char nbuf[40], *buf;
@@ -2218,6 +2354,19 @@ ca_set_data(LinkList descr, LinkList act, LinkList subc,
 
 	    addlinknode(subc, buf);
 	}
+	/*
+	 * If this is an argument to an option, and the option definition says
+	 * the argument to the option is required and in the following
+	 * (i.e. this) word, then it must match what we've just told it to
+	 * match---don't try to match normal arguments.
+	 *
+	 * This test may be too stringent for what we need, or it
+	 * may be too loose; I've simply tweaked it until it gets
+	 * the case above right.
+	 */
+	if (arg->type == CAA_NORMAL &&
+	    opt && optdef && optdef->type == CAO_NEXT)
+	    return;
 	if (single)
 	    break;
 
@@ -2265,15 +2414,15 @@ bin_comparguments(char *nam, char **args, UNUSED(Options ops), UNUSED(int func))
     Castate lstate = &ca_laststate;
 
     if (incompfunc != 1) {
-	zwarnnam(nam, "can only be called from completion function", NULL, 0);
+	zwarnnam(nam, "can only be called from completion function");
 	return 1;
     }
     if (args[0][0] != '-' || !args[0][1] || args[0][2]) {
-	zwarnnam(nam, "invalid argument: %s", args[0], 0);
+	zwarnnam(nam, "invalid argument: %s", args[0]);
 	return 1;
     }
     if (args[0][1] != 'i' && args[0][1] != 'I' && !ca_parsed) {
-	zwarnnam(nam, "no parsed state", NULL, 0);
+	zwarnnam(nam, "no parsed state");
 	return 1;
     }
     switch (args[0][1]) {
@@ -2287,15 +2436,15 @@ bin_comparguments(char *nam, char **args, UNUSED(Options ops), UNUSED(int func))
     case 'W': min = 2; max =  2; break;
     case 'n': min = 1; max =  1; break;
     default:
-	zwarnnam(nam, "invalid option: %s", args[0], 0);
+	zwarnnam(nam, "invalid option: %s", args[0]);
 	return 1;
     }
     n = arrlen(args) - 1;
     if (n < min) {
-	zwarnnam(nam, "not enough arguments", NULL, 0);
+	zwarnnam(nam, "not enough arguments");
 	return 1;
     } else if (max >= 0 && n > max) {
-	zwarnnam(nam, "too many arguments", NULL, 0);
+	zwarnnam(nam, "too many arguments");
 	return 1;
     }
     switch (args[0][1]) {
@@ -2388,7 +2537,7 @@ bin_comparguments(char *nam, char **args, UNUSED(Options ops), UNUSED(int func))
 			ignore_prefix(lstate->doff);
 		    }
 		    ca_set_data(descr, act, subc, arg->opt, arg,
-				(lstate->doff > 0));
+				lstate->curopt, (lstate->doff > 0));
 		}
 		lstate = lstate->snext;
 	    }
@@ -2486,7 +2635,7 @@ bin_comparguments(char *nam, char **args, UNUSED(Options ops), UNUSED(int func))
 
 		if (opt && opt->args) {
 		    ret = 0;
-		    ca_set_data(descr, act, subc, opt->name, opt->args, 1);
+		    ca_set_data(descr, act, subc, opt->name, opt->args, opt, 1);
 		}
 		lstate = lstate->snext;
 	    }
@@ -2693,7 +2842,7 @@ parse_cvdef(char *nam, char **args)
         }
     }
     if (!args[0] || !args[1]) {
-	zwarnnam(nam, "not enough arguments", NULL, 0);
+	zwarnnam(nam, "not enough arguments");
 	return NULL;
     }
     descr = *args++;
@@ -2739,7 +2888,7 @@ parse_cvdef(char *nam, char **args)
 	    }
 	    if (*p != ')') {
 		freecvdef(ret);
-		zwarnnam(nam, "invalid argument: %s", *args, 0);
+		zwarnnam(nam, "invalid argument: %s", *args);
 		return NULL;
 	    }
 	    xor = (char **) zalloc((xnum + 2) * sizeof(char *));
@@ -2763,7 +2912,7 @@ parse_cvdef(char *nam, char **args)
 
 	if (hassep && !sep && name + bs + 1 < p) {
 	    freecvdef(ret);
-	    zwarnnam(nam, "no multi-letter values with empty separator allowed", NULL, 0);
+	    zwarnnam(nam, "no multi-letter values with empty separator allowed");
 	    return NULL;
 	}
 	/* Optional description? */
@@ -2776,7 +2925,7 @@ parse_cvdef(char *nam, char **args)
 
 	    if (!*p) {
 		freecvdef(ret);
-		zwarnnam(nam, "invalid value definition: %s", *args, 0);
+		zwarnnam(nam, "invalid value definition: %s", *args);
 		return NULL;
 	    }
 	    *p++ = '\0';
@@ -2787,22 +2936,15 @@ parse_cvdef(char *nam, char **args)
 	}
 	if (c && c != ':') {
 	    freecvdef(ret);
-	    zwarnnam(nam, "invalid value definition: %s", *args, 0);
+	    zwarnnam(nam, "invalid value definition: %s", *args);
 	    return NULL;
-	}
-	if (!multi) {
-	    if (!xor) {
-		xor = (char **) zalloc(2 * sizeof(char *));
-		xor[1] = NULL;
-	    }
-	    xor[xnum] = ztrdup(name);
 	}
 	/* Get argument? */
 
 	if (c == ':') {
 	    if (hassep && !sep) {
 		freecvdef(ret);
-		zwarnnam(nam, "no value with argument with empty separator allowed", NULL, 0);
+		zwarnnam(nam, "no value with argument with empty separator allowed");
 		return NULL;
 	    }
 	    if (*++p == ':') {
@@ -2814,6 +2956,13 @@ parse_cvdef(char *nam, char **args)
 	} else {
 	    vtype = CVV_NOARG;
 	    arg = NULL;
+	}
+	if (!multi) {
+	    if (!xor) {
+		xor = (char **) zalloc(2 * sizeof(char *));
+		xor[1] = NULL;
+	    }
+	    xor[xnum] = ztrdup(name);
 	}
 	*valp = val = (Cvval) zalloc(sizeof(*val));
 	valp = &((*valp)->next);
@@ -3157,15 +3306,15 @@ bin_compvalues(char *nam, char **args, UNUSED(Options ops), UNUSED(int func))
     int min, max, n;
 
     if (incompfunc != 1) {
-	zwarnnam(nam, "can only be called from completion function", NULL, 0);
+	zwarnnam(nam, "can only be called from completion function");
 	return 1;
     }
     if (args[0][0] != '-' || !args[0][1] || args[0][2]) {
-	zwarnnam(nam, "invalid argument: %s", args[0], 0);
+	zwarnnam(nam, "invalid argument: %s", args[0]);
 	return 1;
     }
     if (args[0][1] != 'i' && !cv_parsed) {
-	zwarnnam(nam, "no parsed state", NULL, 0);
+	zwarnnam(nam, "no parsed state");
 	return 1;
     }
     switch (args[0][1]) {
@@ -3179,15 +3328,15 @@ bin_compvalues(char *nam, char **args, UNUSED(Options ops), UNUSED(int func))
     case 'L': min = 3; max =  4; break;
     case 'v': min = 1; max =  1; break;
     default:
-	zwarnnam(nam, "invalid option: %s", args[0], 0);
+	zwarnnam(nam, "invalid option: %s", args[0]);
 	return 1;
     }
     n = arrlen(args) - 1;
     if (n < min) {
-	zwarnnam(nam, "not enough arguments", NULL, 0);
+	zwarnnam(nam, "not enough arguments");
 	return 1;
     } else if (max >= 0 && n > max) {
-	zwarnnam(nam, "too many arguments", NULL, 0);
+	zwarnnam(nam, "too many arguments");
 	return 1;
     }
     switch (args[0][1]) {
@@ -3209,7 +3358,6 @@ bin_compvalues(char *nam, char **args, UNUSED(Options ops), UNUSED(int func))
 
 	    return 0;
 	}
-	return 1;
 
     case 'D':
         /* This returns the description and action to use if we are at
@@ -3327,16 +3475,9 @@ bin_compvalues(char *nam, char **args, UNUSED(Options ops), UNUSED(int func))
         /* Again, as for comparguments.  This returns the values and their
          * arguments as an array which will be stored in val_args in _values. */
 	if (cv_laststate.vals) {
-	    char **ret, **p;
-	    LinkNode n;
+	    char **ret;
 
-	    ret = (char **) zalloc((countlinknodes(cv_laststate.vals) + 1) *
-				   sizeof(char *));
-
-	    for (n = firstnode(cv_laststate.vals), p = ret; n; incnode(n), p++)
-		*p = ztrdup((char *) getdata(n));
-	    *p = NULL;
-
+	    ret = zlinklist2array(cv_laststate.vals);
 	    sethparam(args[1], ret);
 
 	    return 0;
@@ -3355,8 +3496,7 @@ comp_quote(char *str, int prefix)
     if ((x = (prefix && *str == '=')))
 	*str = 'x';
 
-    ret = bslashquote(str, NULL, (*compqstack == '\'' ? 1 :
-				  (*compqstack == '"' ? 2 : 0)));
+    ret = quotestring(str, NULL, *compqstack);
 
     if (x)
 	*str = *ret = '=';
@@ -3372,7 +3512,7 @@ bin_compquote(char *nam, char **args, Options ops, UNUSED(int func))
     Value v;
 
     if (incompfunc != 1) {
-	zwarnnam(nam, "can only be called from completion function", NULL, 0);
+	zwarnnam(nam, "can only be called from completion function");
 	return 1;
     }
     /* Anything to do? */
@@ -3386,7 +3526,7 @@ bin_compquote(char *nam, char **args, Options ops, UNUSED(int func))
 	name = dupstring(name);
 	queue_signals();
 	if ((v = getvalue(&vbuf, &name, 0))) {
-	    switch (PM_TYPE(v->pm->flags)) {
+	    switch (PM_TYPE(v->pm->node.flags)) {
 	    case PM_SCALAR:
 		setstrvalue(v, ztrdup(comp_quote(getstrvalue(v), 
 						 OPT_ISSET(ops,'p'))));
@@ -3406,10 +3546,10 @@ bin_compquote(char *nam, char **args, Options ops, UNUSED(int func))
 		}
 		break;
 	    default:
-		zwarnnam(nam, "invalid parameter type: %s", args[-1], 0);
+		zwarnnam(nam, "invalid parameter type: %s", args[-1]);
 	    }
 	} else
-	    zwarnnam(nam, "unknown parameter: %s", args[-1], 0);
+	    zwarnnam(nam, "unknown parameter: %s", args[-1]);
 	unqueue_signals();
     }
     return 0;
@@ -3521,21 +3661,21 @@ bin_comptags(char *nam, char **args, UNUSED(Options ops), UNUSED(int func))
     int min, max, n, level;
 
     if (incompfunc != 1) {
-	zwarnnam(nam, "can only be called from completion function", NULL, 0);
+	zwarnnam(nam, "can only be called from completion function");
 	return 1;
     }
     if (args[0][0] != '-' || !args[0][1] ||
 	(args[0][2] && (args[0][2] != '-' || args[0][3]))) {
-	zwarnnam(nam, "invalid argument: %s", args[0], 0);
+	zwarnnam(nam, "invalid argument: %s", args[0]);
 	return 1;
     }
     level = locallevel - (args[0][2] ? 1 : 0);
     if (level >= MAX_TAGS) {
-	zwarnnam(nam, "nesting level too deep", NULL, 0);
+	zwarnnam(nam, "nesting level too deep");
 	return 1;
     }
     if (args[0][1] != 'i' && args[0][1] != 'I' && !comptags[level]) {
-	zwarnnam(nam, "no tags registered", NULL, 0);
+	zwarnnam(nam, "no tags registered");
 	return 1;
     }
     switch (args[0][1]) {
@@ -3547,15 +3687,15 @@ bin_comptags(char *nam, char **args, UNUSED(Options ops), UNUSED(int func))
     case 'S': min = 1; max =  1; break;
     case 'A': min = 2; max =  3; break;
     default:
-	zwarnnam(nam, "invalid option: %s", args[0], 0);
+	zwarnnam(nam, "invalid option: %s", args[0]);
 	return 1;
     }
     n = arrlen(args) - 1;
     if (n < min) {
-	zwarnnam(nam, "not enough arguments", NULL, 0);
+	zwarnnam(nam, "not enough arguments");
 	return 1;
     } else if (max >= 0 && n > max) {
-	zwarnnam(nam, "too many arguments", NULL, 0);
+	zwarnnam(nam, "too many arguments");
 	return 1;
     }
     switch (args[0][1]) {
@@ -3649,18 +3789,17 @@ static int
 bin_comptry(char *nam, char **args, UNUSED(Options ops), UNUSED(int func))
 {
     if (incompfunc != 1) {
-	zwarnnam(nam, "can only be called from completion function", NULL, 0);
+	zwarnnam(nam, "can only be called from completion function");
 	return 1;
     }
     if (!lasttaglevel || !comptags[lasttaglevel]) {
-	zwarnnam(nam, "no tags registered", NULL, 0);
+	zwarnnam(nam, "no tags registered");
 	return 1;
     }
     if (*args) {
 	if (!strcmp(*args, "-m")) {
 	    char *s, *p, *q, *c, **all = comptags[lasttaglevel]->all;
 	    LinkList list = newlinklist();
-	    LinkNode node;
 	    int num = 0;
 	    Ctset set;
 
@@ -3686,14 +3825,14 @@ bin_comptry(char *nam, char **args, UNUSED(Options ops), UNUSED(int func))
 
 			qqq = qq = dupstring(q);
 			while (*qqq) {
-			    if (qqq == qq || qqq[-1] != '\\') {
-				if (*qqq == '{')
-				    *qqq = Inbrace;
-				else if (*qqq == '}')
-				    *qqq = Outbrace;
-				else if (*qqq == ',')
-				    *qqq = Comma;
-			    }
+			    if (*qqq == '\\' && qqq[1])
+				qqq++;
+			    else if (*qqq == '{')
+				*qqq = Inbrace;
+			    else if (*qqq == '}')
+				*qqq = Outbrace;
+			    else if (*qqq == ',')
+				*qqq = Comma;
 			    qqq++;
 			}
 			tokenize(qq);
@@ -3755,16 +3894,11 @@ bin_comptry(char *nam, char **args, UNUSED(Options ops), UNUSED(int func))
 		    }
 		}
 		if (num) {
-		    char **a;
 		    Ctset l;
 
 		    set = (Ctset) zalloc(sizeof(*set));
 
-		    a = set->tags = (char **) zalloc((num + 1) * sizeof(char *));
-		    for (node = firstnode(list); node; incnode(node))
-			*a++ = ztrdup((char *) getdata(node));
-
-		    *a = NULL;
+		    set->tags = zlinklist2array(list);
 		    set->next = NULL;
 		    set->ptr = NULL;
 		    set->tag = NULL;
@@ -3830,6 +3964,22 @@ bin_comptry(char *nam, char **args, UNUSED(Options ops), UNUSED(int func))
 
 #define PATH_MAX2 (PATH_MAX * 2)
 
+/*
+ * Return a list of files we should accept exactly, without
+ * trying pattern matching.
+ *
+ * This is based on the accept-exact style, which may be
+ * an array so is passed in via "accept".  The trial files
+ * are input in "names".  "skipped" is passed down straight
+ * from the file completion function:  it's got something to
+ * do with other components in the path but it's hard to work out
+ * quite what.
+ *
+ * There is one extra trick here for Cygwin.  Regardless of the style,
+ * if the file ends in a colon it has to be a drive or a special device
+ * file and we always accept it exactly because treating it as a pattern
+ * won't work.
+ */
 static LinkList
 cfp_test_exact(LinkList names, char **accept, char *skipped)
 {
@@ -3838,16 +3988,41 @@ cfp_test_exact(LinkList names, char **accept, char *skipped)
     struct stat st;
     LinkNode node;
     LinkList ret = newlinklist(), alist = NULL;
+#ifdef __CYGWIN__
+    int accept_off = 0;
+#endif
 
-    if ((!(compprefix && *compprefix) && !(compsuffix && *compsuffix)) ||
-	(!accept || !*accept ||
-	 ((!strcmp(*accept, "false") || !strcmp(*accept, "no") ||
-	   !strcmp(*accept, "off") || !strcmp(*accept, "0")) && !accept[1])))
+    /*
+     * Don't do this unless completion has provided either a
+     * prefix or suffix from the command line.
+     */
+    if (!(compprefix && *compprefix) && !(compsuffix && *compsuffix))
 	return NULL;
 
-    if (accept[1] ||
-	(strcmp(*accept, "true") && strcmp(*accept, "yes") &&
-	 strcmp(*accept, "on") && strcmp(*accept, "1"))) {
+    /*
+     * See if accept-exact is off, implicitly or explicitly.
+     */
+    if (!accept || !*accept ||
+	((!strcmp(*accept, "false") || !strcmp(*accept, "no") ||
+	  !strcmp(*accept, "off") || !strcmp(*accept, "0")) && !accept[1])) {
+#ifdef __CYGWIN__
+	accept_off = 1;
+#else
+	/* If not Cygwin, nothing to do here. */
+	return NULL;
+#endif
+    }
+
+    /*
+     * See if the style is something other than just a boolean.
+     */
+    if (
+#ifdef __CYGWIN__
+	!accept_off &&
+#endif
+	(accept[1] ||
+	 (strcmp(*accept, "true") && strcmp(*accept, "yes") &&
+	  strcmp(*accept, "on") && strcmp(*accept, "1")))) {
 	Patprog prog;
 
 	alist = newlinklist();
@@ -3862,6 +4037,10 @@ cfp_test_exact(LinkList names, char **accept, char *skipped)
 		addlinknode(alist, prog);
 	}
     }
+    /*
+     * Assemble the bits other than the set of file names:
+     * the other components, and the prefix and suffix.
+     */
     sl = strlen(skipped) + (compprefix ? strlen(compprefix) : 0) +
 	(compsuffix ? strlen(compsuffix) : 0);
 
@@ -3873,10 +4052,48 @@ cfp_test_exact(LinkList names, char **accept, char *skipped)
     for (node = firstnode(names); node; incnode(node)) {
 	l = strlen(p = (char *) getdata(node));
 	if (l + sl < PATH_MAX2) {
+#ifdef __CYGWIN__
+	    char *testbuf;
+#define TESTBUF testbuf
+#else
+#define TESTBUF buf
+#endif
 	    strcpy(buf, p);
 	    strcpy(buf + l, suf);
-
-	    if (!ztat(buf, &st, 0)) {
+#ifdef __CYGWIN__
+	    if (accept_off) {
+		int sl = strlen(buf);
+		/*
+		 * If accept-exact is not set, accept this only if
+		 * it looks like a special file such as a drive.
+		 * We still test if it exists.
+		 */
+		if (!sl || strchr(buf, '/') || buf[sl-1] != ':')
+		    continue;
+		if (sl == 2) {
+		    /*
+		     * Recent versions of Cygwin only recognise "c:/",
+		     * but not "c:", as special directories.  So
+		     * we have to append the slash for the purpose of
+		     * the test.
+		     */
+		    testbuf = zhalloc(sl + 2);
+		    strcpy(testbuf, buf);
+		    testbuf[sl] = '/';
+		    testbuf[sl+1] = '\0';
+		} else {
+		    /* Don't do this with stuff like PRN: */
+		    testbuf = buf;
+		}
+	    } else {
+		testbuf = buf;
+	    }
+#endif
+	    if (!ztat(TESTBUF, &st, 0)) {
+		/*
+		 * File exists; if accept-exact contained non-boolean
+		 * values it must match those, too.
+		 */
 		if (alist) {
 		    LinkNode anode;
 
@@ -3895,6 +4112,238 @@ cfp_test_exact(LinkList names, char **accept, char *skipped)
     return (found ? ret : NULL);
 }
 
+
+/*
+ * This code constructs (from heap) and returns a string that
+ * corresponds to a series of matches; when compiled as a pattern, at
+ * each position it matches either the character from the string "add"
+ * or the corresponding single-character match from the set of matchers.
+ * To take a simple case, if add is "a" and the single matcher for the
+ * character position matches "[0-9]", the pattern returned is "[0-9a]".
+ * We take account of equivalences between the word and line, too.
+ *
+ * As there are virtually no comments in this file, I don't really
+ * know why we're doing this, but it's to do with a matcher which
+ * is passed as an argument to the utility compfiles -p/-P.
+ */
+static char *
+cfp_matcher_range(Cmatcher *ms, char *add)
+{
+    Cmatcher *mp, m;
+    int len = 0, mt;
+    char *ret = NULL, *p = NULL, *adds = add;
+
+    /*
+     * Do this twice:  once to work out the length of the
+     * string in len, the second time to build it in ret.
+     * This is probably worthwhile because otherwise memory
+     * management is difficult.
+     */
+    for (;;) {
+	MB_METACHARINIT();
+	for (mp = ms; *add; ) {
+	    convchar_t addc;
+	    int addlen;
+
+	    addlen = MB_METACHARLENCONV(add, &addc);
+#ifdef MULTIBYTE_SUPPORT
+	    if (addc == WEOF)
+		addc = (wchar_t)(*p == Meta ? p[1] ^ 32 : *p);
+#endif
+
+	    if (!(m = *mp)) {
+		/*
+		 * No matcher, so just match the character
+		 * itself.
+		 *
+		 * TODO: surely this needs quoting if it's a
+		 * metacharacter?
+		 */
+		if (ret) {
+		    memcpy(p, add, addlen);
+		    p += addlen;
+		} else
+		    len += addlen;
+	    } else if (m->flags & CMF_RIGHT) {
+		/*
+		 * Right-anchored:  match anything followed
+		 * by the character itself.
+		 */
+		if (ret) {
+		    *p++ = '*';
+		    /* TODO: quote again? */
+		    memcpy(p, add, addlen);
+		    p += addlen;
+		} else
+		    len += addlen + 1;
+	    } else {
+		/* The usual set of matcher possibilities. */
+		convchar_t ind;
+		if (m->line->tp == CPAT_EQUIV &&
+		    m->word->tp == CPAT_EQUIV) {
+		    /*
+		     * Genuine equivalence.  Add the character to match
+		     * and the equivalent character from the word
+		     * pattern.
+		     *
+		     * TODO: we could be more careful here with special
+		     * cases as we are in the basic character class
+		     * code below.
+		     */
+		    if (ret) {
+			*p++ = '[';
+			memcpy(p, add, addlen);
+			p += addlen;
+		    } else
+			len += addlen + 1;
+		    if (PATMATCHRANGE(m->line->u.str, addc, &ind, &mt)) {
+			/*
+			 * Find the equivalent match for ind in the
+			 * word pattern.
+			 */
+			if ((ind = pattern_match_equivalence
+			     (m->word, ind, mt, addc)) != CHR_INVALID) {
+			    if (ret) {
+				if (imeta(ind)) {
+				    *p++ = Meta;
+				    *p++ = ind ^ 32;
+				} else
+				    *p++ = ind;
+			    } else
+				len += imeta(ind) ? 2 : 1;
+			}
+		    }
+		    if (ret)
+			*p++ = ']';
+		    else
+			len++;
+		} else {
+		    int newlen, addadd;
+
+		    switch (m->word->tp) {
+		    case CPAT_NCLASS:
+			/*
+			 * TODO: the old logic implies that we need to
+			 * match *add, i.e. it should be deleted from
+			 * the set of character's we're not allowed to
+			 * match.  That's too much like hard work for
+			 * now.  Indeed, in general it's impossible
+			 * without trickery.  Consider *add == 'A',
+			 * range == "[^[:upper:]]": we would have to
+			 * resort to something like "(A|[^[:upper:]])";
+			 * and in an expression like that *add may or
+			 * may not need backslashing.  So we're deep
+			 * into see-if-we-can-get-away-without
+			 * territory.
+			 */
+			if (ret) {
+			    *p++ = '[';
+			    *p++ = '^';
+			} else
+			    len += 2;
+			/*
+			 * Convert the compiled range string back
+			 * to an ordinary string.
+			 */
+			newlen =
+			    pattern_range_to_string(m->word->u.str, p);
+			DPUTS(!newlen, "empty character range");
+			if (ret) {
+			    p += newlen;
+			    *p++ = ']';
+			} else
+			    len += newlen + 1;
+			break;
+			    
+		    case CPAT_CCLASS:
+			/*
+			 * If there is an equivalence only on one
+			 * side it's not equivalent to anything.
+			 * Treat it as an ordinary character class.
+			 */ 
+		    case CPAT_EQUIV:
+		    case CPAT_CHAR:
+			if (ret)
+			    *p++ = '[';
+			else
+			    len++;
+			/*
+			 * We needed to add *add specially only if
+			 * it is not covered by the range.  This
+			 * is necessary for correct syntax---consider
+			 * if *add is ] and ] is also the first
+			 * character in the range.
+			 */
+			addadd = !pattern_match1(m->word, addc, &mt);
+			if (addadd && *add == ']') {
+			    if (ret)
+				*p++ = *add;
+			    else
+				len++;
+			}
+			if (m->word->tp == CPAT_CHAR) {
+			    /*
+			     * The matcher just matches a single
+			     * character, but we need to be able
+			     * to match *add, too, hence we do
+			     * this as a [...].
+			     */
+			    if (ret) {
+				if (imeta(m->word->u.chr)) {
+				    *p++ = Meta;
+				    *p++ = m->word->u.chr ^ 32;
+				} else
+				    *p++ = m->word->u.chr;
+			    } else
+				len += imeta(m->word->u.chr) ? 2 : 1;
+			} else {
+			    /*
+			     * Convert the compiled range string back
+			     * to an ordinary string.
+			     */
+			    newlen =
+				pattern_range_to_string(m->word->u.str, p);
+			    DPUTS(!newlen, "empty character range");
+			    if (ret)
+				p += newlen;
+			    else
+				len += newlen;
+			}
+			if (addadd && *add != ']') {
+			    if (ret) {
+				memcpy(p, add, addlen);
+				p += addlen;
+			    } else
+				len += addlen;
+			}
+			if (ret)
+			    *p++ = ']';
+			else
+			    len++;
+			break;
+
+		    case CPAT_ANY:
+			if (ret)
+			    *p++ = '?';
+			else
+			    len++;
+			break;
+		    }
+		}
+	    }
+	    add += addlen;
+	    mp++;
+	}
+	if (ret) {
+	    *p = '\0';
+	    return ret;
+	}
+	p = ret = zhalloc(len + 1);
+	add = adds;
+    }
+}
+
+
 static char *
 cfp_matcher_pats(char *matcher, char *add)
 {
@@ -3902,19 +4351,19 @@ cfp_matcher_pats(char *matcher, char *add)
 
     if (m && m != pcm_err) {
 	char *tmp;
-	int al = strlen(add), tl;
-	VARARR(Cmatcher, ms, al);
+	int al = strlen(add), zl = ztrlen(add), tl, cl;
+	VARARR(Cmatcher, ms, zl);
 	Cmatcher *mp;
 	Cpattern stopp;
 	int stopl = 0;
 
-	memset(ms, 0, al * sizeof(Cmatcher));
+	memset(ms, 0, zl * sizeof(Cmatcher));
 
 	for (; m && *add; m = m->next) {
 	    stopp = NULL;
 	    if (!(m->flags & (CMF_LEFT|CMF_RIGHT))) {
 		if (m->llen == 1 && m->wlen == 1) {
-		    for (tmp = add, tl = al, mp = ms; tl; tl--, tmp++, mp++) {
+		    for (tmp = add, tl = al, mp = ms; tl; ) {
 			if (pattern_match(m->line, tmp, NULL, NULL)) {
 			    if (*mp) {
 				*tmp = '\0';
@@ -3923,6 +4372,10 @@ cfp_matcher_pats(char *matcher, char *add)
 			    } else
 				*mp = m;
 			}
+			cl = (*tmp == Meta) ? 2 : 1;
+			tl -= cl;
+			tmp += cl;
+			mp += cl;
 		    }
 		} else {
 		    stopp = m->line;
@@ -3930,7 +4383,7 @@ cfp_matcher_pats(char *matcher, char *add)
 		}
 	    } else if (m->flags & CMF_RIGHT) {
 		if (m->wlen < 0 && !m->llen && m->ralen == 1) {
-		    for (tmp = add, tl = al, mp = ms; tl; tl--, tmp++, mp++) {
+		    for (tmp = add, tl = al, mp = ms; tl; ) {
 			if (pattern_match(m->right, tmp, NULL, NULL)) {
 			    if (*mp || (tmp == add && *tmp == '.')) {
 				*tmp = '\0';
@@ -3939,6 +4392,10 @@ cfp_matcher_pats(char *matcher, char *add)
 			    } else
 				*mp = m;
 			}
+			cl = (*tmp == Meta) ? 2 : 1;
+			tl -= cl;
+			tmp += cl;
+			mp += cl;
 		    }
 		} else if (m->llen) {
 		    stopp = m->line;
@@ -3955,71 +4412,19 @@ cfp_matcher_pats(char *matcher, char *add)
 		stopl = m->lalen;
 	    }
 	    if (stopp)
-		for (tmp = add, tl = al; tl >= stopl; tl--, tmp++)
+		for (tmp = add, tl = al; tl >= stopl; ) {
 		    if (pattern_match(stopp, tmp, NULL, NULL)) {
 			*tmp = '\0';
 			al = tmp - add;
 			break;
 		    }
-	}
-	if (*add) {
-	    char *ret = "", buf[259];
-
-	    for (mp = ms; *add; add++, mp++) {
-		if (!(m = *mp)) {
-		    buf[0] = *add;
-		    buf[1] = '\0';
-		} else if (m->flags & CMF_RIGHT) {
-		    buf[0] = '*';
-		    buf[1] = *add;
-		    buf[2] = '\0';
-		} else {
-		    unsigned char *t, c;
-		    char *p = buf;
-		    int i;
-
-		    for (i = 256, t = m->word->tab; i--; t++)
-			if (*t)
-			    break;
-		    if (i) {
-			t = m->word->tab;
-			*p++ = '[';
-			if (m->line->equiv && m->word->equiv) {
-			    *p++ = *add;
-			    c = m->line->tab[STOUC(*add)];
-			    for (i = 0; i < 256; i++)
-				if (m->word->tab[i] == c) {
-				    *p++ = (char) i;
-				    break;
-				}
-			} else {
-			    if (*add == ']' || t[STOUC(']')])
-				*p++ = ']';
-			    for (i = 0; i < 256; i++, t++)
-				if (*t && ((char) i) != *add &&
-				    i != ']' && i != '-' &&
-				    i != '^' && i != '!')
-				    *p++ = (char) i;
-			    *p++ = *add;
-			    t = m->word->tab;
-			    if (*add != '^' && t[STOUC('^')])
-				*p++ = '^';
-			    if (*add != '!' && t[STOUC('!')])
-				*p++ = '!';
-			    if (*add != '-' && t[STOUC('-')])
-				*p++ = '-';
-			}
-			*p++ = ']';
-			*p = '\0';
-		    } else {
-			*p = '?';
-			p[1] = '\0';
-		    }
+		    cl = (*tmp == Meta) ? 2 : 1;
+		    tl -= cl;
+		    tmp += cl;
 		}
-		ret = dyncat(ret, buf);
-	    }
-	    return ret;
 	}
+	if (*add)
+	    return cfp_matcher_range(ms, add);
     }
     return add;
 }
@@ -4073,12 +4478,12 @@ cfp_opt_pats(char **pats, char *matcher)
 		    for (s = add; *s && !idigit(*s); s++);
 		    *s = '\0';
 		} else if (*q == '[') {
-		    int not, first = 1;
+		    int not;
 		    char *x = ++q;
 
 		    if ((not = (*x == '!' || *x == '^')))
 			x++;
-		    for (; *x && (first || *x != ']'); x++) {
+		    for (; *x; x++) {
 			if (x[1] == '-' && x[2]) {
 			    char c1 = *x, c2 = x[2];
 
@@ -4250,6 +4655,15 @@ cf_pats(int dirs, int noopt, LinkList names, char **accept, char *skipped,
 			 names, skipped, sdirs, fake);
 }
 
+/*
+ * This function looks at device/inode pairs to determine if
+ * a file is one we should ignore because of its relationship
+ * to the current or parent directory.
+ *
+ * We don't follow symbolic links here, because typically
+ * a user will not want an explicit link to the current or parent
+ * directory ignored.
+ */
 static void
 cf_ignore(char **names, LinkList ign, char *style, char *path)
 {
@@ -4258,16 +4672,16 @@ cf_ignore(char **names, LinkList ign, char *style, char *path)
     char *n, *c, *e;
 
     tpar = !!strstr(style, "parent");
-    if ((tpwd = !!strstr(style, "pwd")) && stat(pwd, &est))
+    if ((tpwd = !!strstr(style, "pwd")) && lstat(pwd, &est))
 	tpwd = 0;
 
     if (!tpar && !tpwd)
 	return;
 
     for (; (n = *names); names++) {
-	if (!ztat(n, &nst, 0) && S_ISDIR(nst.st_mode)) {
+	if (!ztat(n, &nst, 1) && S_ISDIR(nst.st_mode)) {
 	    if (tpwd && nst.st_dev == est.st_dev && nst.st_ino == est.st_ino) {
-		addlinknode(ign, bslashquote(n, NULL, 0));
+		addlinknode(ign, quotestring(n, NULL, QT_BACKSLASH));
 		continue;
 	    }
 	    if (tpar && !strncmp((c = dupstring(n)), path, pl)) {
@@ -4281,9 +4695,9 @@ cf_ignore(char **names, LinkList ign, char *style, char *path)
 		    }
 		}
 		if (found || ((e = strrchr(c, '/')) && e > c + pl &&
-			      !ztat(c, &st, 0) && st.st_dev == nst.st_dev &&
+			      !ztat(c, &st, 1) && st.st_dev == nst.st_dev &&
 			      st.st_ino == nst.st_ino))
-		    addlinknode(ign, bslashquote(n, NULL, 0));
+		    addlinknode(ign, quotestring(n, NULL, QT_BACKSLASH));
 	    }
 	}
     }
@@ -4350,18 +4764,18 @@ static int
 bin_compfiles(char *nam, char **args, UNUSED(Options ops), UNUSED(int func))
 {
     if (incompfunc != 1) {
-	zwarnnam(nam, "can only be called from completion function", NULL, 0);
+	zwarnnam(nam, "can only be called from completion function");
 	return 1;
     }
     if (**args != '-') {
-	zwarnnam(nam, "missing option: %s", *args, 0);
+	zwarnnam(nam, "missing option: %s", *args);
 	return 1;
     }
     switch (args[0][1]) {
     case 'p':
     case 'P':
 	if (args[0][2] && (args[0][2] != '-' || args[0][3])) {
-	    zwarnnam(nam, "invalid option: %s", *args, 0);
+	    zwarnnam(nam, "invalid option: %s", *args);
 	    return 1;
 	} else {
 	    char **tmp;
@@ -4369,12 +4783,12 @@ bin_compfiles(char *nam, char **args, UNUSED(Options ops), UNUSED(int func))
 
 	    if (!args[1] || !args[2] || !args[3] || !args[4] || !args[5] ||
 		!args[6] || (args[0][1] == 'p' && !args[7])) {
-		zwarnnam(nam, "too few arguments", NULL, 0);
+		zwarnnam(nam, "too few arguments");
 		return 1;
 	    }
 	    queue_signals();
 	    if (!(tmp = getaparam(args[1]))) {
-		zwarnnam(nam, "unknown parameter: %s", args[1], 0);
+		zwarnnam(nam, "unknown parameter: %s", args[1]);
 		return 0;
 	    }
 	    for (l = newlinklist(); *tmp; tmp++)
@@ -4388,18 +4802,18 @@ bin_compfiles(char *nam, char **args, UNUSED(Options ops), UNUSED(int func))
 	}
     case 'i':
 	if (args[0][2]) {
-	    zwarnnam(nam, "invalid option: %s", *args, 0);
+	    zwarnnam(nam, "invalid option: %s", *args);
 	    return 1;
 	} else {
 	    char **tmp;
 	    LinkList l;
 
 	    if (!args[1] || !args[2] || !args[3] || !args[4]) {
-		zwarnnam(nam, "too few arguments", NULL, 0);
+		zwarnnam(nam, "too few arguments");
 		return 1;
 	    }
 	    if (args[5]) {
-		zwarnnam(nam, "too many arguments", NULL, 0);
+		zwarnnam(nam, "too many arguments");
 		return 1;
 	    }
 	    queue_signals();
@@ -4410,7 +4824,7 @@ bin_compfiles(char *nam, char **args, UNUSED(Options ops), UNUSED(int func))
 		    addlinknode(l, *tmp);
 	    if (!(tmp = getaparam(args[1]))) {
 		unqueue_signals();
-		zwarnnam(nam, "unknown parameter: %s", args[1], 0);
+		zwarnnam(nam, "unknown parameter: %s", args[1]);
 		return 0;
 	    }
 	    cf_ignore(tmp, l, args[3], args[4]);
@@ -4425,17 +4839,17 @@ bin_compfiles(char *nam, char **args, UNUSED(Options ops), UNUSED(int func))
 	    int ret = 0;
 
 	    if (!args[1] || !args[2]) {
-		zwarnnam(nam, "too few arguments", NULL, 0);
+		zwarnnam(nam, "too few arguments");
 		return 1;
 	    }
 	    if (args[3]) {
-		zwarnnam(nam, "too many arguments", NULL, 0);
+		zwarnnam(nam, "too many arguments");
 		return 1;
 	    }
 	    queue_signals();
 	    if (!(tmp = getaparam(args[1]))) {
 		unqueue_signals();
-		zwarnnam(nam, "unknown parameter: %s", args[1], 0);
+		zwarnnam(nam, "unknown parameter: %s", args[1]);
 		return 0;
 	    }
 	    if ((l = cf_remove_other(tmp, args[2], &ret)))
@@ -4444,7 +4858,7 @@ bin_compfiles(char *nam, char **args, UNUSED(Options ops), UNUSED(int func))
 	    return ret;
 	}
     }
-    zwarnnam(nam, "invalid option: %s", *args, 0);
+    zwarnnam(nam, "invalid option: %s", *args);
     return 1;
 }
 
@@ -4455,7 +4869,7 @@ bin_compgroups(char *nam, char **args, UNUSED(Options ops), UNUSED(int func))
     char *n;
 
     if (incompfunc != 1) {
-	zwarnnam(nam, "can only be called from completion function", NULL, 0);
+	zwarnnam(nam, "can only be called from completion function");
 	return 1;
     }
     SWITCHHEAPS(oldheap, compheap) {
@@ -4479,14 +4893,22 @@ bin_compgroups(char *nam, char **args, UNUSED(Options ops), UNUSED(int func))
 }
 
 static struct builtin bintab[] = {
-    BUILTIN("compdescribe", 0, bin_compdescribe, 3, -1, 0, NULL, NULL),
     BUILTIN("comparguments", 0, bin_comparguments, 1, -1, 0, NULL, NULL),
-    BUILTIN("compvalues", 0, bin_compvalues, 1, -1, 0, NULL, NULL),
+    BUILTIN("compdescribe", 0, bin_compdescribe, 3, -1, 0, NULL, NULL),
+    BUILTIN("compfiles", 0, bin_compfiles, 1, -1, 0, NULL, NULL),
+    BUILTIN("compgroups", 0, bin_compgroups, 1, -1, 0, NULL, NULL),
     BUILTIN("compquote", 0, bin_compquote, 1, -1, 0, "p", NULL),
     BUILTIN("comptags", 0, bin_comptags, 1, -1, 0, NULL, NULL),
     BUILTIN("comptry", 0, bin_comptry, 0, -1, 0, NULL, NULL),
-    BUILTIN("compfiles", 0, bin_compfiles, 1, -1, 0, NULL, NULL),
-    BUILTIN("compgroups", 0, bin_compgroups, 1, -1, 0, NULL, NULL),
+    BUILTIN("compvalues", 0, bin_compvalues, 1, -1, 0, NULL, NULL)
+};
+
+static struct features module_features = {
+    bintab, sizeof(bintab)/sizeof(*bintab),
+    NULL, 0,
+    NULL, 0,
+    NULL, 0,
+    0
 };
 
 
@@ -4506,17 +4928,31 @@ setup_(UNUSED(Module m))
 
 /**/
 int
+features_(Module m, char ***features)
+{
+    *features = featuresarray(m, &module_features);
+    return 0;
+}
+
+/**/
+int
+enables_(Module m, int **enables)
+{
+    return handlefeatures(m, &module_features, enables);
+}
+
+/**/
+int
 boot_(Module m)
 {
-    return !addbuiltins(m->nam, bintab, sizeof(bintab)/sizeof(*bintab));
+    return 0;
 }
 
 /**/
 int
 cleanup_(Module m)
 {
-    deletebuiltins(m->nam, bintab, sizeof(bintab)/sizeof(*bintab));
-    return 0;
+    return setfeatureenables(m, &module_features, NULL);
 }
 
 /**/

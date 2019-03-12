@@ -5,7 +5,7 @@
 
 local long cmd="$words[1]" descr odescr mesg subopts opt opt2 usecc autod
 local oldcontext="$curcontext" hasopts rawret optarg singopt alwopt
-local setnormarg
+local setnormarg start rest
 local -a match mbegin mend
 
 long=$argv[(I)--]
@@ -97,10 +97,19 @@ if (( long )); then
        # present.  Maybe the problem was that the intervening code
        # didn't.  If it's buggy without removing them, the problem
        # probably is later, not here.
-       if [[ -z ${tmp[(r)${match[1]%%[^a-zA-Z0-9-]#}]} ]]; then
-	 tmp+=($match[1])
+       start=${match[1]}
+       rest=${match[2]}
+       if [[ -z ${tmp[(r)${start%%[^a-zA-Z0-9_-]#}]} ]]; then
+	 # variant syntax seen in fetchmail:
+	 # --[fetch]all  means --fetchall or --all.
+	 # maybe needs to be more general
+	 if [[ $start = (#b)(*)\[(*)\](*) ]]; then
+	   tmp+=("${match[1]}${match[2]}${match[3]}" "${match[1]}${match[3]}")
+	 else
+	   tmp+=($start)
+	 fi
        fi
-       opt=$match[2]
+       opt=$rest
      done
      # If there's left over text, assume it's a description; it
      # may be truncated but if it's too long it's no use anyway.
@@ -218,9 +227,9 @@ if (( long )); then
 	    odescr=
 	  fi
 	  if [[ $opt = (#b)(*)\[\=* ]]; then
-	    opt2=${${match[1]}//[^a-zA-Z0-9-]}=-${dir}${odescr}
+	    opt2=${${match[1]}//[^a-zA-Z0-9_-]}=-${dir}${odescr}
 	  else
-	    opt2=${${opt}//[^a-zA-Z0-9-]}=${dir}${odescr}
+	    opt2=${${opt}//[^a-zA-Z0-9_-]}=${dir}${odescr}
 	  fi
 	  if [[ "$descr" = :\=* ]]; then
 	    cache+=( "${opt2}::${(L)${opt%\]}#*\=}: " )
@@ -247,7 +256,7 @@ if (( long )); then
 	  else
 	    odescr=
 	  fi
-	  opt2="${${opt%%\=*}//[^a-zA-Z0-9-]}=${dir}${odescr}"
+	  opt2="${${opt%%\=*}//[^a-zA-Z0-9_-]}=${dir}${odescr}"
 	  if [[ "$descr" = :\=* ]]; then
 	    cache+=( "${opt2}:${(L)${opt%\]}#*\=}: " )
 	  else
@@ -268,7 +277,7 @@ if (( long )); then
 	  # I discovered after about half an hour, so don't do that.
 	  "${(@)^${(@)tmp:#^*:*}//:/[}]"
 	  # commands with no description
-	  "${(@)${(@)tmp:#*:*}//[^a-zA-Z0-9-]}")
+	  "${(@)${(@)tmp:#*:*}//[^a-zA-Z0-9_-]}")
         if [[ -n "$descr" && "$descr" != ': :  ' ]]; then
 	  cache+=( "${(@)^tmp}${descr}" )
         else
@@ -335,6 +344,7 @@ if (( $# )) && comparguments -i "$autod" "$singopt[@]" "$@"; then
 
   context=()
   state=()
+  state_descr=()
 
   while true; do
     while _tags; do
@@ -367,6 +377,7 @@ if (( $# )) && comparguments -i "$autod" "$singopt[@]" "$@"; then
 	      if (( ! $state[(I)$action] )); then
                 comparguments -W line opt_args
                 state+=( "$action" )
+                state_descr+=( "$descr" )
 	        if [[ -n "$usecc" ]]; then
 	          curcontext="${oldcontext%:*}:$subc"
 	        else

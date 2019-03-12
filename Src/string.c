@@ -54,6 +54,24 @@ ztrdup(const char *s)
     return t;
 }
 
+/**/
+#ifdef MULTIBYTE_SUPPORT
+/**/
+mod_export wchar_t *
+wcs_ztrdup(const wchar_t *s)
+{
+    wchar_t *t;
+
+    if (!s)
+	return NULL;
+    t = (wchar_t *)zalloc(sizeof(wchar_t) * (wcslen((wchar_t *)s) + 1));
+    wcscpy(t, s);
+    return t;
+}
+/**/
+#endif /* MULTIBYTE_SUPPORT */
+
+
 /* concatenate s1, s2, and s3 in dynamically allocated buffer */
 
 /**/
@@ -91,7 +109,7 @@ zhtricat(char const *s1, char const *s2, char const *s3)
 
 /**/
 mod_export char *
-dyncat(char *s1, char *s2)
+dyncat(const char *s1, const char *s2)
 {
     /* This version always uses space from the current heap. */
     char *ptr;
@@ -117,7 +135,7 @@ bicat(const char *s1, const char *s2)
     return ptr;
 }
 
-/* like strdup(), but with a specified length */
+/* like dupstring(), but with a specified length */
 
 /**/
 mod_export char *

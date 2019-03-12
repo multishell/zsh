@@ -19,28 +19,30 @@ while getopts "k:" opt; do
 done
 (( OPTIND > 1 )) && shift $(( OPTIND - 1 ))
 
-local savelbuffer=$LBUFFER saverbuffer=$RBUFFER
-local savepredisplay=$PREDISPLAY savepostdisplay=$POSTDISPLAY
+local readprompt="$1" lbuf_init="$2" rbuf_init="$3"
 
-LBUFFER="$2"
-RBUFFER="$3"
-PREDISPLAY="$PREDISPLAY$savelbuffer$saverbuffer$POSTDISPLAY
-${1:-? }"
-POSTDISPLAY=
+# Use anonymous function to make sure special values get restored,
+# even if this function is called as a widget.
+# local +h ensures special parameters stay special.
+() {
+  local pretext="$PREDISPLAY$LBUFFER$RBUFFER$POSTDISPLAY
+"
+  local +h LBUFFER="$lbuf_init"
+  local +h RBUFFER="$rbuf_init"
+  local +h PREDISPLAY="$pretext${readprompt:-? }"
+  local +h POSTDISPLAY=
+  local +h -a region_highlight
+  region_highlight=("P${#pretext} ${#PREDISPLAY} bold")
 
-if [[ -n $keys ]]; then
-  zle -R
-  read -k $keys
-  stat=$?
-else
-  zle recursive-edit
-  stat=$?
-  (( stat )) || REPLY=$BUFFER
-fi
-
-LBUFFER=$savelbuffer
-RBUFFER=$saverbuffer
-PREDISPLAY=$savepredisplay
-POSTDISPLAY=$savepostdisplay
+  if [[ -n $keys ]]; then
+    zle -R
+    read -k $keys
+    stat=$?
+  else
+    zle recursive-edit -K main
+    stat=$?
+    (( stat )) || REPLY=$BUFFER
+  fi
+}
 
 return $stat

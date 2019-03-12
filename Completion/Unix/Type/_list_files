@@ -46,7 +46,7 @@ done
 
 (( ok )) || return 1
 
-zmodload -i zsh/stat 2>/dev/null || return 1
+zmodload -F zsh/stat b:zstat 2>/dev/null || return 1
 
 dir=${2:+$2/}
 dir=${(Q)dir}
@@ -58,7 +58,7 @@ for f in ${(PQ)1}; do
   fi
 
   # Borrowed from Functions/Example/zls
-  stat -s -H stat -F "%b %e %H:%M" - "$dir$f" >/dev/null 2>&1
+  zstat -s -H stat -F "%b %e %H:%M" - "$dir$f" >/dev/null 2>&1
 
   listfiles+=("$stat[mode] ${(l:3:)stat[nlink]} ${(r:8:)stat[uid]} \
  ${(r:8:)stat[gid]} ${(l:8:)stat[size]} $stat[mtime] $f")

@@ -48,7 +48,7 @@ getposint(char *instr, char *nam)
 
     ret = (int)zstrtol(instr, &eptr, 10);
     if (*eptr || ret < 0) {
-	zwarnnam(nam, "integer expected: %s", instr, 0);
+	zwarnnam(nam, "integer expected: %s", instr);
 	return -1;
     }
 
@@ -83,7 +83,7 @@ bin_sysread(char *nam, char **args, Options ops, UNUSED(int func))
     /* -o: output file descriptor, else store in REPLY */
     if (OPT_ISSET(ops, 'o')) {
 	if (*args) {
-	    zwarnnam(nam, "no argument allowed with -o", NULL, 0);
+	    zwarnnam(nam, "no argument allowed with -o");
 	    return 1;
 	}
 	outfd = getposint(OPT_ARG(ops, 'o'), nam);
@@ -102,7 +102,7 @@ bin_sysread(char *nam, char **args, Options ops, UNUSED(int func))
     if (OPT_ISSET(ops, 'c')) {
 	countvar = OPT_ARG(ops, 'c');
 	if (!isident(countvar)) {
-	    zwarnnam(nam, "not an identifier: %s", countvar, 0);
+	    zwarnnam(nam, "not an identifier: %s", countvar);
 	    return 1;
 	}
     }
@@ -116,7 +116,7 @@ bin_sysread(char *nam, char **args, Options ops, UNUSED(int func))
 	 */
 	outvar = *args;
 	if (!isident(outvar)) {
-	    zwarnnam(nam, "not an identifier: %s", outvar, 0);
+	    zwarnnam(nam, "not an identifier: %s", outvar);
 	    return 1;
 	}
     }
@@ -173,7 +173,7 @@ bin_sysread(char *nam, char **args, Options ops, UNUSED(int func))
 	    select_tv.tv_usec = 0;
 	}
 
-	while ((ret = select(infd+1, (SELECT_ARG_2_T) &fds, 
+	while ((ret = select(infd+1, (SELECT_ARG_2_T) &fds,
 			     NULL, NULL,&select_tv)) < 1) {
 	    if (errno != EINTR || errflag || retflag || breaks || contflag)
 		break;
@@ -252,7 +252,7 @@ bin_syswrite(char *nam, char **args, Options ops, UNUSED(int func))
     if (OPT_ISSET(ops, 'c')) {
 	countvar = OPT_ARG(ops, 'c');
 	if (!isident(countvar)) {
-	    zwarnnam(nam, "not an identifier: %s", countvar, 0);
+	    zwarnnam(nam, "not an identifier: %s", countvar);
 	    return 1;
 	}
     }
@@ -299,7 +299,7 @@ bin_syserror(char *nam, char **args, Options ops, UNUSED(int func))
     if (OPT_ISSET(ops, 'e')) {
 	errvar = OPT_ARG(ops, 'e');
 	if (!isident(errvar)) {
-	    zwarnnam(nam, "not an identifier: %s", errvar, 0);
+	    zwarnnam(nam, "not an identifier: %s", errvar);
 	    return 1;
 	}
     }
@@ -340,6 +340,211 @@ bin_syserror(char *nam, char **args, Options ops, UNUSED(int func))
     return 0;
 }
 
+/**/
+static int
+bin_zsystem_flock(char *nam, char **args, UNUSED(Options ops), UNUSED(int func))
+{
+    int cloexec = 1, unlock = 0, readlock = 0;
+    time_t timeout = 0;
+    char *fdvar = NULL;
+#ifdef HAVE_FCNTL_H
+    struct flock lck;
+    int flock_fd, flags;
+#endif
+
+    while (*args && **args == '-') {
+	int opt;
+	char *optptr = *args + 1, *optarg;
+	args++;
+	if (!*optptr || !strcmp(optptr, "-"))
+	    break;
+	while ((opt = *optptr)) {
+	    switch (opt) {
+	    case 'e':
+		/* keep lock on "exec" */
+		cloexec = 0;
+		break;
+
+	    case 'f':
+		/* variable for fd */
+		if (optptr[1]) {
+		    fdvar = optptr + 1;
+		    optptr += strlen(fdvar) - 1;
+		} else if (*args) {
+		    fdvar = *args++;
+		}
+		if (fdvar == NULL || !isident(fdvar)) {
+		    zwarnnam(nam, "flock: option %c requires a variable name",
+			     opt);
+		    return 1;
+		}
+		break;
+
+	    case 'r':
+		/* read lock rather than read-write lock */
+		readlock = 1;
+		break;
+
+	    case 't':
+		/* timeout in seconds */
+		if (optptr[1]) {
+		    optarg = optptr + 1;
+		    optptr += strlen(optarg) - 1;
+		} else if (!*args) {
+		    zwarnnam(nam, "flock: option %c requires a numeric timeout",
+			     opt);
+		    return 1;
+		} else {
+		    optarg = *args++;
+		}
+		timeout = (time_t)mathevali(optarg);
+		break;
+
+	    case 'u':
+		/* unlock: argument is fd */
+		unlock = 1;
+		break;
+
+	    default:
+		zwarnnam(nam, "flock: unknown option: %c", *optptr);
+		return 1;
+	    }
+	    optptr++;
+	}
+    }
+
+
+    if (!args[0]) {
+	zwarnnam(nam, "flock: not enough arguments");
+	return 1;
+    }
+    if (args[1]) {
+	zwarnnam(nam, "flock: too many arguments");
+	return 1;
+    }
+
+#ifdef HAVE_FCNTL_H
+    if (unlock) {
+	flock_fd = (int)mathevali(args[0]);
+	if (zcloselockfd(flock_fd) < 0) {
+	    zwarnnam(nam, "flock: file descriptor %d not in use for locking",
+		     flock_fd);
+	    return 1;
+	}
+	return 0;
+    }
+
+    if (readlock)
+	flags = O_RDONLY | O_NOCTTY;
+    else
+	flags = O_RDWR | O_NOCTTY;
+    if ((flock_fd = open(unmeta(args[0]), flags)) < 0) {
+	zwarnnam(nam, "failed to open %s for writing: %e", args[0], errno);
+	return 1;
+    }
+    flock_fd = movefd(flock_fd);
+    if (flock_fd == -1)
+	return 1;
+#ifdef FD_CLOEXEC
+    if (cloexec)
+    {
+	long fdflags = fcntl(flock_fd, F_GETFD, 0);
+	if (fdflags != (long)-1)
+	    fcntl(flock_fd, F_SETFD, fdflags | FD_CLOEXEC);
+    }
+#endif
+    addlockfd(flock_fd, cloexec);
+
+    lck.l_type = readlock ? F_RDLCK : F_WRLCK;
+    lck.l_whence = SEEK_SET;
+    lck.l_start = 0;
+    lck.l_len = 0;  /* lock the whole file */
+
+    if (timeout > 0) {
+	time_t end = time(NULL) + (time_t)timeout;
+	while (fcntl(flock_fd, F_SETLK, &lck) < 0) {
+	    if (errflag)
+		return 1;
+	    if (errno != EINTR && errno != EACCES && errno != EAGAIN) {
+		zwarnnam(nam, "failed to lock file %s: %e", args[0], errno);
+		return 1;
+	    }
+	    if (time(NULL) >= end)
+		return 2;
+	    sleep(1);
+	}
+    } else {
+	while (fcntl(flock_fd, F_SETLKW, &lck) < 0) {
+	    if (errflag)
+		return 1;
+	    if (errno == EINTR)
+		continue;
+	    zwarnnam(nam, "failed to lock file %s: %e", args[0], errno);
+	    return 1;
+	}
+    }
+
+    if (fdvar)
+	setiparam(fdvar, flock_fd);
+
+    return 0;
+#else /* HAVE_FCNTL_H */
+    zwarnnam(nam, "flock: not implemented on this system");
+    return 255;
+#endif /* HAVE_FCNTL_H */
+}
+
+
+/*
+ * Return status zero if the zsystem feature is supported, else 1.
+ * Operates silently for future-proofing.
+ */
+/**/
+static int
+bin_zsystem_supports(char *nam, char **args,
+		     UNUSED(Options ops), UNUSED(int func))
+{
+    if (!args[0]) {
+	zwarnnam(nam, "supports: not enough arguments");
+	return 255;
+    }
+    if (args[1]) {
+	zwarnnam(nam, "supports: too many arguments");
+	return 255;
+    }
+
+    /* stupid but logically this should work... */
+    if (!strcmp(*args, "supports"))
+	return 0;
+#ifdef HAVE_FCNTL_H
+    if (!strcmp(*args, "flock"))
+	return 0;
+#endif
+    return 1;
+}
+
+
+/**/
+static int
+bin_zsystem(char *nam, char **args, Options ops, int func)
+{
+    /* If more commands are implemented, this can be more sophisticated */
+    if (!strcmp(*args, "flock")) {
+	return bin_zsystem_flock(nam, args+1, ops, func);
+    } else if (!strcmp(*args, "supports")) {
+	return bin_zsystem_supports(nam, args+1, ops, func);
+    }
+    zwarnnam(nam, "unknown subcommand: %s", *args);
+    return 1;
+}
+
+static struct builtin bintab[] = {
+    BUILTIN("syserror", 0, bin_syserror, 0, 1, 0, "e:p:", NULL),
+    BUILTIN("sysread", 0, bin_sysread, 0, 1, 0, "c:i:o:s:t:", NULL),
+    BUILTIN("syswrite", 0, bin_syswrite, 1, 1, 0, "c:o:", NULL),
+    BUILTIN("zsystem", 0, bin_zsystem, 1, -1, 0, NULL, NULL)
+};
+
 
 /* Functions for the errnos special parameter. */
 
@@ -351,15 +556,76 @@ errnosgetfn(UNUSED(Param pm))
     return arrdup((char **)sys_errnames);
 }
 
-
-static struct builtin bintab[] = {
-    BUILTIN("syserror", 0, bin_syserror, 0, 1, 0, "e:p:", NULL),
-    BUILTIN("sysread", 0, bin_sysread, 0, 1, 0, "c:i:o:s:t:", NULL),
-    BUILTIN("syswrite", 0, bin_syswrite, 1, 1, 0, "c:o:", NULL),
-};
-
 static const struct gsu_array errnos_gsu =
 { errnosgetfn, arrsetfn, stdunsetfn };
+
+
+/* Functions for the sysparams special parameter. */
+
+/**/
+static void
+fillpmsysparams(Param pm, const char *name)
+{
+    char buf[DIGBUFSIZE];
+    int num;
+
+    pm->node.nam = dupstring(name);
+    pm->node.flags = PM_SCALAR | PM_READONLY;
+    pm->gsu.s = &nullsetscalar_gsu;
+    if (!strcmp(name, "pid")) {
+	num = (int)getpid();
+    } else if (!strcmp(name, "ppid")) {
+	num = (int)getppid();
+    } else {
+	pm->u.str = dupstring("");
+	pm->node.flags |= PM_UNSET;
+	return;
+    }
+
+    sprintf(buf, "%d", num);
+    pm->u.str = dupstring(buf);
+}
+
+
+/**/
+static HashNode
+getpmsysparams(UNUSED(HashTable ht), const char *name)
+{
+    Param pm;
+
+    pm = (Param) hcalloc(sizeof(struct param));
+    fillpmsysparams(pm, name);
+    return &pm->node;
+}
+
+
+/**/
+static void
+scanpmsysparams(UNUSED(HashTable ht), ScanFunc func, int flags)
+{
+    struct param spm;
+
+    fillpmsysparams(&spm, "pid");
+    func(&spm.node, flags);
+    fillpmsysparams(&spm, "ppid");
+    func(&spm.node, flags);
+}
+
+
+static struct paramdef partab[] = {
+    SPECIALPMDEF("errnos", PM_ARRAY|PM_READONLY,
+		 &errnos_gsu, NULL, NULL),
+    SPECIALPMDEF("sysparams", PM_READONLY,
+		 NULL, getpmsysparams, scanpmsysparams)
+};
+
+static struct features module_features = {
+    bintab, sizeof(bintab)/sizeof(*bintab),
+    NULL, 0,
+    NULL, 0,
+    partab, sizeof(partab)/sizeof(*partab),
+    0
+};
 
 /* The load/unload routines required by the zsh library interface */
 
@@ -371,33 +637,24 @@ setup_(UNUSED(Module m))
 }
 
 /**/
-static void
-tidyparam(Param pm)
+int
+features_(Module m, char ***features)
 {
-    if (!pm)
-	return;
-    pm->flags &= ~PM_READONLY;
-    unsetparam_pm(pm, 0, 1);
+    *features = featuresarray(m, &module_features);
+    return 0;
 }
 
+/**/
+int
+enables_(Module m, int **enables)
+{
+    return handlefeatures(m, &module_features, enables);
+}
 
 /**/
 int
 boot_(Module m)
 {
-    Param pm_nos;
-
-    /* this takes care of an autoload on errnos */
-    unsetparam("errnos");
-    if (!(pm_nos = createparam("errnos", PM_ARRAY|PM_SPECIAL|PM_READONLY|
-			       PM_HIDE|PM_HIDEVAL|PM_REMOVABLE)))
-	return 1;
-    pm_nos->gsu.a = &errnos_gsu;
-
-    if (!addbuiltins(m->nam, bintab, sizeof(bintab)/sizeof(*bintab))) {
-	tidyparam(pm_nos);
-	return 1;
-    }
     return 0;
 }
 
@@ -406,10 +663,7 @@ boot_(Module m)
 int
 cleanup_(Module m)
 {
-    tidyparam((Param)paramtab->getnode(paramtab, "errnos"));
-
-    deletebuiltins(m->nam, bintab, sizeof(bintab)/sizeof(*bintab));
-    return 0;
+    return setfeatureenables(m, &module_features, NULL);
 }
 
 /**/

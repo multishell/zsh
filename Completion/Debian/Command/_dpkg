@@ -49,7 +49,6 @@ _dpkg_actions=(
   '--set-selections[set selections]'
   '--yet-to-unpack[list uninstalled]'
   '--print-architecture[print target architecture]'
-  '--print-gnu-build-architecture'
   '--print-installation-architecture'
   '--compare-versions[compare version numbers]:*::expression:= ->compare_versions'
 )
@@ -68,13 +67,13 @@ _dpkg_options=(
   '-D+[debug options]:debug options:(h 1 2 3)'
   '--debug=[debug options]:debug options:(help 1 2 3)'
   '--ignore-depends=[ignore depends involving package]:package:_deb_packages avail'
-  --{force,refuse,no-force}'--[forcing options]:what:(auto-select downgrade configure-any hold bad-path not-root overwrite overwrite-diverted depends-version depends confnew confold confdef confmiss conflicts architecture overwrite-dir remove-reinstreq remove-essential)'
+  --{force,refuse,no-force}'--[forcing options]:what:(all downgrade configure-any hold bad-path not-root overwrite overwrite-diverted bad-verify depends-version depends confnew confold confdef confmiss conflicts architecture overwrite-dir remove-reinstreq remove-essential help)'
 )
 
 _dpkg_options_recursive=( '(--recursive -R)'{--recursive,-R}'[recursive]' )
 
 _dpkg_deb_and_query_only_actions=(
-    '(--show -W)'{--show,-W}'[show package info]:Debian package:_files -g \*.u\#deb'
+    '(--show -W)'{--show,-W}'[show package info]:Debian package:_files -g \*.u\#deb\(-.\)'
 )
 
 _dpkg_deb_and_query_only_options=(
@@ -121,7 +120,7 @@ case "$service" in
            "$_dpkg_deb_and_query_only_options[@]" && return 0
   ;;
   dpkg-reconfigure)
-    _arguments -sw \
+    _arguments -s -w \
       '(-f --frontend)'{-f,--frontend}'[select frontend to use]:frontend:(dialog readline noninteractive gnome kde editor web)' \
       '(-p --priority)'{-p,--priority}'[specify min priority of questions]:priority:(low medium high critical)' \
       '--default-priority[use default question priority]' \

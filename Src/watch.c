@@ -87,6 +87,14 @@
 
 #if !defined(WATCH_STRUCT_UTMP) && defined(HAVE_STRUCT_UTMPX) && defined(REAL_UTMPX_FILE)
 # define WATCH_STRUCT_UTMP struct utmpx
+/*
+ * In utmpx, the ut_name field is replaced by ut_user.
+ * Howver, on some systems ut_name may already be defined this
+ * way for the purposes of utmp.
+ */
+# ifndef ut_name
+#  define ut_name ut_user
+# endif
 # ifdef HAVE_STRUCT_UTMPX_UT_XTIME
 #  undef ut_time
 #  define ut_time ut_xtime
@@ -102,9 +110,6 @@
 # endif
 # ifdef HAVE_STRUCT_UTMPX_UT_HOST
 #  define WATCH_UTMP_UT_HOST 1
-# endif
-# ifdef __APPLE__
-#  define ut_name ut_user
 # endif
 #endif
 
@@ -333,31 +338,27 @@ watchlog2(int inout, WATCH_STRUCT_UTMP *u, char *fmt, int prnt, int fini)
 		    break;
 		case 'S':
 		    txtset(TXTSTANDOUT);
-		    tsetcap(TCSTANDOUTBEG, -1);
+		    tsetcap(TCSTANDOUTBEG, TSC_RAW);
 		    break;
 		case 's':
-		    txtset(TXTDIRTY);
 		    txtunset(TXTSTANDOUT);
-		    tsetcap(TCSTANDOUTEND, -1);
+		    tsetcap(TCSTANDOUTEND, TSC_RAW|TSC_DIRTY);
 		    break;
 		case 'B':
-		    txtset(TXTDIRTY);
 		    txtset(TXTBOLDFACE);
-		    tsetcap(TCBOLDFACEBEG, -1);
+		    tsetcap(TCBOLDFACEBEG, TSC_RAW|TSC_DIRTY);
 		    break;
 		case 'b':
-		    txtset(TXTDIRTY);
 		    txtunset(TXTBOLDFACE);
-		    tsetcap(TCALLATTRSOFF, -1);
+		    tsetcap(TCALLATTRSOFF, TSC_RAW|TSC_DIRTY);
 		    break;
 		case 'U':
 		    txtset(TXTUNDERLINE);
-		    tsetcap(TCUNDERLINEBEG, -1);
+		    tsetcap(TCUNDERLINEBEG, TSC_RAW);
 		    break;
 		case 'u':
-		    txtset(TXTDIRTY);
 		    txtunset(TXTUNDERLINE);
-		    tsetcap(TCUNDERLINEEND, -1);
+		    tsetcap(TCUNDERLINEEND, TSC_RAW|TSC_DIRTY);
 		    break;
 		default:
 		    putchar('%');

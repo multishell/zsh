@@ -105,6 +105,8 @@ typedef union upat *Upat;
 #define P_GFLAGS  0x08	/* long Match nothing and set globbing flags */
 #define P_ISSTART 0x09  /* no   Match start of string. */
 #define P_ISEND   0x0a  /* no   Match end of string. */
+#define P_COUNTSTART 0x0b /* no Initialise P_COUNT */
+#define P_COUNT   0x0c  /* 3*long uc* node Match a number of repetitions */
 /* numbered so we can test bit 5 for a branch */
 #define	P_BRANCH  0x20	/* node	Match this alternative, or the next... */
 #define	P_WBRANCH 0x21	/* uc* node P_BRANCH, but match at least 1 char */
@@ -179,26 +181,18 @@ typedef union upat *Upat;
  *   for top level file globs, e.g. ** / *.c~*foo.c
  *                                    ^ I had to leave this space
  * P_NUM*: zl is a zlong if that is 64-bit, else an unsigned long.
+ *
+ * P_COUNTSTART, P_COUNT: a P_COUNTSTART flags the start of a quantified
+ * closure (#cN,M) and is used to initialise the count.  Executing
+ * the pattern leads back to the P_COUNT, while the next links of the
+ * P_COUNTSTART and P_COUNT lead to the tail of the pattern:
+ *
+ *	       	        ----------------
+ *     	       	       v       	        ^
+ *        <COUNTSTART><COUNT>pattern<BACK> tail
+ *	     	    v      v  	  	    ^
+ *	            ------------------------
  */
-#define PP_ALPHA  1
-#define PP_ALNUM  2
-#define PP_ASCII  3
-#define PP_BLANK  4
-#define PP_CNTRL  5
-#define PP_DIGIT  6
-#define PP_GRAPH  7
-#define PP_LOWER  8
-#define PP_PRINT  9
-#define PP_PUNCT  10
-#define PP_SPACE  11
-#define PP_UPPER  12
-#define PP_XDIGIT 13
-#define PP_IDENT  14
-#define PP_IFS    15
-#define PP_IFSSPACE   16
-#define PP_WORD   17
-#define PP_UNKWN  18
-#define PP_RANGE  19
 
 #define	P_OP(p)		((p)->l & 0xff)
 #define	P_NEXT(p)	((p)->l >> 8)
@@ -211,26 +205,17 @@ typedef union upat *Upat;
 #define P_LS_LEN(p)	((p)[1].l) /* can be used as lvalue */
 #define P_LS_STR(p)	((char *)((p) + 2))
 
+/* Specific to P_COUNT: arguments as offset in nodes from operator */
+#define P_CT_CURRENT	(1)	/* Current count */
+#define P_CT_MIN	(2)     /* Minimum count */
+#define P_CT_MAX	(3)	/* Maximum count, -1 for none */
+#define P_CT_PTR	(4)	/* Pointer to last match start */
+#define P_CT_OPERAND	(5)	/* Operand of P_COUNT */
+
 /* Flags needed when pattern is executed */
 #define P_SIMPLE        0x01	/* Simple enough to be #/## operand. */
 #define P_HSTART        0x02	/* Starts with # or ##'d pattern. */
 #define P_PURESTR	0x04	/* Can be matched with a strcmp */
-
-/*
- * Increment pointer which may be on a Meta (x is a pointer variable),
- * returning the incremented value (i.e. like pre-increment).
- *
- * In future the following will need to refer to metafied multibyte
- * characters.  References to invidual characters are not turned
- * into a macro when the characters is metafied (c.f. CHARREF()
- * below then the character is not metafied) and will need tracking
- * down.
- */
-#define METAINC(x)	((x) += (*(x) == Meta) ? 2 : 1)
-/*
- * Return unmetafied char from string (x is any char *)
- */
-#define UNMETA(x)	(*(x) == Meta ? (x)[1] ^ 32 : *(x))
 
 #if defined(ZSH_64_BIT_TYPE) || defined(LONG_IS_64_BIT)
 typedef zlong zrange_t;
@@ -287,6 +272,95 @@ static int patendstrlen;	/* length of sameo */
 /* Flags used in both compilation and execution */
 static int patflags;		    /* flags passed down to patcompile */
 static int patglobflags;  /* globbing flags & approx */
+
+/*
+ * Increment pointer to metafied multibyte string.
+ */
+#ifdef MULTIBYTE_SUPPORT
+typedef wint_t patint_t;
+
+#define PEOF WEOF
+
+#define METACHARINC(x) ((void)metacharinc(&x))
+
+/*
+ * TODO: the shiftstate isn't well handled; we don't guarantee
+ * to maintain it properly between characters.  If we don't
+ * need it we should use mbtowc() instead.
+ */
+static mbstate_t shiftstate;
+
+/*
+ * Multibyte version: it's (almost) as easy to return the
+ * value as not, so do so since we sometimes need it..
+ */
+static wchar_t
+metacharinc(char **x)
+{
+    char *inptr = *x;
+    char inchar;
+    size_t ret = MB_INVALID;
+    wchar_t wc;
+
+    /*
+     * Cheat if the top bit isn't set.  This is second-guessing
+     * the library, but we know for sure that if the character
+     * set doesn't have the property that all bytes with the 8th
+     * bit clear are single characters then we are stuffed.
+     */
+    if (!(patglobflags & GF_MULTIBYTE) || !(STOUC(*inptr) & 0x80))
+    {
+	if (itok(*inptr))
+	    inchar = ztokens[*inptr++ - Pound];
+	else if (*inptr == Meta) {
+	    inptr++;
+	    inchar = *inptr++ ^ 32;
+	} else {
+	    inchar = *inptr++;
+	}
+	*x = inptr;
+	return (wchar_t)STOUC(inchar);
+    }
+
+    while (*inptr) {
+	if (itok(*inptr))
+	    inchar = ztokens[*inptr++ - Pound];
+	else if (*inptr == Meta) {
+	    inptr++;
+	    inchar = *inptr++ ^ 32;
+	} else {
+	    inchar = *inptr++;
+	}
+	ret = mbrtowc(&wc, &inchar, 1, &shiftstate);
+
+	if (ret == MB_INVALID)
+	    break;
+	if (ret == MB_INCOMPLETE)
+	    continue;
+	*x = inptr;
+	return wc;
+    }
+
+    /* Error.  Treat as single byte. */
+    /* Reset the shift state for next time. */
+    memset(&shiftstate, 0, sizeof(shiftstate));
+    return (wchar_t) STOUC(*(*x)++);
+}
+
+#else
+typedef int patint_t;
+
+#define PEOF EOF
+
+#define METACHARINC(x)	((void)((x) += (*(x) == Meta) ? 2 : 1))
+#endif
+
+/*
+ * Return unmetafied char from string (x is any char *).
+ * Used with MULTIBYTE_SUPPORT if the GF_MULTIBYTE is not
+ * in effect.
+ */
+#define UNMETA(x)	(*(x) == Meta ? (x)[1] ^ 32 : *(x))
 
 /* Add n more characters, ensuring there is enough space. */
 
@@ -353,6 +427,8 @@ patcompstart(void)
 	patglobflags = 0;
     else
 	patglobflags = GF_IGNCASE;
+    if (isset(MULTIBYTE))
+	patglobflags |= GF_MULTIBYTE;
 }
 
 /*
@@ -404,8 +480,13 @@ patcompile(char *exp, int inflags, char **endexp)
 	patendseglen--;
 	patendstrlen--;
 	remnulargs(patparse);
-	patglobflags = 0;
+	if (isset(MULTIBYTE))
+	    patglobflags = GF_MULTIBYTE;
+	else
+	    patglobflags = 0;
     }
+    if (patflags & PAT_LCMATCHUC)
+	patglobflags |= GF_LCMATCHUC;
     /*
      * Have to be set now, since they get updated during compilation.
      */
@@ -413,7 +494,7 @@ patcompile(char *exp, int inflags, char **endexp)
 
     if (!(patflags & PAT_ANY)) {
 	/* Look for a really pure string, with no tokens at all. */
-	if (!patglobflags
+	if (!(patglobflags & ~GF_MULTIBYTE)
 #ifdef __CYGWIN__
 	    /*
 	     * If the OS treats files case-insensitively and we
@@ -517,7 +598,7 @@ patcompile(char *exp, int inflags, char **endexp)
 			while (oplen--) {
 			    if (imeta(*opnd)) {
 				*dst++ = Meta;
-				*dst++ = *opnd ^ 32;
+				*dst++ = *opnd++ ^ 32;
 			    } else {
 				*dst++ = *opnd++;
 			    }
@@ -587,7 +668,8 @@ patcompswitch(int paren, int *flagp)
 {
     long starter, br, ender, excsync = 0;
     int parno = 0;
-    int flags, gfchanged = 0, savglobflags = patglobflags;
+    int flags, gfchanged = 0;
+    long savglobflags = (long)patglobflags;
     Upat ptr;
 
     *flagp = 0;
@@ -607,7 +689,7 @@ patcompswitch(int paren, int *flagp)
     br = patnode(P_BRANCH);
     if (!patcompbranch(&flags))
 	return 0;
-    if (patglobflags != savglobflags)
+    if (patglobflags != (int)savglobflags)
 	gfchanged++;
     if (starter)
 	pattail(starter, br);
@@ -688,7 +770,7 @@ patcompswitch(int paren, int *flagp)
 		     * no top-level |'s.
 		     *
 		     * No gfchanged, as nothing to follow branch at top
-		     * level. 
+		     * level.
 		     */
 		    union upat up;
 		    gfnode = patnode(P_GFLAGS);
@@ -696,7 +778,7 @@ patcompswitch(int paren, int *flagp)
 		    patadd((char *)&up, 0, sizeof(union upat), 0);
 		}
 	    } else {
-		patglobflags = savglobflags;
+		patglobflags = (int)savglobflags;
 	    }
 	}
 	newbr = patcompbranch(&flags);
@@ -711,7 +793,7 @@ patcompswitch(int paren, int *flagp)
 	    return 0;
 	if (gfnode)
 	    pattail(gfnode, newbr);
-	if (!tilde && patglobflags != savglobflags)
+	if (!tilde && patglobflags != (int)savglobflags)
 	    gfchanged++;
 	pattail(starter, br);
 	if (excsync)
@@ -750,7 +832,7 @@ patcompswitch(int paren, int *flagp)
 	 * a later branch happened to put the flags back.
 	 */
 	pattail(ender, patnode(P_GFLAGS));
-	patglobflags = savglobflags;
+	patglobflags = (int)savglobflags;
 	patadd((char *)&savglobflags, 0, sizeof(long), 0);
     }
 
@@ -870,7 +952,7 @@ patgetglobflags(char **strp, long *assertp, int *ignore)
     *ignore = 1;
     /* (#X): assumes we are still positioned on the first X */
     for (; *ptr && *ptr != Outpar; ptr++) {
-	if (*ptr == 'q') { 
+	if (*ptr == 'q') {
 	    /* Glob qualifiers, ignored in pattern code */
 	    while (*ptr && *ptr != Outpar)
 		ptr++;
@@ -935,6 +1017,14 @@ patgetglobflags(char **strp, long *assertp, int *ignore)
 		*assertp = P_ISEND;
 		break;
 
+	    case 'u':
+		patglobflags |= GF_MULTIBYTE;
+		break;
+
+	    case 'U':
+		patglobflags &= ~GF_MULTIBYTE;
+		break;
+
 	    default:
 		return 0;
 	    }
@@ -949,6 +1039,127 @@ patgetglobflags(char **strp, long *assertp, int *ignore)
     return 1;
 }
 
+
+static const char *colon_stuffs[]  = {
+    "alpha", "alnum", "ascii", "blank", "cntrl", "digit", "graph", 
+    "lower", "print", "punct", "space", "upper", "xdigit", "IDENT",
+    "IFS", "IFSSPACE", "WORD", NULL
+};
+
+/*
+ * Handle the guts of a [:stuff:] character class element.
+ * start is the beginning of "stuff" and len is its length.
+ * This code is exported for the benefit of completion matching.
+ */
+
+/**/
+mod_export int
+range_type(char *start, int len)
+{
+    const char **csp;
+
+    for (csp = colon_stuffs; *csp; csp++) {
+	if (!strncmp(start, *csp, len))
+	    return (csp - colon_stuffs) + PP_FIRST;
+    }
+
+    return PP_UNKWN;
+}
+
+
+/*
+ * Convert the contents of a [...] or [^...] expression (just the
+ * ... part) back into a string.  This is used by compfiles -p/-P
+ * for some reason.  The compiled form (a metafied string) is
+ * passed in rangestr.
+ *
+ * If outstr is non-NULL the compiled form is placed there.  It
+ * must be sufficiently long.  A terminating NULL is appended.
+ *
+ * Return the length required, not including the terminating NULL.
+ *
+ * TODO: this is non-multibyte for now.  It will need to be defined
+ * appropriately with MULTIBYTE_SUPPORT when the completion matching
+ * code catches up.
+ */
+
+/**/
+mod_export int
+pattern_range_to_string(char *rangestr, char *outstr)
+{
+    int len = 0;
+
+    while (*rangestr) {
+	if (imeta(STOUC(*rangestr))) {
+	    int swtype = STOUC(*rangestr) - STOUC(Meta);
+
+	    if (swtype == 0) {
+		/* Ordindary metafied character */
+		if (outstr)
+		{
+		    *outstr++ = Meta;
+		    *outstr++ = rangestr[1] ^ 32;
+		}
+		len += 2;
+		rangestr += 2;
+	    } else if (swtype == PP_RANGE) {
+		/* X-Y range */
+		int i;
+
+		for (i = 0; i < 2; i++) {
+		    if (*rangestr == Meta) {
+			if (outstr) {
+			    *outstr++ = Meta;
+			    *outstr++ = rangestr[1];
+			}
+			len += 2;
+			rangestr += 2;
+		    } else {
+			if (outstr)
+			    *outstr++ = *rangestr;
+			len++;
+			rangestr++;
+		    }
+
+		    if (i == 0) {
+			if (outstr)
+			    *outstr++ = '-';
+			len++;
+		    }
+		}
+	    } else if (swtype >= PP_FIRST && swtype <= PP_LAST) {
+		/* [:stuff:]; we need to output [: and :] */
+		const char *found = colon_stuffs[swtype - PP_FIRST];
+		int newlen = strlen(found);
+		if (outstr) {
+		    strcpy(outstr, "[:");
+		    outstr += 2;
+		    memcpy(outstr, found, newlen);
+		    outstr += newlen;
+		    strcpy(outstr, ":]");
+		    outstr += 2;
+		}
+		len += newlen + 4;
+		rangestr++;
+	    } else {
+		/* shouldn't happen */
+		DPUTS(1, "BUG: unknown PP_ code in pattern range");
+		rangestr++;
+	    }
+	} else {
+	    /* ordinary character, guaranteed no Meta handling needed */
+	    if (outstr)
+		*outstr++ = *rangestr;
+	    len++;
+	    rangestr++;
+	}
+    }
+
+    if (outstr)
+	*outstr = '\0';
+    return len;
+}
+
 /*
  * compile a chunk such as a literal string or a [...] followed
  * by a possible hash operator
@@ -958,14 +1169,16 @@ patgetglobflags(char **strp, long *assertp, int *ignore)
 static long
 patcomppiece(int *flagp)
 {
-    long starter = 0, next, pound, op;
+    long starter = 0, next, op, opnd;
     int flags, flags2, kshchar, len, ch, patch, nmeta;
+    int pound, count;
     union upat up;
-    char *nptr, *str0, *ptr, cbuf[2];
+    char *nptr, *str0, *ptr, *patprev;
     zrange_t from, to;
+    char *charstart;
 
     flags = 0;
-    str0 = patparse;
+    str0 = patprev = patparse;
     for (;;) {
 	/*
 	 * Check if we have a string. First, we need to make sure
@@ -992,7 +1205,9 @@ patcomppiece(int *flagp)
 			 !memchr(patendseg, patparse[1], patendseglen))))
 	    break;
 
-	METAINC(patparse);
+	/* Remember the previous character for backtracking */
+	patprev = patparse;
+	METACHARINC(patparse);
     }
 
     if (patparse > str0) {
@@ -1007,13 +1222,16 @@ patcomppiece(int *flagp)
 	flags |= P_PURESTR;
 	DPUTS(patparse == str0, "BUG: matched nothing in patcomppiece.");
 	/* more than one character matched? */
-	morelen = str0 + (*str0 == Meta ? 2 : 1) < patparse;
+	morelen = (patprev > str0);
 	/*
-	 * If we have more than one character, a following hash only
-	 * applies to the last, so decrement.
+	 * If we have more than one character, a following hash
+	 * or (#c...) only applies to the last, so backtrack one character.
 	 */
-	if (isset(EXTENDEDGLOB) && *patparse == Pound && morelen)
-	    patparse -= (patparse > str0 + 1 && patparse[-2] == Meta) ? 2 : 1;
+	if (isset(EXTENDEDGLOB) &&
+	    (*patparse == Pound ||
+	     (*patparse == Inpar && patparse[1] == Pound &&
+	      patparse[2] == 'c')) && morelen)
+	    patparse = patprev;
 	/*
 	 * If len is 1, we can't have an active # following, so doesn't
 	 * matter that we don't make X in `XX#' simple.
@@ -1054,7 +1272,26 @@ patcomppiece(int *flagp)
 	 * ..(#a1).. (i.e. the (#a1) has no effect), but if you're
 	 * going to write funny patterns, you get no sympathy from me.
 	 */
-	if (patglobflags) {
+	if (patglobflags &
+#ifdef __CYGWIN__
+	    /*
+	     * As above: don't use pattern matching for files
+	     * just because of case insensitivity if file system
+	     * is known to be case insensitive.
+	     *
+	     * This is known to be necessary in at least one case:
+	     * if "mount -c /" is in effect, so that drives appear
+	     * directly under / instead of the usual /cygdrive, they
+	     * aren't shown by readdir().  So it's vital we don't use
+	     * globbing to find "/c", since that'll fail.
+	     */
+	    ((patflags & PAT_FILE) ?
+	    (0xFF|GF_LCMATCHUC) :
+	    (0xFF|GF_LCMATCHUC|GF_IGNCASE))
+#else
+	    (0xFF|GF_LCMATCHUC|GF_IGNCASE)
+#endif
+	    ) {
 	    if (!(patflags & PAT_FILE))
 		flags &= ~P_PURESTR;
 	    else if (!(nptr[0] == '.' &&
@@ -1066,7 +1303,7 @@ patcomppiece(int *flagp)
 	    patparse++;
 
 	patch = *patparse;
-	METAINC(patparse);
+	METACHARINC(patparse);
 	switch(patch) {
 	case Quest:
 	    flags |= P_SIMPLE;
@@ -1096,68 +1333,33 @@ patcomppiece(int *flagp)
 			/* Posix range. */
 			patparse += 2;
 			len = nptr - patparse;
-			if (!strncmp(patparse, "alpha", len))
-			    ch = PP_ALPHA;
-			else if (!strncmp(patparse, "alnum", len))
-			    ch = PP_ALNUM;
-			else if (!strncmp(patparse, "ascii", len))
-			    ch = PP_ASCII;
-			else if (!strncmp(patparse, "blank", len))
-			    ch = PP_BLANK;
-			else if (!strncmp(patparse, "cntrl", len))
-			    ch = PP_CNTRL;
-			else if (!strncmp(patparse, "digit", len))
-			    ch = PP_DIGIT;
-			else if (!strncmp(patparse, "graph", len))
-			    ch = PP_GRAPH;
-			else if (!strncmp(patparse, "lower", len))
-			    ch = PP_LOWER;
-			else if (!strncmp(patparse, "print", len))
-			    ch = PP_PRINT;
-			else if (!strncmp(patparse, "punct", len))
-			    ch = PP_PUNCT;
-			else if (!strncmp(patparse, "space", len))
-			    ch = PP_SPACE;
-			else if (!strncmp(patparse, "upper", len))
-			    ch = PP_UPPER;
-			else if (!strncmp(patparse, "xdigit", len))
-			    ch = PP_XDIGIT;
-			else if (!strncmp(patparse, "IDENT", len))
-			    ch = PP_IDENT;
-			else if (!strncmp(patparse, "IFS", len))
-			    ch = PP_IFS;
-			else if (!strncmp(patparse, "IFSSPACE", len))
-			    ch = PP_IFSSPACE;
-			else if (!strncmp(patparse, "WORD", len))
-			    ch = PP_WORD;
-			else
-			    ch = PP_UNKWN;
+			ch = range_type(patparse, len);
 			patparse = nptr + 2;
 			if (ch != PP_UNKWN)
-			    patadd(NULL, STOUC(Meta+ch), 1, PA_NOALIGN);
+			    patadd(NULL, STOUC(Meta) + ch, 1, PA_NOALIGN);
 			continue;
 		}
-		if (itok(*patparse)) {
-		    cbuf[0] = ztokens[*patparse - Pound];
-		} else if (*patparse == Meta) {
-		    cbuf[0] = Meta;
-		    cbuf[1] = *++patparse;
-		} else
-		    cbuf[0] = *patparse;
-		patparse++;
+		charstart = patparse;
+		METACHARINC(patparse);
 
-		if (*patparse == '-' && patparse[1] != Outbrack) {
-		    patadd(NULL, STOUC(Meta+PP_RANGE), 1, PA_NOALIGN);
-		    patadd(cbuf, 0, (cbuf[0] == Meta) ? 2 : 1, PA_NOALIGN);
-		    if (itok(*++patparse)) {
-			patadd(0, STOUC(ztokens[*patparse - Pound]), 1,
+		if (*patparse == '-' && patparse[1] &&
+		    patparse[1] != Outbrack) {
+		    patadd(NULL, STOUC(Meta)+PP_RANGE, 1, PA_NOALIGN);
+		    if (itok(*charstart)) {
+			patadd(0, STOUC(ztokens[*charstart - Pound]), 1,
 			       PA_NOALIGN);
-		    } else
-			patadd(patparse, 0, (*patparse == Meta) ? 2 : 1,
-			       PA_NOALIGN);
-		    METAINC(patparse);
-		} else
-		    patadd(cbuf, 0, (cbuf[0] == Meta) ? 2 : 1, PA_NOALIGN);
+		    } else {
+			patadd(charstart, 0, patparse-charstart, PA_NOALIGN);
+		    }
+		    charstart = ++patparse;	/* skip ASCII '-' */
+		    METACHARINC(patparse);
+		}
+		if (itok(*charstart)) {
+		    patadd(0, STOUC(ztokens[*charstart - Pound]), 1,
+			   PA_NOALIGN);
+		} else {
+		    patadd(charstart, 0, patparse-charstart, PA_NOALIGN);
+		}
 	    }
 	    if (*patparse != Outbrack)
 		return 0;
@@ -1245,7 +1447,13 @@ patcomppiece(int *flagp)
 	     * Marker for restoring a backslash in output:
 	     * does not match a character.
 	     */
-	    return patcomppiece(flagp);
+	    next = patcomppiece(flagp);
+	    /*
+	     * Can't match a pure string since we need to do this
+	     * as multiple chunks.
+	     */
+	    *flagp &= ~P_PURESTR;
+	    return next;
 	    break;
 #ifdef DEBUG
 	default:
@@ -1256,7 +1464,10 @@ patcomppiece(int *flagp)
 	}
     }
 
+    count = 0;
     if (!(pound = (*patparse == Pound && isset(EXTENDEDGLOB))) &&
+	!(count = (isset(EXTENDEDGLOB) && *patparse == Inpar &&
+		   patparse[1] == Pound && patparse[2] == 'c')) &&
 	(kshchar <= 0 || kshchar == '@' || kshchar == '!')) {
 	*flagp = flags;
 	return starter;
@@ -1275,6 +1486,10 @@ patcomppiece(int *flagp)
     } else if (kshchar == '?') {
 	op = 0;
 	*flagp = 0;
+    } else if (count) {
+	op = P_COUNT;
+	patparse += 3;
+	*flagp = P_HSTART;
     } else if (*++patparse == Pound) {
 	op = P_TWOHASH;
 	patparse++;
@@ -1294,7 +1509,56 @@ patcomppiece(int *flagp)
      * each time we fail on a non-empty branch, we try the empty branch,
      * which is equivalent to backtracking.
      */
-    if ((flags & P_SIMPLE) && (op == P_ONEHASH || op == P_TWOHASH) &&
+    if (op == P_COUNT) {
+	/* (#cN,M) */
+	union upat countargs[P_CT_OPERAND];
+	char *opp = patparse;
+
+	countargs[0].l = P_COUNT;
+	countargs[P_CT_CURRENT].l = 0L;
+	countargs[P_CT_MIN].l = (long)zstrtol(patparse, &patparse, 10);
+	if (patparse == opp) {
+	    /* missing number treated as zero */
+	    countargs[P_CT_MIN].l = 0L;
+	}
+	if (*patparse != ',' && *patparse != Comma) {
+	    /* either max = min or error */
+	    if (*patparse != Outpar)
+		return 0;
+	    countargs[P_CT_MAX].l = countargs[P_CT_MIN].l;
+	} else {
+	    opp = ++patparse;
+	    countargs[P_CT_MAX].l = (long)zstrtol(patparse, &patparse, 10);
+	    if (*patparse != Outpar)
+		return 0;
+	    if (patparse == opp) {
+		/* missing number treated as infinity: record as -1 */
+		countargs[P_CT_MAX].l = -1L;
+	    }
+	}
+	patparse++;
+	countargs[P_CT_PTR].p = NULL;
+	/* Mark this chain as a min/max count... */
+	patinsert(P_COUNTSTART, starter, (char *)countargs, sizeof(countargs));
+	/*
+	 * The next of the operand is a loop back to the P_COUNT.  This is
+	 * how we get recursion for the count.  We don't loop back to
+	 * the P_COUNTSTART; that's used for initialising the count
+	 * and saving and restoring the count for any enclosing use
+	 * of the match.
+	 */
+	opnd = P_OPERAND(starter) + P_CT_OPERAND;
+	pattail(opnd, patnode(P_BACK));
+	pattail(opnd, P_OPERAND(starter));
+	/*
+	 * The next of the counter operators is what follows the
+	 * closure.
+	 * This handles matching of the tail.
+	 */
+	next = patnode(P_NOTHING);
+	pattail(starter, next);
+	pattail(P_OPERAND(starter), next);
+    } else if ((flags & P_SIMPLE) && (op == P_ONEHASH || op == P_TWOHASH) &&
 	P_OP((Upat)patout+starter) == P_ANY) {
 	/* Optimize ?# to *.  Silly thing to do, since who would use
 	 * use ?# ? But it makes the later code shorter.
@@ -1308,7 +1572,7 @@ patcomppiece(int *flagp)
 	    uptr->l = (uptr->l & ~0xff) | P_STAR;
 	}
     } else if ((flags & P_SIMPLE) && op && !(patglobflags & 0xff)) {
-	/* Don't simplify if we need to look for approximations. */
+	/* Simplify, but not if we need to look for approximations. */
 	patinsert(op, starter, NULL, 0);
     } else if (op == P_ONEHASH) {
 	/* Emit x# as (x&|), where & means "self". */
@@ -1475,19 +1739,138 @@ static int parsfound;			/* parentheses (with backrefs) found */
 static int globdots;			/* Glob initial dots? */
 
 /*
- * Macros which are currently trivial but are likely to be less
- * so when we handle multibyte characters.  They operate on
- * umetafied strings.
+ * Character functions operating on unmetafied strings.
  */
+#ifdef MULTIBYTE_SUPPORT
 
 /* Get a character from the start point in a string */
-#define CHARREF(x)	(STOUC(*x))
+#define CHARREF(x, y)	charref((x), (y))
+static wchar_t
+charref(char *x, char *y)
+{
+    wchar_t wc;
+    size_t ret;
+
+    if (!(patglobflags & GF_MULTIBYTE) || !(STOUC(*x) & 0x80))
+	return (wchar_t) STOUC(*x);
+
+    ret = mbrtowc(&wc, x, y-x, &shiftstate);
+
+    if (ret == MB_INVALID || ret == MB_INCOMPLETE) {
+	/* Error.  Treat as single byte. */
+	/* Reset the shift state for next time. */
+	memset(&shiftstate, 0, sizeof(shiftstate));
+	return (wchar_t) STOUC(*x);
+    }
+
+    return wc;
+}
+
 /* Get  a pointer to the next character */
-#define CHARNEXT(x)	(x+1)
+#define CHARNEXT(x, y)	charnext((x), (y))
+static char *
+charnext(char *x, char *y)
+{
+    wchar_t wc;
+    size_t ret;
+
+    if (!(patglobflags & GF_MULTIBYTE) || !(STOUC(*x) & 0x80))
+	return x + 1;
+
+    ret = mbrtowc(&wc, x, y-x, &shiftstate);
+
+    if (ret == MB_INVALID || ret == MB_INCOMPLETE) {
+	/* Error.  Treat as single byte. */
+	/* Reset the shift state for next time. */
+	memset(&shiftstate, 0, sizeof(shiftstate));
+	return x + 1;
+    }
+
+    /* Nulls here are normal characters */
+    return x + (ret ? ret : 1);
+}
+
 /* Increment a pointer past the current character. */
-#define CHARINC(x)	(x++)
-/* Counter the number of characters between two pointers, largest first */
-#define CHARSUB(x,y)	(x-y)
+#define CHARINC(x, y)	((x) = charnext((x), (y)))
+
+
+/* Get a character and increment */
+#define CHARREFINC(x, y, z)	charrefinc(&(x), (y), (z))
+static wchar_t
+charrefinc(char **x, char *y, int *z)
+{
+    wchar_t wc;
+    size_t ret;
+
+    if (!(patglobflags & GF_MULTIBYTE) || !(STOUC(**x) & 0x80))
+	return (wchar_t) STOUC(*(*x)++);
+
+    ret = mbrtowc(&wc, *x, y-*x, &shiftstate);
+
+    if (ret == MB_INVALID || ret == MB_INCOMPLETE) {
+	/* Error.  Treat as single byte, but flag. */
+	*z = 1;
+	/* Reset the shift state for next time. */
+	memset(&shiftstate, 0, sizeof(shiftstate));
+	return (wchar_t) STOUC(*(*x)++);
+    }
+
+    /* Nulls here are normal characters */
+    *x += ret ? ret : 1;
+
+    return wc;
+}
+
+
+/*
+ * Counter the number of characters between two pointers, smaller first
+ *
+ * This is used when setting values in parameters, so we obey
+ * the MULTIBYTE option (even if it's been overridden locally).
+ */
+#define CHARSUB(x,y)	charsub(x, y)
+static ptrdiff_t
+charsub(char *x, char *y)
+{
+    ptrdiff_t res = 0;
+    size_t ret;
+    wchar_t wc;
+
+    if (!isset(MULTIBYTE))
+	return y - x;
+
+    while (x < y) {
+	ret = mbrtowc(&wc, x, y-x, &shiftstate);
+
+	if (ret == MB_INVALID || ret == MB_INCOMPLETE) {
+	    /* Error.  Treat remainder as single characters */
+	    return res + (y - x);
+	}
+
+	/* Treat nulls as normal characters */
+	if (!ret)
+	    ret = 1;
+	res++;
+	x += ret;
+    }
+
+    return res;
+}
+
+#else /* no MULTIBYTE_SUPPORT */
+
+/* Get a character from the start point in a string */
+#define CHARREF(x, y)	(STOUC(*(x)))
+/* Get  a pointer to the next character */
+#define CHARNEXT(x, y)	((x)+1)
+/* Increment a pointer past the current character. */
+#define CHARINC(x, y)	((x)++)
+/* Get a character and increment */
+#define CHARREFINC(x, y, z)	(STOUC(*(x)++))
+/* Counter the number of characters between two pointers, smaller first */
+#define CHARSUB(x,y)	((y) - (x))
+
+#endif /* MULTIBYTE_SUPPORT */
 
 /*
  * The following need to be accessed in the globbing scanner for
@@ -1553,6 +1936,9 @@ pattrylen(Patprog prog, char *string, int len, int unmetalen, int offset)
  * backreferences. On entry, *nump should contain the maximum number
  * of positions to report.  In this case the match, mbegin, mend
  * arrays are not altered.
+ *
+ * If nump is NULL but endp is not NULL, then *endp is set to the
+ * end position of the match, taking into account patinstart.
  */
 
 /**/
@@ -1708,6 +2094,32 @@ pattryrefs(Patprog prog, char *string, int stringlen, int unmetalen,
 		patinlen = (int)prog->patmlen;
 		/* if matching files, must update globbing flags */
 		patglobflags = prog->globend;
+
+		if ((patglobflags & GF_MATCHREF) &&
+		    !(patflags & PAT_FILE)) {
+		    char *str = ztrduppfx(patinstart, patinlen);
+		    char *ptr = patinstart;
+		    int mlen = 0;
+
+		    /*
+		     * Count the characters.  We're not using CHARSUB()
+		     * because the string is still metafied.  We're
+		     * not using mb_metastrlen() because that expects
+		     * the string to be null terminated.
+		     */
+		    MB_METACHARINIT();
+		    while (ptr < patinstart + patinlen) {
+			mlen++;
+			ptr += MB_METACHARLEN(ptr);
+		    }
+
+		    setsparam("MATCH", str);
+		    setiparam("MBEGIN",
+			      (zlong)(patoffset + !isset(KSHARRAYS)));
+		    setiparam("MEND",
+			      (zlong)(mlen + patoffset +
+				      !isset(KSHARRAYS) - 1));
+		}
 	    }
 	}
 
@@ -1798,7 +2210,7 @@ pattryrefs(Patprog prog, char *string, int stringlen, int unmetalen,
 		 * Remember the test pattern is already unmetafied.
 		 */
 		char *str;
-		int mlen = CHARSUB(patinput, patinstart);
+		int mlen = CHARSUB(patinstart, patinput);
 
 		str = metafy(patinstart, patinput - patinstart, META_DUP);
 		setsparam("MATCH", str);
@@ -1820,9 +2232,9 @@ pattryrefs(Patprog prog, char *string, int stringlen, int unmetalen,
 		for (i = 0; i < prog->patnpar && i < maxnpos; i++) {
 		    if (parsfound & (1 << i)) {
 			if (begp)
-			    *begp++ = CHARSUB(*sp, patinstart) + patoffset;
+			    *begp++ = CHARSUB(patinstart, *sp) + patoffset;
 			if (endp)
-			    *endp++ = CHARSUB(*ep, patinstart) + patoffset
+			    *endp++ = CHARSUB(patinstart, *ep) + patoffset
 				- 1;
 		    } else {
 			if (begp)
@@ -1862,12 +2274,12 @@ pattryrefs(Patprog prog, char *string, int stringlen, int unmetalen,
 			 * corresponds to indexing as ${foo[1,1]}.
 			 */
 			sprintf(numbuf, "%ld",
-				(long)(CHARSUB(*sp, patinstart) +
+				(long)(CHARSUB(patinstart, *sp) +
 				       patoffset +
 				       !isset(KSHARRAYS)));
 			mbeginarr[i] = ztrdup(numbuf);
 			sprintf(numbuf, "%ld",
-				(long)(CHARSUB(*ep, patinstart) +
+				(long)(CHARSUB(patinstart, *ep) +
 				       patoffset +
 				       !isset(KSHARRAYS) - 1));
 			mendarr[i] = ztrdup(numbuf);
@@ -1886,6 +2298,13 @@ pattryrefs(Patprog prog, char *string, int stringlen, int unmetalen,
 		setaparam("match", matcharr);
 		setaparam("mbegin", mbeginarr);
 		setaparam("mend", mendarr);
+	    }
+
+	    if (!nump && endp) {
+		/*
+		 * We just need the overall end position.
+		 */
+		*endp = CHARSUB(patinstart, patinput) + patoffset;
 	    }
 
 	    ret = 1;
@@ -1916,12 +2335,26 @@ patmatchlen(void)
  * Match literal characters with case insensitivity test:  the first
  * comes from the input string, the second the current pattern.
  */
+#ifdef MULTIBYTE_SUPPORT
+#define ISUPPER(x)	iswupper(x)
+#define ISLOWER(x)	iswlower(x)
+#define TOUPPER(x)	towupper(x)
+#define TOLOWER(x)	towlower(x)
+#define ISDIGIT(x)	iswdigit(x)
+#else
+#define ISUPPER(x)	isupper(x)
+#define ISLOWER(x)	islower(x)
+#define TOUPPER(x)	toupper(x)
+#define TOLOWER(x)	tolower(x)
+#define ISDIGIT(x)	idigit(x)
+#endif
 #define CHARMATCH(chin, chpa) (chin == chpa || \
         ((patglobflags & GF_IGNCASE) ? \
-	 ((isupper(chin) ? tolower(chin) : chin) == \
-	  (isupper(chpa) ? tolower(chpa) : chpa)) : \
+	 ((ISUPPER(chin) ? TOLOWER(chin) : chin) == \
+	  (ISUPPER(chpa) ? TOLOWER(chpa) : chpa)) : \
 	 (patglobflags & GF_LCMATCHUC) ? \
-	 (islower(chpa) && toupper(chpa) == chin) : 0))
+	 (ISLOWER(chpa) && TOUPPER(chpa) == chin) : 0))
+
 /*
  * The same but caching an expression from the first argument,
  * Requires local charmatch_cache definition.
@@ -1953,8 +2386,9 @@ patmatch(Upat prog)
     /* Current and next nodes */
     Upat scan = prog, next, opnd;
     char *start, *save, *chrop, *chrend, *compend;
-    int savglobflags, op, no, min, nextch, fail = 0, saverrsfound;
+    int savglobflags, op, no, min, fail = 0, saverrsfound;
     zrange_t from, to, comp;
+    patint_t nextch;
 
     while  (scan) {
 	next = PATNEXT(scan);
@@ -1968,7 +2402,7 @@ patmatch(Upat prog)
 	    if (patinput == patinend)
 		fail = 1;
 	    else
-		CHARINC(patinput);
+		CHARINC(patinput, patinend);
 	    break;
 	case P_EXACTLY:
 	    /*
@@ -1984,14 +2418,28 @@ patmatch(Upat prog)
 	    }
 	    exactpos = NULL;
 	    while (chrop < chrend && patinput < patinend) {
-		int chin = CHARREF(patinput);
-		int chpa = CHARREF(chrop);
-		if (!CHARMATCH(chin, chpa)) {
+		char *savpatinput = patinput;
+		char *savchrop = chrop;
+		int badin = 0, badpa = 0;
+		/*
+		 * Care with character matching:
+		 * We do need to convert the character to wide
+		 * representation if possible, because we may need
+		 * to do case transformation.  However, we should
+		 * be careful in case one, but not the other, wasn't
+		 * representable in the current locale---in that
+		 * case they don't match even if the returned
+		 * values (one properly converted, one raw) are
+		 * the same.
+		 */
+		patint_t chin = CHARREFINC(patinput, patinend, &badin);
+		patint_t chpa = CHARREFINC(chrop, chrend, &badpa);
+		if (!CHARMATCH(chin, chpa) || badin != badpa) {
 		    fail = 1;
+		    patinput = savpatinput;
+		    chrop = savchrop;
 		    break;
 		}
-		CHARINC(chrop);
-		CHARINC(patinput);
 	    }
 	    if (chrop < chrend) {
 		exactpos = chrop;
@@ -2000,20 +2448,33 @@ patmatch(Upat prog)
 	    }
 	    break;
 	case P_ANYOF:
-	    if (patinput == patinend ||
-		!patmatchrange((char *)P_OPERAND(scan),
-			       CHARREF(patinput)))
-		fail = 1;
-	    else
-		CHARINC(patinput);
-	    break;
 	case P_ANYBUT:
-	    if (patinput == patinend ||
-		patmatchrange((char *)P_OPERAND(scan),
-			      CHARREF(patinput)))
+	    if (patinput == patinend)
 		fail = 1;
-	    else
-		CHARINC(patinput);
+	    else {
+#ifdef MULTIBYTE_SUPPORT
+		wchar_t cr = CHARREF(patinput, patinend);
+		char *scanop = (char *)P_OPERAND(scan);
+		if (patglobflags & GF_MULTIBYTE) {
+		    if (mb_patmatchrange(scanop, cr, NULL, NULL) ^
+			(P_OP(scan) == P_ANYOF))
+			fail = 1;
+		    else
+			CHARINC(patinput, patinend);
+		} else if (patmatchrange(scanop, (int)cr, NULL, NULL) ^
+			   (P_OP(scan) == P_ANYOF))
+		    fail = 1;
+		else
+		    CHARINC(patinput, patinend);
+#else
+		if (patmatchrange((char *)P_OPERAND(scan),
+				  CHARREF(patinput, patinend), NULL, NULL) ^
+		    (P_OP(scan) == P_ANYOF))
+		    fail = 1;
+		else
+		    CHARINC(patinput, patinend);
+#endif
+	    }
 	    break;
 	case P_NUMRNG:
 	case P_NUMFROM:
@@ -2108,7 +2569,7 @@ patmatch(Upat prog)
 	case P_NUMANY:
 	    /* This is <->: any old set of digits, don't bother comparing */
 	    start = patinput;
-	    while (patinput < patinend && idigit(CHARREF(patinput)))
+	    while (patinput < patinend && idigit(*patinput))
 		patinput++;
 	    save = patinput;
 	    no = 0;
@@ -2117,7 +2578,7 @@ patmatch(Upat prog)
 		    return 1;
 		if (!no && P_OP(next) == P_EXACTLY &&
 		    (!P_LS_LEN(next) ||
-		     !idigit(CHARREF(P_LS_STR(next)))) &&
+		     !idigit(*P_LS_STR(next))) &&
 		    !(patglobflags & 0xff))
 		    return 0;
 		patinput = --save;
@@ -2173,7 +2634,6 @@ patmatch(Upat prog)
 	    save = patinput;
 
 	    if (patmatch(next)) {
-		DPUTS(!patendp, "patendp not set for backreferencing");
 		if (no && !(parsfound & (1 << (no + 15)))) {
 		    patendp[no-1] = save;
 		    parsfound |= 1 << (no + 15);
@@ -2462,74 +2922,96 @@ patmatch(Upat prog)
 	    op = P_OP(scan);
 	    /* Note that no counts possibly metafied characters */
 	    start = patinput;
-	    if (op == P_STAR) {
-		for (no = 0; patinput < patinend; CHARINC(patinput))
-		    no++;
-		/* simple optimization for reasonably common case */
-		if (P_OP(next) == P_END)
-		    return 1;
-	    } else {
-		DPUTS(patglobflags & 0xff,
-		      "BUG: wrong backtracking with approximation.");
-		if (!globdots && P_NOTDOT(P_OPERAND(scan)) &&
-		    patinput == patinstart && patinput < patinend &&
-		    CHARREF(patinput) == '.')
-		    return 0;
-		no = patrepeat(P_OPERAND(scan));
-	    }
-	    min = (op == P_TWOHASH) ? 1 : 0;
-	    /*
-	     * Lookahead to avoid useless matches. This is not possible
-	     * with approximation.
-	     */
-	    if (P_OP(next) == P_EXACTLY && P_LS_LEN(next) &&
-		!(patglobflags & 0xff)) {
-		char *nextop = P_LS_STR(next);
+	    {
+		char *lastcharstart;
 		/*
-		 * If that P_EXACTLY is last (common in simple patterns,
-		 * such as *.c), then it can be only be matched at one
-		 * point in the test string, so record that.
+		 * Array to record the start of characters for
+		 * backtracking.
 		 */
-		if (P_OP(PATNEXT(next)) == P_END &&
-		    !(patflags & PAT_NOANCH)) {
-		    int ptlen = patinend - patinput;
-		    int lenmatch = patinend - (min ? CHARNEXT(start) : start);
-		    /* Are we in the right range? */
-		    if (P_LS_LEN(next) > lenmatch || P_LS_LEN(next) < ptlen)
-			return 0;
-		    /* Yes, just position appropriately and test. */
-		    patinput += ptlen - P_LS_LEN(next);
-		    /*
-		     * Here we will need to be careful that patinput is not
-		     * in the middle of a multibyte character.
-		     */
-		    /* Continue loop with P_EXACTLY test. */
-		    break;
-		}
-		nextch = CHARREF(nextop);
-	    } else
-		nextch = -1;
-	    save = patinput;
-	    savglobflags = patglobflags;
-	    saverrsfound = errsfound;
-	    while (no >= min) {
-		int charmatch_cache;
-		if (nextch < 0 ||
-		    (patinput < patinend &&
-		     CHARMATCH_EXPR(CHARREF(patinput), nextch))) {
-		    if (patmatch(next))
+		VARARR(char, charstart, patinend-patinput);
+		memset(charstart, 0, patinend-patinput);
+
+		if (op == P_STAR) {
+		    for (no = 0; patinput < patinend;
+			 CHARINC(patinput, patinend))
+		    {
+			charstart[patinput-start] = 1;
+			no++;
+		    }
+		    /* simple optimization for reasonably common case */
+		    if (P_OP(next) == P_END)
 			return 1;
+		} else {
+		    DPUTS(patglobflags & 0xff,
+			  "BUG: wrong backtracking with approximation.");
+		    if (!globdots && P_NOTDOT(P_OPERAND(scan)) &&
+			patinput == patinstart && patinput < patinend &&
+			CHARREF(patinput, patinend) == ZWC('.'))
+			return 0;
+		    no = patrepeat(P_OPERAND(scan), charstart);
 		}
-		no--;
-		save--;
+		min = (op == P_TWOHASH) ? 1 : 0;
 		/*
-		 * Here we will need to make sure save is
-		 * decremented properly to the start of
-		 * the preceeding multibyte character.
+		 * Lookahead to avoid useless matches. This is not possible
+		 * with approximation.
 		 */
-		patinput = save;
-		patglobflags = savglobflags;
-		errsfound = saverrsfound;
+		if (P_OP(next) == P_EXACTLY && P_LS_LEN(next) &&
+		    !(patglobflags & 0xff)) {
+		    char *nextop = P_LS_STR(next);
+#ifdef MULTIBYTE_SUPPORT
+		    /* else second argument of CHARREF isn't used */
+		    int nextlen = P_LS_LEN(next);
+#endif
+		    /*
+		     * If that P_EXACTLY is last (common in simple patterns,
+		     * such as *.c), then it can be only be matched at one
+		     * point in the test string, so record that.
+		     */
+		    if (P_OP(PATNEXT(next)) == P_END &&
+			!(patflags & PAT_NOANCH)) {
+			int ptlen = patinend - patinput;
+			int lenmatch = patinend -
+			    (min ? CHARNEXT(start, patinend) : start);
+			/* Are we in the right range? */
+			if (P_LS_LEN(next) > lenmatch ||
+			    P_LS_LEN(next) < ptlen)
+			    return 0;
+			/* Yes, just position appropriately and test. */
+			patinput += ptlen - P_LS_LEN(next);
+			/*
+			 * Here we will need to be careful that patinput is not
+			 * in the middle of a multibyte character.
+			 */
+			/* Continue loop with P_EXACTLY test. */
+			break;
+		    }
+		    nextch = CHARREF(nextop, nextop + nextlen);
+		} else
+		    nextch = PEOF;
+		savglobflags = patglobflags;
+		saverrsfound = errsfound;
+		lastcharstart = charstart + (patinput - start);
+		if (no >= min) {
+		    for (;;) {
+			patint_t charmatch_cache;
+			if (nextch == PEOF ||
+			    (patinput < patinend &&
+			     CHARMATCH_EXPR(CHARREF(patinput, patinend),
+					    nextch))) {
+			    if (patmatch(next))
+				return 1;
+			}
+			if (--no < min)
+			    break;
+			/* find start of previous full character */
+			while (!*--lastcharstart)
+			    DPUTS(lastcharstart < charstart,
+				  "lastcharstart invalid");
+			patinput = start + (lastcharstart-charstart);
+			patglobflags = savglobflags;
+			errsfound = saverrsfound;
+		    }
+		}
 	    }
 	    /*
 	     * As with branches, the patmatch(next) stuff for *
@@ -2545,6 +3027,56 @@ patmatch(Upat prog)
 	    if (patinput < patinend || (patflags & PAT_NOTEND))
 		fail = 1;
 	    break;
+	case P_COUNTSTART:
+	    {
+		/*
+		 * Save and restore the current count and the
+		 * start pointer in case the pattern has been
+		 * executed by a previous repetition of a
+		 * closure.
+		 */
+		long *curptr = &P_OPERAND(scan)[P_CT_CURRENT].l;
+		long savecount = *curptr;
+		unsigned char *saveptr = scan[P_CT_PTR].p;
+		int ret;
+
+		*curptr = 0L;
+		ret = patmatch(P_OPERAND(scan));
+		*curptr = savecount;
+		scan[P_CT_PTR].p = saveptr;
+		return ret;
+	    }
+	case P_COUNT:
+	    {
+		/* (#cN,M): execution is relatively straightforward */
+		long cur = scan[P_CT_CURRENT].l;
+		long min = scan[P_CT_MIN].l;
+		long max = scan[P_CT_MAX].l;
+
+		if (cur && cur >= min &&
+		    (unsigned char *)patinput == scan[P_CT_PTR].p) {
+		    /*
+		     * Not at the first attempt to match so
+		     * the previous attempt managed zero length.
+		     * We can do this indefinitely so there's
+		     * no point in going on.  Simply try to
+		     * match the remainder of the pattern.
+		     */
+		    return patmatch(next);
+		}
+		scan[P_CT_PTR].p = (unsigned char *)patinput;
+
+		if (max < 0 || cur < max) {
+		    char *patinput_thistime = patinput;
+		    scan[P_CT_CURRENT].l = cur + 1;
+		    if (patmatch(scan + P_CT_OPERAND))
+			return 1;
+		    patinput = patinput_thistime;
+		}
+		if (cur < min)
+		    return 0;
+		return patmatch(next);
+	    }
 	case P_END:
 	    if (!(fail = (patinput < patinend && !(patflags & PAT_NOANCH))))
 		return 1;
@@ -2590,7 +3122,7 @@ patmatch(Upat prog)
 
 		/* Try omitting a character from the input string */
 		if (patinput < patinend) {
-		    CHARINC(patinput);
+		    CHARINC(patinput, patinend);
 		    /* If we are not on an exact match, then this is
 		     * our last gasp effort, so we can optimize out
 		     * the recursive call.
@@ -2605,11 +3137,11 @@ patmatch(Upat prog)
 		    char *nextexact = savexact;
 		    DPUTS(!savexact,
 			  "BUG: exact match has not set exactpos");
-		    CHARINC(nextexact);
+		    CHARINC(nextexact, exactend);
 
 		    if (save < patinend) {
 			char *nextin = save;
-			CHARINC(nextin);
+			CHARINC(nextin, patinend);
 			patglobflags = savglobflags;
 			errsfound = saverrsfound;
 			exactpos = savexact;
@@ -2620,17 +3152,17 @@ patmatch(Upat prog)
 			 */
 			if (save < patinend && nextin < patinend &&
 			    nextexact < exactend) {
-			    int cin0 = CHARREF(save);
-			    int cpa0 = CHARREF(exactpos);
-			    int cin1 = CHARREF(nextin);
-			    int cpa1 = CHARREF(nextexact);
+			    patint_t cin0 = CHARREF(save, patinend);
+			    patint_t cpa0 = CHARREF(exactpos, exactend);
+			    patint_t cin1 = CHARREF(nextin, patinend);
+			    patint_t cpa1 = CHARREF(nextexact, exactend);
 
 			    if (CHARMATCH(cin0, cpa1) &&
 				CHARMATCH(cin1, cpa0)) {
 				patinput = nextin;
-				CHARINC(patinput);
+				CHARINC(patinput, patinend);
 				exactpos = nextexact;
-				CHARINC(exactpos);
+				CHARINC(exactpos, exactend);
 				if (patmatch(scan))
 				    return 1;
 
@@ -2659,7 +3191,7 @@ patmatch(Upat prog)
 		     * This must be the last attempt, so just loop
 		     * instead of calling recursively.
 		     */
-		    CHARINC(exactpos);
+		    CHARINC(exactpos, exactend);
 		    continue;
 		}
 	    }
@@ -2673,12 +3205,264 @@ patmatch(Upat prog)
     return 0;
 }
 
+
 /**/
-static int
-patmatchrange(char *range, int ch)
+#ifdef MULTIBYTE_SUPPORT
+
+/*
+ * See if character ch matches a pattern range specification.
+ * The null-terminated specification is in range; the test
+ * character is in ch.
+ *
+ * indptr is used by completion matching, which is why this
+ * function is exported.  If indptr is not NULL we set *indptr
+ * to the index of the character in the range string, adjusted
+ * in the case of "A-B" ranges such that A would count as its
+ * normal index (say IA), B would count as IA + (B-A), and any
+ * character within the range as appropriate.  We're not strictly
+ * guaranteed this fits within a wint_t, but if this is Unicode
+ * in 32 bits we have a fair amount of distance left over.
+ *
+ * mtp is used in the same circumstances.  *mtp returns the match type:
+ * 0 for a standard character, else the PP_ index.  It's not
+ * useful if the match failed.
+ */
+
+/**/
+mod_export int
+mb_patmatchrange(char *range, wchar_t ch, wint_t *indptr, int *mtp)
+{
+    wchar_t r1, r2;
+
+    if (indptr)
+	*indptr = 0;
+    /*
+     * Careful here: unlike other strings, range is a NULL-terminated,
+     * metafied string, because we need to treat the Posix and hyphenated
+     * ranges specially.
+     */
+    while (*range) {
+	if (imeta(STOUC(*range))) {
+	    int swtype = STOUC(*range++) - STOUC(Meta);
+	    if (mtp)
+		*mtp = swtype;
+	    switch (swtype) {
+	    case 0:
+		/* ordinary metafied character */
+		range--;
+		if (metacharinc(&range) == ch)
+		    return 1;
+		break;
+	    case PP_ALPHA:
+		if (iswalpha(ch))
+		    return 1;
+		break;
+	    case PP_ALNUM:
+		if (iswalnum(ch))
+		    return 1;
+		break;
+	    case PP_ASCII:
+		if ((ch & ~0x7f) == 0)
+		    return 1;
+		break;
+	    case PP_BLANK:
+		if (ch == L' ' || ch == L'\t')
+		    return 1;
+		break;
+	    case PP_CNTRL:
+		if (iswcntrl(ch))
+		    return 1;
+		break;
+	    case PP_DIGIT:
+		if (iswdigit(ch))
+		    return 1;
+		break;
+	    case PP_GRAPH:
+		if (iswgraph(ch))
+		    return 1;
+		break;
+	    case PP_LOWER:
+		if (iswlower(ch))
+		    return 1;
+		break;
+	    case PP_PRINT:
+		if (iswprint(ch))
+		    return 1;
+		break;
+	    case PP_PUNCT:
+		if (iswpunct(ch))
+		    return 1;
+		break;
+	    case PP_SPACE:
+		if (iswspace(ch))
+		    return 1;
+		break;
+	    case PP_UPPER:
+		if (iswupper(ch))
+		    return 1;
+		break;
+	    case PP_XDIGIT:
+		if (iswxdigit(ch))
+		    return 1;
+		break;
+	    case PP_IDENT:
+		if (wcsitype(ch, IIDENT))
+		    return 1;
+		break;
+	    case PP_IFS:
+		if (wcsitype(ch, ISEP))
+		    return 1;
+		break;
+	    case PP_IFSSPACE:
+		/* must be ASCII space character */
+		if (ch < 128 && iwsep((int)ch))
+		    return 1;
+		break;
+	    case PP_WORD:
+		if (wcsitype(ch, IWORD))
+		    return 1;
+		break;
+	    case PP_RANGE:
+		r1 = metacharinc(&range);
+		r2 = metacharinc(&range);
+		if (r1 <= ch && ch <= r2) {
+		    if (indptr)
+			*indptr += ch - r1;
+		    return 1;
+		}
+		/* Careful not to screw up counting with bogus range */
+		if (indptr && r1 < r2) {
+		    /*
+		     * This gets incremented again below to get
+		     * us past the range end.  This is correct.
+		     */
+		    *indptr += r2 - r1;
+		}
+		break;
+	    case PP_UNKWN:
+		DPUTS(1, "BUG: unknown posix range passed through.\n");
+		break;
+	    default:
+		DPUTS(1, "BUG: unknown metacharacter in range.");
+		break;
+	    }
+	} else if (metacharinc(&range) == ch) {
+	    if (mtp)
+		*mtp = 0;
+	    return 1;
+	}
+	if (indptr)
+	    (*indptr)++;
+    }
+    return 0;
+}
+
+
+/*
+ * This is effectively the reverse of mb_patmatchrange().
+ * Given a range descriptor of the same form, and an index into it,
+ * try to determine the character that is matched.  If the index
+ * points to a [:...:] generic style match, set chr to WEOF and
+ * return the type in mtp instead.  Return 1 if successful, 0 if
+ * there was no corresponding index.  Note all pointer arguments
+ * must be non-null.
+ */
+
+/**/
+mod_export int
+mb_patmatchindex(char *range, wint_t ind, wint_t *chr, int *mtp)
+{
+    wchar_t r1, r2, rchr;
+    wint_t rdiff;
+
+    *chr = WEOF;
+    *mtp = 0;
+
+    while (*range) {
+	if (imeta(STOUC(*range))) {
+	    int swtype = STOUC(*range++) - STOUC(Meta);
+	    switch (swtype) {
+	    case 0:
+		range--;
+		rchr = metacharinc(&range);
+		if (!ind) {
+		    *chr = (wint_t) rchr;
+		    return 1;
+		}
+		break;
+
+	    case PP_ALPHA:
+	    case PP_ALNUM:
+	    case PP_ASCII:
+	    case PP_BLANK:
+	    case PP_CNTRL:
+	    case PP_DIGIT:
+	    case PP_GRAPH:
+	    case PP_LOWER:
+	    case PP_PRINT:
+	    case PP_PUNCT:
+	    case PP_SPACE:
+	    case PP_UPPER:
+	    case PP_XDIGIT:
+	    case PP_IDENT:
+	    case PP_IFS:
+	    case PP_IFSSPACE:
+	    case PP_WORD:
+		if (!ind) {
+		    *mtp = swtype;
+		    return 1;
+		}
+		break;
+
+	    case PP_RANGE:
+		r1 = metacharinc(&range);
+		r2 = metacharinc(&range);
+		rdiff = (wint_t)r2 - (wint_t)r1; 
+		if (rdiff >= ind) {
+		    *chr = (wint_t)r1 + ind;
+		    return 1;
+		}
+		/* note the extra decrement to ind below */
+		ind -= rdiff;
+		break;
+	    case PP_UNKWN:
+		DPUTS(1, "BUG: unknown posix range passed through.\n");
+		break;
+	    default:
+		DPUTS(1, "BUG: unknown metacharacter in range.");
+		break;
+	    }
+	} else {
+	    rchr = metacharinc(&range);
+	    if (!ind) {
+		*chr = (wint_t)rchr;
+		return 1;
+	    }
+	}
+	if (!ind--)
+	    break;
+    }
+
+    /* No corresponding index. */
+    return 0;
+}
+
+/**/
+#endif /* MULTIBYTE_SUPPORT */
+
+/*
+ * Identical function to mb_patmatchrange() above for single-byte
+ * characters.
+ */
+
+/**/
+mod_export int
+patmatchrange(char *range, int ch, int *indptr, int *mtp)
 {
     int r1, r2;
 
+    if (indptr)
+	*indptr = 0;
     /*
      * Careful here: unlike other strings, range is a NULL-terminated,
      * metafied string, because we need to treat the Posix and hyphenated
@@ -2686,7 +3470,10 @@ patmatchrange(char *range, int ch)
      */
     for (; *range; range++) {
 	if (imeta(STOUC(*range))) {
-	    switch (STOUC(*range)-STOUC(Meta)) {
+	    int swtype = STOUC(*range) - STOUC(Meta);
+	    if (mtp)
+		*mtp = swtype;
+	    switch (swtype) {
 	    case 0:
 		if (STOUC(*++range ^ 32) == ch)
 		    return 1;
@@ -2762,12 +3549,17 @@ patmatchrange(char *range, int ch)
 	    case PP_RANGE:
 		range++;
 		r1 = STOUC(UNMETA(range));
-		METAINC(range);
+		METACHARINC(range);
 		r2 = STOUC(UNMETA(range));
 		if (*range == Meta)
 		    range++;
-		if (r1 <= ch && ch <= r2)
+		if (r1 <= ch && ch <= r2) {
+		    if (indptr)
+			*indptr += ch - r1;
 		    return 1;
+		}
+		if (indptr && r1 < r2)
+		    *indptr += r2 - r1;
 		break;
 	    case PP_UNKWN:
 		DPUTS(1, "BUG: unknown posix range passed through.\n");
@@ -2776,18 +3568,126 @@ patmatchrange(char *range, int ch)
 		DPUTS(1, "BUG: unknown metacharacter in range.");
 		break;
 	    }
-	} else if (STOUC(*range) == ch)
+	} else if (STOUC(*range) == ch) {
+	    if (mtp)
+		*mtp = 0;
 	    return 1;
+	}
+	if (indptr)
+	    (*indptr)++;
     }
     return 0;
 }
 
-/* repeatedly match something simple and say how many times */
 
 /**/
-static int patrepeat(Upat p)
+#ifndef MULTIBYTE_SUPPORT
+
+/*
+ * Identical function to mb_patmatchindex() above for single-byte
+ * characters.  Here -1 represents a character that needs a special type.
+ *
+ * Unlike patmatchrange, we only need this in ZLE, which always
+ * uses MULTIBYTE_SUPPORT if compiled in; hence we don't use
+ * this function in that case.
+ */
+
+/**/
+mod_export int
+patmatchindex(char *range, int ind, int *chr, int *mtp)
 {
-    int count = 0, tch, charmatch_cache;
+    int r1, r2, rdiff, rchr;
+
+    *chr = -1;
+    *mtp = 0;
+
+    for (; *range; range++) {
+	if (imeta(STOUC(*range))) {
+	    int swtype = STOUC(*range) - STOUC(Meta);
+	    switch (swtype) {
+	    case 0:
+		/* ordinary metafied character */
+		rchr = STOUC(*++range) ^ 32;
+		if (!ind) {
+		    *chr = rchr;
+		    return 1;
+		}
+		break;
+
+	    case PP_ALPHA:
+	    case PP_ALNUM:
+	    case PP_ASCII:
+	    case PP_BLANK:
+	    case PP_CNTRL:
+	    case PP_DIGIT:
+	    case PP_GRAPH:
+	    case PP_LOWER:
+	    case PP_PRINT:
+	    case PP_PUNCT:
+	    case PP_SPACE:
+	    case PP_UPPER:
+	    case PP_XDIGIT:
+	    case PP_IDENT:
+	    case PP_IFS:
+	    case PP_IFSSPACE:
+	    case PP_WORD:
+		if (!ind) {
+		    *mtp = swtype;
+		    return 1;
+		}
+		break;
+
+	    case PP_RANGE:
+		range++;
+		r1 = STOUC(UNMETA(range));
+		METACHARINC(range);
+		r2 = STOUC(UNMETA(range));
+		if (*range == Meta)
+		    range++;
+		rdiff = r2 - r1; 
+		if (rdiff >= ind) {
+		    *chr = r1 + ind;
+		    return 1;
+		}
+		/* note the extra decrement to ind below */
+		ind -= rdiff;
+		break;
+	    case PP_UNKWN:
+		DPUTS(1, "BUG: unknown posix range passed through.\n");
+		break;
+	    default:
+		DPUTS(1, "BUG: unknown metacharacter in range.");
+		break;
+	    }
+	} else {
+	    if (!ind) {
+		*chr = STOUC(*range);
+		return 1;
+	    }
+	}
+	if (!ind--)
+	    break;
+    }
+
+    /* No corresponding index. */
+    return 0;
+}
+
+/**/
+#endif /* MULTIBYTE_SUPPORT */
+
+/*
+ * Repeatedly match something simple and say how many times.
+ * charstart is an array parallel to that starting at patinput
+ * and records the start of (possibly multibyte) characters
+ * to aid in later backtracking.
+ */
+
+/**/
+static int patrepeat(Upat p, char *charstart)
+{
+    int count = 0;
+    patint_t tch, charmatch_cache;
     char *scan, *opnd;
 
     scan = patinput;
@@ -2802,24 +3702,35 @@ static int patrepeat(Upat p)
 #endif
     case P_EXACTLY:
 	DPUTS(P_LS_LEN(p) != 1, "closure following more than one character");
-	tch = CHARREF(P_LS_STR(p));
+	tch = CHARREF(P_LS_STR(p), P_LS_STR(p) + P_LS_LEN(p));
 	while (scan < patinend &&
-	       CHARMATCH_EXPR(CHARREF(scan), tch)) {
+	       CHARMATCH_EXPR(CHARREF(scan, patinend), tch)) {
+	    charstart[scan-patinput] = 1;
 	    count++;
-	    CHARINC(scan);
+	    CHARINC(scan, patinend);
 	}
 	break;
     case P_ANYOF:
-	while (scan < patinend && patmatchrange(opnd, CHARREF(scan))) {
-	    count++;
-	    CHARINC(scan);
-    	}
-	break;
     case P_ANYBUT:
-	while (scan < patinend && !patmatchrange(opnd, CHARREF(scan))) {
+	while (scan < patinend) {
+#ifdef MULTIBYTE_SUPPORT
+	    wchar_t cr = CHARREF(scan, patinend);
+	    if (patglobflags & GF_MULTIBYTE) {
+		if (mb_patmatchrange(opnd, cr, NULL, NULL) ^
+		    (P_OP(p) == P_ANYOF))
+		    break;
+	    } else if (patmatchrange(opnd, (int)cr, NULL, NULL) ^
+		       (P_OP(p) == P_ANYOF))
+		break;
+#else
+	    if (patmatchrange(opnd, CHARREF(scan, patinend), NULL, NULL) ^
+		(P_OP(p) == P_ANYOF))
+		break;
+#endif
+	    charstart[scan-patinput] = 1;
 	    count++;
-	    CHARINC(scan);
-    	}
+	    CHARINC(scan, patinend);
+	}
 	break;
 #ifdef DEBUG
     default:
@@ -2842,237 +3753,3 @@ freepatprog(Patprog prog)
     if (prog && prog != dummy_patprog1 && prog != dummy_patprog2)
 	zfree(prog, prog->size);
 }
-
-/**/
-#ifdef ZSH_PAT_DEBUG
-
-/* Debugging stuff: print and test a regular expression */
-
-/* Dump a regexp onto stdout in vaguely comprehensible form */
-
-/**/
-static void
-patdump(Patprog r)
-{
-    char *s, *base, op = P_EXACTLY;
-    Upat up, codestart, next;
-
-    base = (char *)r;
-    s = base + r->startoff;
-
-    if (r->flags & PAT_PURES) {
-	printf("STRING:%s\n", (char *)s);
-    } else {
-	codestart = (Upat)s;
-	while (op != P_END) {
-	    up = (Upat)s;
-	    op = P_OP(up);
-	    printf("%2d%s", up-codestart, patprop(up));
-	    next = PATNEXT(up);
-	    printf("(%d)", next ? next-codestart : 0);
-	    s += sizeof(union upat);
-	    if (op == P_EXACTLY) {
-		long llen = *(long *)s;
-		s += sizeof(long);
-		while (llen--) {
-		    putchar(CHARREF(s));
-		    CHARINC(s);
-		}
-	    } else if (op == P_ANYOF || op == P_ANYBUT) {
-		while (*s != '\0') {
-		    if (itok(*s)) {
-			if (*s == Meta + PP_RANGE) {
-			    s++;
-			    printf("<RANGE:%c-", UNMETA(s));
-			    METAINC(s);
-			    printf("%c>", UNMETA(s));
-			} else {
-			    printf("<TYPE:%d>", *s - Meta);
-			    s++;
-			    continue;
-			}
-		    } else
-			putchar(UNMETA(s));
-		    METAINC(s);
-		}
-	    } else if (op == P_NUMRNG || op == P_NUMFROM || op == P_NUMTO) {
-		printf("%lu", (unsigned long)*(zrange_t *)s);
-		s += sizeof(zrange_t);
-		if (op == P_NUMRNG) {
-		    printf("-%lu", (unsigned long)*(zrange_t *)s);
-		    s += sizeof(zrange_t);
-		}
-	    } else if (op == P_GFLAGS) {
-		printf("%ld, %ld", (++up)->l & ~0xff, (++up)->l & 0xff);
-		s += sizeof(union upat);
-	    } else if (op == P_WBRANCH || op == P_EXCLUDE ||
-		       op == P_EXCLUDP) {
-		s += sizeof(union upat);
-	    }
-	    putchar('\n');
-	    s = base + (((s - base) + sizeof(union upat) - 1) &
-			~(sizeof(union upat) - 1));
-	}
-    }
-
-    printf("Total size = %ld\n", r->size);
-    if (r->patstartch)
-	printf("start `%c' ", r->patstartch);
-    if (!(r->flags & PAT_NOANCH))
-	printf("EOL-anchor ");
-    if (r->patnpar)
-	printf("%d active backreferences ", r->patnpar);
-    if (r->mustoff)
-	printf("must have \"%s\"", (char *)r + r->mustoff);
-    printf("\n");
-    if (r->globflags) {
-	printf("Globbing flags: ");
-	if (r->globflags & GF_LCMATCHUC)
-	    printf("LC matches UC ");
-	if (r->globflags & GF_IGNCASE)
-	    printf("Ignore case");
-	printf("\n");
-	if (r->globflags & 0xff)
-	    printf("Max errors = %d\n", r->globflags & 0xff);
-    }
-}
-
-/**/
-static char *
-patprop(Upat op)
-{
-    char *p = NULL;
-    static char buf[50];
-
-    strcpy(buf, ":");
-
-    switch(P_OP(op)) {
-    case P_ANY:
-	p = "ANY";
-	break;
-    case P_ANYOF:
-	p = "ANYOF";
-	break;
-    case P_ANYBUT:
-	p = "ANYBUT";
-	break;
-    case P_BRANCH:
-	p = "BRANCH";
-	break;
-    case P_WBRANCH:
-	p = "WBRANCH";
-	break;
-    case P_EXCLUDE:
-	p = "EXCLUDE";
-	break;
-    case P_EXCLUDP:
-	p = "EXCLUDP";
-	break;
-    case P_EXCSYNC:
-	p = "EXCSYNC";
-	break;
-    case P_EXCEND:
-	p = "EXCEND";
-	break;
-    case P_EXACTLY:
-	p = "EXACTLY";
-	break;
-    case P_GFLAGS:
-	p = "GFLAGS";
-	break;
-    case P_ISSTART:
-	p = "ISSTART";
-	break;
-    case P_ISEND:
-	p = "ISEND";
-	break;
-    case P_NOTHING:
-	p = "NOTHING";
-	break;
-    case P_BACK:
-	p = "BACK";
-	break;
-    case P_END:
-	p = "END";
-	break;
-    case P_OPEN:
-    case P_OPEN+1:
-    case P_OPEN+2:
-    case P_OPEN+3:
-    case P_OPEN+4:
-    case P_OPEN+5:
-    case P_OPEN+6:
-    case P_OPEN+7:
-    case P_OPEN+8:
-    case P_OPEN+9:
-	sprintf(buf+strlen(buf), "OPEN%ld", P_OP(op)-P_OPEN);
-	p = NULL;
-	break;
-    case P_CLOSE:
-    case P_CLOSE+1:
-    case P_CLOSE+2:
-    case P_CLOSE+3:
-    case P_CLOSE+4:
-    case P_CLOSE+5:
-    case P_CLOSE+6:
-    case P_CLOSE+7:
-    case P_CLOSE+8:
-    case P_CLOSE+9:
-	sprintf(buf+strlen(buf), "CLOSE%ld", P_OP(op)-P_CLOSE);
-	p = NULL;
-	break;
-    case P_STAR:
-	p = "STAR";
-	break;
-    case P_ONEHASH:
-	p = "ONEHASH";
-	break;
-    case P_TWOHASH:
-	p = "TWOHASH";
-	break;
-    case P_NUMRNG:
-	p = "NUMRNG";
-	break;
-    case P_NUMFROM:
-	p = "NUMFROM";
-	break;
-    case P_NUMTO:
-	p = "NUMTO";
-	break;
-    case P_NUMANY:
-	p = "NUMANY";
-	break;
-    default:
-	fprintf(stderr, "Bad opcode\n");
-	p = NULL;
-	break;
-    }
-    if (p)
-	strcat(buf, p);
-    return buf;
-}
-
-/**/
-int
-bin_patdebug(char *name, char **args, char *ops, int func)
-{
-    Patprog prog;
-    int ret = 0;
-
-    tokenize(*args);
-
-    if (!(prog = patcompile((char *)*args, 0, 0)))
-	return 1;
-    if (ops['p'] || !args[1]) {
-	patdump(prog);
-    }
-
-    while (*++args) {
-	if (!pattry(prog, (char *)*args))
-	    ret++;
-    }
-    return ret;
-}
-
-/**/
-#endif /* ZSH_PAT_DEBUG */

@@ -27,6 +27,8 @@
  *
  */
 
+struct mathvalue;
+
 #include "zsh.mdh"
 #include "math.pro"
 
@@ -41,6 +43,14 @@ int noeval;
 
 /**/
 mod_export mnumber zero_mnumber;
+
+/*
+ * The last value we computed:  note this isn't cleared
+ * until the next computation, unlike yyval.
+ * Everything else is saved and returned to allow recursive calls.
+ */
+/**/
+mnumber lastmathval;
 
 /* last input base we used */
 
@@ -151,25 +161,128 @@ static int unary = 1;
 #define FUNC 52
 #define TOKCOUNT 53
 
-/* precedences */
-
-static int prec[TOKCOUNT] =
+/*
+ * Opeator recedences: in reverse order, i.e. lower number, high precedence.
+ * These are the C precedences.
+ *
+ * 0   Non-operators: NUM (numeric constant), ID (identifier),
+ *                    CID (identifier with '#'), FUNC (math function)
+ * 1   Opening parenthesis: M_INPAR '('  (for convenience, not an operator)
+ * 2   Unary operators: PREPLUS/POSTPLUS '++', PREMINUS/POSTMINUS '--',
+ *                      NOT '!', COMP '~', UPLUS '+', UMINUS '-'
+ * 3   POWER '**' (not in C but at high precedence in Perl)
+ * 4   MUL '*', DIV '/', MOD '%'
+ * 5   PLUS '+', MINUS '-'
+ * 6   SHLEFT '<<', SHRIGHT '>>'
+ * 7   GRE '>', 'GEQ' '>=', LES '<', LEQ '<='
+ * 8   DEQ '==', NEQ '!='
+ * 9   AND '&'
+ * 10  XOR '^'
+ * 11  OR  '|'
+ * 12  DAND '&&'
+ * 13  DXOR '^^' (not in C)
+ * 14  DOR '||'
+ * 15  QUEST '?'
+ * 16  COLON ':'
+ * 17  EQ '=', PLUSEQ '+=', MINUSEQ '-=', MULEQ '*=', DIVEQ '/=',
+ *     MODEQ '%=', ANDEQ '&=', XOREQ '^=', OREQ '|=',
+ *     SHFLEFTEQ '<<=', SHRIGHTEQ '>>=', DANDEQ '&&=', DOREQ '||=',
+ *     DXOREQ '^^='
+ * 18 COMMA ','
+ * 137 M_OUTPAR ')' (for convenience, not an operator)
+ * 200 EOI (end of input:  for convenience, not an operator)
+ */
+static int c_prec[TOKCOUNT] =
 {
-     1, 137,  2,  2,   2,
-     2,   2,  2,  4,   5,
-     6,   8,  8,  8,   9,
-     9,   3,  3, 10,  10,
-    10,  10, 11, 11,  12,
-    13,  13, 14, 15,  16,
-    16,  16, 16, 16,  16,
-    16,  16, 16, 16,  16,
-    16,  16, 16, 17, 200,
-     2,   2,  0,  0,   7,
-     0,  16, 0
+/*        M_INPAR   M_OUTPAR     NOT       COMP     POSTPLUS */
+/*  0 */     1,       137,        2,        2,         2,
+/*        POSTMINUS   UPLUS     UMINUS     AND        XOR    */
+/*  5 */     2,         2,        2,        9,        10,
+/*          OR         MUL       DIV       MOD       PLUS    */
+/* 10 */    11,         4,        4,        4,         5,
+/*         MINUS      SHLEFT   SHRIGHT     LES        LEQ    */
+/* 15 */     5,         6,        6,        7,         7,
+/*          GRE        GEQ       DEQ       NEQ       DAND    */
+/* 20 */     7,         7,        8,        8,        12,
+/*          DOR        DXOR     QUEST     COLON       EQ     */
+/* 25 */    14,        13,       15,       16,        17,
+/*         PLUSEQ    MINUSEQ    MULEQ     DIVEQ      MODEQ   */
+/* 30 */    17,        17,       17,       17,        17,
+/*         ANDEQ      XOREQ     OREQ    SHLEFTEQ   SHRIGHTEQ */
+/* 35 */    17,        17,       17,       17,        17,
+/*        DANDEQ      DOREQ    DXOREQ    COMMA       EOI     */
+/* 40 */    17,        17,       17,       18,       200,
+/*       PREPLUS    PREMINUS     NUM        ID       POWER   */
+/* 45 */     2,         2,        0,        0,         3,
+/*          CID      POWEREQ     FUNC  */
+/* 50 */     0,        17,        0
 };
 
-#define TOPPREC 18
-#define ARGPREC 16
+/*
+ * Opeator recedences: in reverse order, i.e. lower number, high precedence.
+ * These are the default zsh precedences.
+ *
+ * 0   Non-operators: NUM (numeric constant), ID (identifier),
+ *                    CID (identifier with '#'), FUNC (math function)
+ * 1   Opening parenthesis: M_INPAR '('  (for convenience, not an operator)
+ * 2   Unary operators: PREPLUS/POSTPLUS '++', PREMINUS/POSTMINUS '--',
+ *                      NOT '!', COMP '~', UPLUS '+', UMINUS '-' 
+ * 3   SHLEFT '<<', SHRIGHT '>>'
+ * 4   AND '&'
+ * 5   XOR '^'
+ * 6   OR  '|'
+ * 7   POWER '**' (not in C but at high precedence in Perl)
+ * 8   MUL '*', DIV '/', MOD '%'
+ * 9   PLUS '+', MINUS '-'
+ * 10  GRE '>', 'GEQ' '>=', LES '<', LEQ '<='
+ * 11  DEQ '==', NEQ '!='
+ * 12  DAND '&&'
+ * 13  DOR '||', DXOR '^^' (not in C)
+ * 14  QUEST '?'
+ * 15  COLON ':'
+ * 16  EQ '=', PLUSEQ '+=', MINUSEQ '-=', MULEQ '*=', DIVEQ '/=',
+ *     MODEQ '%=', ANDEQ '&=', XOREQ '^=', OREQ '|=',
+ *     SHFLEFTEQ '<<=', SHRIGHTEQ '>>=', DANDEQ '&&=', DOREQ '||=',
+ *     DXOREQ '^^='
+ * 17 COMMA ','
+ * 137 M_OUTPAR ')' (for convenience, not an operator)
+ * 200 EOI (end of input:  for convenience, not an operator)
+ */
+static int z_prec[TOKCOUNT] =
+{
+/*        M_INPAR   M_OUTPAR     NOT       COMP     POSTPLUS */
+/*  0 */     1,       137,        2,        2,         2,
+/*        POSTMINUS   UPLUS     UMINUS     AND        XOR    */
+/*  5 */     2,         2,        2,        4,         5,
+/*          OR         MUL       DIV       MOD       PLUS    */
+/* 10 */     6,         8,        8,        8,         9,
+/*         MINUS      SHLEFT   SHRIGHT     LES        LEQ    */
+/* 15 */     9,         3,        3,       10,        10,
+/*          GRE        GEQ       DEQ       NEQ       DAND    */
+/* 20 */    10,        10,       11,       11,        12,
+/*          DOR        DXOR     QUEST     COLON       EQ     */
+/* 25 */    13,        13,       14,       15,        16,
+/*         PLUSEQ    MINUSEQ    MULEQ     DIVEQ      MODEQ   */
+/* 30 */    16,        16,       16,       16,        16,
+/*         ANDEQ      XOREQ     OREQ    SHLEFTEQ   SHRIGHTEQ */
+/* 35 */    16,        16,       16,       16,        16,
+/*        DANDEQ      DOREQ    DXOREQ    COMMA       EOI     */
+/* 40 */    16,        16,       16,       17,       200,
+/*       PREPLUS    PREMINUS     NUM        ID       POWER   */
+/* 45 */     2,         2,        0,        0,         7,
+/*          CID      POWEREQ     FUNC  */
+/* 50 */     0,        16,        0
+};
+
+/* Option-selectable preference table */
+static int *prec;
+
+/*
+ * Precedences for top and argument evaluation.  Careful:
+ * prec needs to be set before we use these.
+ */
+#define TOPPREC (prec[COMMA]+1)
+#define ARGPREC (prec[COMMA]-1)
 
 static int type[TOKCOUNT] =
 {
@@ -185,6 +298,142 @@ static int type[TOKCOUNT] =
 /* 45 */  RL, RL, LR|OP_OPF, LR|OP_OPF, RL|OP_A2,
 /* 50 */  LR|OP_OPF, RL|OP_E2, LR|OP_OPF
 };
+
+/* the value stack */
+
+#define STACKSZ 100
+static int mtok;			/* last token */
+static int sp = -1;			/* stack pointer */
+
+struct mathvalue {
+    /*
+     * If we need to get a variable, this is the string to be passed
+     * to the parameter code.  It may include a subscript.
+     */
+    char *lval;
+    /*
+     * If this is not zero, we've retrieved a variable and this
+     * stores a reference to it.
+     */
+    Value pval;
+    mnumber val;
+};
+
+static struct mathvalue *stack;
+
+enum prec_type {
+    /* Evaluating a top-level expression */
+    MPREC_TOP,
+    /* Evaluating a function argument */
+    MPREC_ARG
+};
+
+
+/*
+ * Get a number from a variable.
+ * Try to be clever about reusing subscripts by caching the Value structure.
+ */
+static mnumber
+getmathparam(struct mathvalue *mptr)
+{
+    if (!mptr->pval) {
+	char *s = mptr->lval;
+	mptr->pval = (Value)zhalloc(sizeof(struct value));
+	if (!getvalue(mptr->pval, &s, 1))
+	{
+	    mptr->pval = NULL;
+	    return zero_mnumber;
+	}
+    }
+    return getnumvalue(mptr->pval);
+}
+
+static mnumber
+mathevall(char *s, enum prec_type prec_tp, char **ep)
+{
+    int xlastbase, xnoeval, xunary, *xprec;
+    char *xptr;
+    mnumber xyyval;
+    char *xyylval;
+    int xsp;
+    struct mathvalue *xstack = 0, nstack[STACKSZ];
+    mnumber ret;
+
+    if (mlevel >= MAX_MLEVEL) {
+	xyyval.type = MN_INTEGER;
+	xyyval.u.l = 0;
+
+	zerr("math recursion limit exceeded");
+
+	return xyyval;
+    }
+    if (mlevel++) {
+	xlastbase = lastbase;
+	xnoeval = noeval;
+	xunary = unary;
+	xptr = ptr;
+	xyyval = yyval;
+	xyylval = yylval;
+
+	xsp = sp;
+	xstack = stack;
+	xprec = prec;
+    } else {
+	xlastbase = xnoeval = xunary = xsp = 0;
+	xyyval.type = MN_INTEGER;
+	xyyval.u.l = 0;
+	xyylval = NULL;
+	xptr = NULL;
+	xprec = NULL;
+    }
+    prec = isset(CPRECEDENCES) ? c_prec : z_prec;
+    stack = nstack;
+    lastbase = -1;
+    ptr = s;
+    sp = -1;
+    unary = 1;
+    stack[0].val.type = MN_INTEGER;
+    stack[0].val.u.l = 0;
+    mathparse(prec_tp == MPREC_TOP ? TOPPREC : ARGPREC);
+    *ep = ptr;
+    DPUTS(!errflag && sp > 0,
+	  "BUG: math: wallabies roaming too freely in outback");
+
+    if (errflag) {
+	/*
+	 * This used to set the return value to errflag.
+	 * I don't understand how that could be useful; the
+	 * caller doesn't know that's what's happened and
+	 * may not get a value at all.
+	 * Worse, we reset errflag in execarith() and setting
+	 * this explicitly non-zero means a (( ... )) returns
+	 * status 0 if there's an error.  That surely can't
+	 * be right.  execarith() now detects an error and returns
+	 * status 2.
+	 */
+	ret.type = MN_INTEGER;
+	ret.u.l = 0;
+    } else {
+	if (stack[0].val.type == MN_UNSET)
+	    ret = getmathparam(stack);
+	else
+	    ret = stack[0].val;
+    }
+
+    if (--mlevel) {
+	lastbase = xlastbase;
+	noeval = xnoeval;
+	unary = xunary;
+	ptr = xptr;
+	yyval = xyyval;
+	yylval = xyylval;
+
+	sp = xsp;
+	stack = xstack;
+	prec = xprec;
+    }
+    return lastmathval = ret;
+}
 
 static int
 lexconstant(void)
@@ -208,17 +457,33 @@ lexconstant(void)
 	    lastbase = 16;
 	    return NUM;
 	}
-	else if (isset(OCTALZEROES) &&
-		 (memchr(nptr, '.', strlen(nptr)) == NULL) &&
-		 idigit(*nptr)) {
-	    yyval.u.l = zstrtol(ptr, &ptr, 0);
-	    lastbase = 8;
-	    return NUM;
+	else if (isset(OCTALZEROES))
+	{
+	    char *ptr2;
+
+	    /*
+	     * Make sure this is a real octal constant;
+	     * it can't be a base indication (always decimal)
+	     * or a floating point number.
+	     */
+	    for (ptr2 = nptr; idigit(*ptr2); ptr2++)
+		;
+
+	    if (ptr2 > nptr && *ptr2 != '.' && *ptr2 != 'e' &&
+		*ptr2 != 'E' && *ptr2 != '#')
+	    {
+		yyval.u.l = zstrtol(ptr, &ptr, 0);
+		lastbase = 8;
+		return NUM;
+	    }
+	    nptr = ptr2;
 	}
     }
-
-    while (idigit(*nptr))
-	nptr++;
+    else
+    {
+	while (idigit(*nptr))
+	    nptr++;
+    }
 
     if (*nptr == '.' || *nptr == 'e' || *nptr == 'E') {
 	/* it's a float */
@@ -232,7 +497,7 @@ lexconstant(void)
 	if (prev_locale) setlocale(LC_NUMERIC, prev_locale);
 #endif
 	if (ptr == nptr || *nptr == '.') {
-	    zerr("bad floating point constant", NULL, 0);
+	    zerr("bad floating point constant");
 	    return EOI;
 	}
 	ptr = nptr;
@@ -256,12 +521,13 @@ static int
 zzlex(void)
 {
     int cct = 0;
+    char *ie;
     yyval.type = MN_INTEGER;
 
     for (;; cct = 0)
 	switch (*ptr++) {
 	case '+':
-	    if (*ptr == '+' && (unary || !ialnum(*ptr))) {
+	    if (*ptr == '+') {
 		ptr++;
 		return (unary) ? PREPLUS : POSTPLUS;
 	    }
@@ -271,7 +537,7 @@ zzlex(void)
 	    }
 	    return (unary) ? UPLUS : PLUS;
 	case '-':
-	    if (*ptr == '-' && (unary || !ialnum(*ptr))) {
+	    if (*ptr == '-') {
 		ptr++;
 		return (unary) ? PREMINUS : POSTMINUS;
 	    }
@@ -413,7 +679,7 @@ zzlex(void)
 		if (idigit(*ptr)) {
 		    n = zstrtol(ptr, &ptr, 10);
 		    if (*ptr != ']' || !idigit(*++ptr)) {
-			zerr("bad base syntax", NULL, 0);
+			zerr("bad base syntax");
 			return EOI;
 		    }
 		    yyval.u.l = zstrtol(ptr, &ptr, lastbase = n);
@@ -430,11 +696,17 @@ zzlex(void)
 		    outputradix = n * zstrtol(ptr, &ptr, 10);
 		} else {
 		    bofs:
-		    zerr("bad output format specification", NULL, 0);
+		    zerr("bad output format specification");
 		    return EOI;
 		}
 		if(*ptr != ']')
 			goto bofs;
+		n = (outputradix < 0) ? -outputradix : outputradix;
+		if (n < 2 || n > 36) {
+		    zerr("invalid base (must be 2 to 36 inclusive): %d",
+			 outputradix);
+		    return EOI;
+		}
 		ptr++;
 		break;
 	    }
@@ -452,21 +724,21 @@ zzlex(void)
 
 		    ptr++;
 		    if (!*ptr) {
-			zerr("character missing after ##", NULL, 0);
+			zerr("character missing after ##");
 			return EOI;
 		    }
-		    ptr = getkeystring(ptr, NULL, 6, &v);
+		    ptr = getkeystring(ptr, NULL, GETKEYS_MATH, &v);
 		    yyval.u.l = v;
 		    return NUM;
 		}
 		cct = 1;
 	    }
-	    if (iident(*ptr)) {
+	    if ((ie = itype_end(ptr, IIDENT, 0)) != ptr) {
 		int func = 0;
 		char *p;
 
 		p = ptr;
-		while (iident(*++ptr));
+		ptr = ie;
 		if (*ptr == '[' || (!cct && *ptr == '(')) {
 		    char op = *ptr, cp = ((*ptr == '[') ? ']' : ')');
 		    int l;
@@ -491,29 +763,17 @@ zzlex(void)
 	}
 }
 
-/* the value stack */
-
-#define STACKSZ 100
-static int mtok;			/* last token */
-static int sp = -1;			/* stack pointer */
-
-struct mathvalue {
-    char *lval;
-    mnumber val;
-};
-
-static struct mathvalue *stack;
-
 /**/
 static void
 push(mnumber val, char *lval, int getme)
 {
     if (sp == STACKSZ - 1)
-	zerr("stack overflow", NULL, 0);
+	zerr("stack overflow");
     else
 	sp++;
     stack[sp].val = val;
     stack[sp].lval = lval;
+    stack[sp].pval = NULL;
     if (getme)
 	stack[sp].val.type = MN_UNSET;
 }
@@ -525,7 +785,7 @@ pop(int noget)
     struct mathvalue *mv = stack+sp;
 
     if (mv->val.type == MN_UNSET && !noget)
-	mv->val = getnparam(mv->lval);
+	mv->val = getmathparam(mv);
     sp--;
     return errflag ? zero_mnumber : mv->val;
 }
@@ -541,8 +801,20 @@ getcvar(char *s)
     queue_signals();
     if (!(t = getsparam(s)))
 	mn.u.l = 0;
-    else
-        mn.u.l = STOUC(*t == Meta ? t[1] ^ 32 : *t);
+    else {
+#ifdef MULTIBYTE_SUPPORT
+	if (isset(MULTIBYTE)) {
+	    wint_t wc;
+	    (void)mb_metacharlenconv(t, &wc);
+	    if (wc != WEOF) {
+		mn.u.l = (zlong)wc;
+		unqueue_signals();
+		return mn;
+	    }
+	}
+#endif
+	mn.u.l = STOUC(*t == Meta ? t[1] ^ 32 : *t);
+    }
     unqueue_signals();
     return mn;
 }
@@ -550,18 +822,38 @@ getcvar(char *s)
 
 /**/
 static mnumber
-setvar(char *s, mnumber v)
+setmathvar(struct mathvalue *mvp, mnumber v)
 {
-    if (!s) {
-	zerr("lvalue required", NULL, 0);
+    if (mvp->pval) {
+	/*
+	 * This value may have been hanging around for a while.
+	 * Be ultra-paranoid in checking the variable is still valid.
+	 */
+	char *s = mvp->lval, *ptr;
+	Param pm;
+	DPUTS(!mvp->lval, "no variable name but variable value in math");
+	if ((ptr = strchr(s, '[')))
+	    s = dupstrpfx(s, ptr - s);
+	pm = (Param) paramtab->getnode(paramtab, s);
+	if (pm == mvp->pval->pm) {
+	    if (noeval)
+		return v;
+	    setnumvalue(mvp->pval, v);
+	    return v;
+	}
+	/* Different parameter, start again from scratch */
+	mvp->pval = NULL;
+    }
+    if (!mvp->lval) {
+	zerr("lvalue required");
 	v.type = MN_INTEGER;
 	v.u.l = 0;
 	return v;
     }
     if (noeval)
 	return v;
-    untokenize(s);
-    setnparam(s, v);
+    untokenize(mvp->lval);
+    setnparam(mvp->lval, v);
     return v;
 }
 
@@ -582,44 +874,76 @@ callmathfunc(char *o)
     a[strlen(a) - 1] = '\0';
 
     if ((f = getmathfunc(n, 1))) {
-	if (f->flags & MFF_STR)
+	if (f->flags & MFF_STR) {
 	    return f->sfunc(n, a, f->funcid);
-	else {
+	} else {
 	    int argc = 0;
-	    mnumber *argv = NULL, *q;
+	    mnumber *argv = NULL, *q, marg;
 	    LinkList l = newlinklist();
 	    LinkNode node;
+
+	    if (f->flags & MFF_USERFUNC) {
+		/* first argument is function name: always use mathfunc */
+		addlinknode(l, n);
+	    }
 
 	    while (iblank(*a))
 		a++;
 	    while (*a) {
 		if (*a) {
 		    argc++;
- 		    q = (mnumber *) zhalloc(sizeof(mnumber));
-		    *q = mathevall(a, ARGPREC, &a);
-		    addlinknode(l, q);
+		    if (f->flags & MFF_USERFUNC) {
+			/* need to pass strings */
+			char *str;
+			marg = mathevall(a, MPREC_ARG, &a);
+			if (marg.type & MN_FLOAT) {
+			    /* convfloat is off the heap */
+			    str = convfloat(marg.u.d, 0, 0, NULL);
+			} else {
+			    char buf[BDIGBUFSIZE];
+			    convbase(buf, marg.u.l, 10);
+			    str = dupstring(buf);
+			}
+			addlinknode(l, str);
+		    } else {
+			q = (mnumber *) zhalloc(sizeof(mnumber));
+			*q = mathevall(a, MPREC_ARG, &a);
+			addlinknode(l, q);
+		    }
 		    if (errflag || mtok != COMMA)
 			break;
 		}
 	    }
 	    if (*a && !errflag)
-		zerr("bad math expression: illegal character: %c",
-		     NULL, *a);
+		zerr("bad math expression: illegal character: %c", *a);
 	    if (!errflag) {
 		if (argc >= f->minargs && (f->maxargs < 0 ||
 					   argc <= f->maxargs)) {
-		    if (argc) {
-			q = argv = (mnumber *)zhalloc(argc * sizeof(mnumber));
-			for (node = firstnode(l); node; incnode(node))
-			    *q++ = *(mnumber *)getdata(node);
+		    if (f->flags & MFF_USERFUNC) {
+			char *shfnam = f->module ? f->module : n;
+			Shfunc shfunc = getshfunc(shfnam);
+			if (!shfunc)
+			    zerr("no such function: %s", shfnam);
+			else {
+			    doshfunc(shfunc, l, 1);
+			    return lastmathval;
+			}
+		    } else {
+			if (argc) {
+			    q = argv =
+				(mnumber *)zhalloc(argc * sizeof(mnumber));
+			    for (node = firstnode(l); node; incnode(node))
+				*q++ = *(mnumber *)getdata(node);
+			}
+			return f->nfunc(n, argc, argv, f->funcid);
 		    }
-		    return f->nfunc(n, argc, argv, f->funcid);
 		} else
-		    zerr("wrong number of arguments: %s", o, 0);
+		    zerr("wrong number of arguments: %s", o);
 	    }
 	}
-    } else
-	zerr("unknown function: %s", n, 0);
+    } else {
+	zerr("unknown function: %s", n);
+    }
 
     dummy.type = MN_INTEGER;
     dummy.u.l = 0;
@@ -632,7 +956,7 @@ static int
 notzero(mnumber a)
 {
     if ((a.type & MN_INTEGER) ? a.u.l == 0 : a.u.d == 0.0) {
-	zerr("division by zero", NULL, 0);
+	zerr("division by zero");
 	return 0;
     }
     return 1;
@@ -645,13 +969,12 @@ void
 op(int what)
 {
     mnumber a, b, c, *spval;
-    char *lv;
     int tp = type[what];
 
     if (errflag)
 	return;
     if (sp < 0) {
-	zerr("bad math expression: stack empty", NULL, 0);
+	zerr("bad math expression: stack empty");
 	return;
     }
 
@@ -817,7 +1140,7 @@ op(int what)
 			/* Error if (-num ** b) and b is not an integer */
 			double tst = (double)(zlong)b.u.d;
 			if (tst != b.u.d) {
-			    zerr("imaginary power", NULL, 0);
+			    zerr("imaginary power");
 			    return;
 			}
 		    }
@@ -830,8 +1153,9 @@ op(int what)
 	    }
 	}
 	if (tp & (OP_E2|OP_E2IO)) {
-	    lv = stack[sp+1].lval;
-	    push(setvar(lv,c), lv, 0);
+	    struct mathvalue *mvp = stack + sp + 1;
+	    c = setmathvar(mvp, c);
+	    push(c, mvp->lval, 0);
 	} else
 	    push(c,NULL, 0);
 	return;
@@ -839,7 +1163,7 @@ op(int what)
 
     spval = &stack[sp].val;
     if (stack[sp].val.type == MN_UNSET)
-	*spval = getnparam(stack[sp].lval);
+	*spval = getmathparam(stack + sp);
     switch (what) {
     case NOT:
 	if (spval->type & MN_FLOAT) {
@@ -848,6 +1172,7 @@ op(int what)
 	} else
 	    spval->u.l = !spval->u.l;
 	stack[sp].lval = NULL;
+	stack[sp].pval = NULL;
 	break;
     case COMP:
 	if (spval->type & MN_FLOAT) {
@@ -856,6 +1181,7 @@ op(int what)
 	} else
 	    spval->u.l = ~spval->u.l;
 	stack[sp].lval = NULL;
+	stack[sp].pval = NULL;
 	break;
     case POSTPLUS:
 	a = *spval;
@@ -863,7 +1189,7 @@ op(int what)
 	    a.u.d++;
 	else
 	    a.u.l++;
-	(void)setvar(stack[sp].lval, a);
+	(void)setmathvar(stack + sp, a);
 	break;
     case POSTMINUS:
 	a = *spval;
@@ -871,10 +1197,11 @@ op(int what)
 	    a.u.d--;
 	else
 	    a.u.l--;
-	(void)setvar(stack[sp].lval, a);
+	(void)setmathvar(stack + sp, a);
 	break;
     case UPLUS:
 	stack[sp].lval = NULL;
+	stack[sp].pval = NULL;
 	break;
     case UMINUS:
 	if (spval->type & MN_FLOAT)
@@ -882,6 +1209,7 @@ op(int what)
 	else
 	    spval->u.l = -spval->u.l;
 	stack[sp].lval = NULL;
+	stack[sp].pval = NULL;
 	break;
     case QUEST:
 	DPUTS(sp < 2, "BUG: math: three shall be the number of the counting.");
@@ -894,24 +1222,24 @@ op(int what)
 	push(((a.type & MN_FLOAT) ? a.u.d : a.u.l) ? b : c, NULL, 0);
 	break;
     case COLON:
-	zerr("':' without '?'", NULL, 0);
+	zerr("':' without '?'");
 	break;
     case PREPLUS:
 	if (spval->type & MN_FLOAT)
 	    spval->u.d++;
 	else
 	    spval->u.l++;
-	setvar(stack[sp].lval, *spval);
+	setmathvar(stack + sp, *spval);
 	break;
     case PREMINUS:
 	if (spval->type & MN_FLOAT)
 	    spval->u.d--;
 	else
 	    spval->u.l--;
-	setvar(stack[sp].lval, *spval);
+	setmathvar(stack + sp, *spval);
 	break;
     default:
-	zerr("out of integers", NULL, 0);
+	zerr("out of integers");
 	return;
     }
 }
@@ -925,7 +1253,7 @@ bop(int tk)
     int tst;
 
     if (stack[sp].val.type == MN_UNSET)
-	*spval = getnparam(stack[sp].lval);
+	*spval = getmathparam(stack + sp);
     tst = (spval->type & MN_FLOAT) ? (zlong)spval->u.d : spval->u.l; 
 
     switch (tk) {
@@ -940,91 +1268,6 @@ bop(int tk)
 	    noeval++;
 	break;
     };
-}
-
-
-/**/
-static mnumber
-mathevall(char *s, int prek, char **ep)
-{
-    int xlastbase, xnoeval, xunary;
-    char *xptr;
-    mnumber xyyval;
-    char *xyylval;
-    int xsp;
-    struct mathvalue *xstack = 0, nstack[STACKSZ];
-    mnumber ret;
-
-    if (mlevel >= MAX_MLEVEL) {
-	xyyval.type = MN_INTEGER;
-	xyyval.u.l = 0;
-
-	zerr("math recursion limit exceeded", NULL, 0);
-
-	return xyyval;
-    }
-    if (mlevel++) {
-	xlastbase = lastbase;
-	xnoeval = noeval;
-	xunary = unary;
-	xptr = ptr;
-	xyyval = yyval;
-	xyylval = yylval;
-
-	xsp = sp;
-	xstack = stack;
-    } else {
-	xlastbase = xnoeval = xunary = xsp = 0;
-	xyyval.type = MN_INTEGER;
-	xyyval.u.l = 0;
-	xyylval = NULL;
-	xptr = NULL;
-    }
-    stack = nstack;
-    lastbase = -1;
-    ptr = s;
-    sp = -1;
-    unary = 1;
-    stack[0].val.type = MN_INTEGER;
-    stack[0].val.u.l = 0;
-    mathparse(prek);
-    *ep = ptr;
-    DPUTS(!errflag && sp > 0,
-	  "BUG: math: wallabies roaming too freely in outback");
-
-    if (errflag) {
-	/*
-	 * This used to set the return value to errflag.
-	 * I don't understand how that could be useful; the
-	 * caller doesn't know that's what's happened and
-	 * may not get a value at all.
-	 * Worse, we reset errflag in execarith() and setting
-	 * this explicitly non-zero means a (( ... )) returns
-	 * status 0 if there's an error.  That surely can't
-	 * be right.  execarith() now detects an error and returns
-	 * status 2.
-	 */
-	ret.type = MN_INTEGER;
-	ret.u.l = 0;
-    } else {
-	if (stack[0].val.type == MN_UNSET)
-	    ret = getnparam(stack[0].lval);
-	else
-	    ret = stack[0].val;
-    }
-
-    if (--mlevel) {
-	lastbase = xlastbase;
-	noeval = xnoeval;
-	unary = xunary;
-	ptr = xptr;
-	yyval = xyyval;
-	yylval = xyylval;
-
-	sp = xsp;
-	stack = xstack;
-    }
-    return ret;
 }
 
 
@@ -1044,10 +1287,10 @@ matheval(char *s)
 	x.u.l = 0;
 	return x;
     }
-    x = mathevall(s, TOPPREC, &junk);
+    x = mathevall(s, MPREC_TOP, &junk);
     mtok = xmtok;
     if (*junk)
-	zerr("bad math expression: illegal character: %c", NULL, *junk);
+	zerr("bad math expression: illegal character: %c", *junk);
     return x;
 }
 
@@ -1067,7 +1310,7 @@ mathevalarg(char *s, char **ss)
     mnumber x;
     int xmtok = mtok;
 
-    x = mathevall(s, ARGPREC, ss);
+    x = mathevall(s, MPREC_ARG, ss);
     if (mtok == COMMA)
 	(*ss)--;
     mtok = xmtok;
@@ -1093,7 +1336,6 @@ checkunary(int mtokc, char *mptr)
 	    errmsg = 2;
     }
     if (errmsg) {
-	char errbuf[80];
 	int len, over = 0;
 	while (inblank(*mptr))
 	    mptr++;
@@ -1102,10 +1344,9 @@ checkunary(int mtokc, char *mptr)
 	    len = 10;
 	    over = 1;
 	}
-	sprintf(errbuf, "bad math expression: %s expected at `%%l%s'",
-		errmsg == 2 ? "operator" : "operand",
-		over ? "..." : ""); 
-	zerr(errbuf, mptr, len);
+	zerr("bad math expression: %s expected at `%l%s'",
+	     errmsg == 2 ? "operator" : "operand",
+	     mptr, len, over ? "..." : "");
     }
     unary = !(tp & OP_OPF);
 }
@@ -1147,13 +1388,13 @@ mathparse(int pc)
 	    mathparse(TOPPREC);
 	    if (mtok != M_OUTPAR) {
 		if (!errflag)
-		    zerr("')' expected", NULL, 0);
+		    zerr("')' expected");
 		return;
 	    }
 	    break;
 	case QUEST:
 	    if (stack[sp].val.type == MN_UNSET)
-		stack[sp].val = getnparam(stack[sp].lval);
+		stack[sp].val = getmathparam(stack + sp);
 	    q = (stack[sp].val.type == MN_FLOAT) ? (zlong)stack[sp].val.u.d :
 		stack[sp].val.u.l;
 
@@ -1164,7 +1405,7 @@ mathparse(int pc)
 		noeval--;
 	    if (mtok != COLON) {
 		if (!errflag)
-		    zerr("':' expected", NULL, 0);
+		    zerr("':' expected");
 		return;
 	    }
 	    if (q)

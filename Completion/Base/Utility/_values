@@ -50,7 +50,7 @@ if compvalues -i "$@"; then
       fi
     else
       compvalues -d descr
-      if [[ ${#noargs}+${#args}+${#opts} -ne 1 ]] && compvalues -s sep; then
+      if compvalues -s sep; then
         sep=( "-qS" "$sep" )
       else
         sep=()
@@ -59,7 +59,7 @@ if compvalues -i "$@"; then
       _describe "$descr" \
         noargs "$sep[@]" -M 'r:|[_-]=* r:|=*' -- \
         args -S "${argsep}" -M 'r:|[_-]=* r:|=*' -- \
-        opts -qS "${argsep}" -M 'r:|[_-]=* r:|=*'
+        opts -qS "${argsep}" -r "${argsep}${sep} \\t\\n\\-" -M 'r:|[_-]=* r:|=*'
 
       curcontext="$oldcontext"
 
@@ -87,6 +87,7 @@ if compvalues -i "$@"; then
   if [[ "$action" = -\>* ]]; then
     compvalues -v val_args
     state="${${action[3,-1]##[ 	]#}%%[ 	]#}"
+    state_descr="$descr"
     if [[ -n "$usecc" ]]; then
       curcontext="${oldcontext%:*}:$subc"
     else

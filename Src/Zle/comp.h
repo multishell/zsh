@@ -76,6 +76,9 @@ struct cmgroup {
     int totl;			/* total length */
     int shortest;		/* length of shortest match */
     Cmgroup perm;		/* perm. alloced version of this group */
+#ifdef ZSH_HEAP_DEBUG
+    Heapid heap_id;
+#endif
 };
 
 
@@ -114,6 +117,8 @@ struct cmatch {
     int gnum;			/* global number */
     mode_t mode;                /* mode field of a stat */
     char modec;                 /* LIST_TYPE-character for mode or nul */
+    mode_t fmode;               /* mode field of a stat, following symlink */
+    char fmodec;                /* LIST_TYPE-character for fmode or nul */
 };
 
 #define CMF_FILE     (1<< 0)	/* this is a file */
@@ -131,6 +136,7 @@ struct cmatch {
 #define CMF_FMULT    (1<<12)	/* first of multiple equal strings */
 #define CMF_ALL      (1<<13)	/* a match representing all other matches */
 #define CMF_DUMMY    (1<<14)	/* unselectable dummy match */
+#define CMF_MORDER   (1<<15)    /* order by matches, not display strings */
 
 /* Stuff for completion matcher control. */
 
@@ -159,11 +165,53 @@ struct cmatcher {
 #define CMF_RIGHT 4
 #define CMF_INTER 8
 
+/*
+ * Types of cpattern structure.
+ * Note freecpattern() assumes any <= CPAT_EQUIV have string.
+ */
+enum {
+    CPAT_CCLASS,		/* [...]: ordinary character class */
+    CPAT_NCLASS,		/* [!...]: ordinary character class, negated */
+    CPAT_EQUIV,			/* {...}: equivalence class */
+    CPAT_ANY,			/* ?: any character */
+    CPAT_CHAR			/* Single character given explicitly */
+};
+
+/*
+ * A pattern element in a matcher specification.
+ * Unlike normal patterns this only presents one character in
+ * either the test completion or the word on the command line.
+ */
 struct cpattern {
     Cpattern next;		/* next sub-pattern */
-    unsigned char tab[256];	/* table of matched characters */
-    int equiv;			/* if this is a {...} class */
+    int tp;			/* type of object as above */
+    union {
+	char *str;		/* if a character class, the objects
+				 * in it in a similar form to normal
+				 * pattern matching (a metafied string
+				 * with tokens).
+				 * Note the allocated length may be longer
+				 * than the null-terminated string.
+				 */
+	convchar_t chr;		/* if a single character, it */
+    } u;
 };
+
+/*
+ * For now this just handles single-byte characters.
+ * TODO: this will change.
+ */
+#ifdef MULTIBYTE_SUPPORT
+#define PATMATCHRANGE(r, c, ip, mtp)	mb_patmatchrange(r, c, ip, mtp)
+#define PATMATCHINDEX(r, i, cp, mtp)	mb_patmatchindex(r, i, cp, mtp)
+#define CONVCAST(c)			((wchar_t)(c))
+#define CHR_INVALID			(WEOF)
+#else
+#define PATMATCHRANGE(r, c, ip, mtp)	patmatchrange(r, c, ip, mtp)
+#define PATMATCHINDEX(r, i, cp, mtp)	patmatchindex(r, i, cp, mtp)
+#define CONVCAST(c)			(c)
+#define CHR_INVALID			(-1)
+#endif
 
 /* This is a special return value for parse_cmatcher(), *
  * signalling an error. */
@@ -278,8 +326,8 @@ struct cadata {
 typedef struct cldata *Cldata;
 
 struct cldata {
-    int columns;		/* screen width */
-    int lines;			/* screen height */
+    int zterm_columns;		/* screen width */
+    int zterm_lines;		/* screen height */
     int menuacc;		/* value of global menuacc */
     int valid;			/* no need to calculate anew */
     int nlist;			/* number of matches to list */
@@ -405,4 +453,8 @@ struct chdata {
     int nmesg;			/* the number of messages */
     Cmatch cur;			/* current match or NULL */
 };
+
+/* The number of columns to leave empty between rows of matches. */
+
+#define CM_SPACE  2
 

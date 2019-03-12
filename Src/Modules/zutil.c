@@ -38,9 +38,8 @@ typedef struct style *Style;
 /* A pattern and the styles for it. */
 
 struct style {
-    Style next;			/* next in stypat list */
+    struct hashnode node;
     Stypat pats;		/* patterns */
-    char *name;
 };
 
 struct stypat {
@@ -51,12 +50,41 @@ struct stypat {
     Eprog eval;			/* eval-on-retrieve? */
     char **vals;
 };
-    
-/* List of styles. */
 
-static Style zstyles;
+/* Hash table of styles and associated functions. */
+
+static HashTable zstyletab;
 
 /* Memory stuff. */
+
+static void
+freestylepatnode(Stypat p)
+{
+    zsfree(p->pat);
+    freepatprog(p->prog);
+    if (p->vals)
+	freearray(p->vals);
+    if (p->eval)
+	freeeprog(p->eval);
+    zfree(p, sizeof(*p));
+}
+
+static void
+freestylenode(HashNode hn)
+{
+    Style s = (Style) hn;
+    Stypat p, pn;
+
+    p = s->pats;
+    while (p) {
+	pn = p->next;
+	freestylepatnode(p);
+	p = pn;
+    }
+
+    zsfree(s->node.nam);
+    zfree(s, sizeof(struct style));
+}
 
 /*
  * Free the information for one of the patterns associated with
@@ -79,60 +107,135 @@ freestypat(Stypat p, Style s, Stypat prev)
 	    s->pats = p->next;
     }
 
-    zsfree(p->pat);
-    freepatprog(p->prog);
-    if (p->vals)
-	freearray(p->vals);
-    if (p->eval)
-	freeeprog(p->eval);
-    zfree(p, sizeof(*p));
+    freestylepatnode(p);
 
     if (s && !s->pats) {
 	/* No patterns left, free style */
-	if (s == zstyles) {
-	    zstyles = s->next;
-	} else {
-	    Style s2;
-	    for (s2 = zstyles; s2->next != s; s2 = s2->next)
-		;
-	    s2->next = s->next;
-	}
-	zsfree(s->name);
+	zstyletab->removenode(zstyletab, s->node.nam);
+	zsfree(s->node.nam);
 	zfree(s, sizeof(*s));
     }
 }
+
+/* Pattern to match context when printing nodes */
+
+static Patprog zstyle_contprog;
+
+/*
+ * Print a node.  Print flags as shown.
+ */
+enum {
+    ZSLIST_NONE,
+    ZSLIST_BASIC,
+    ZSLIST_SYNTAX,
+};
 
 static void
-freeallstyles(void)
+printstylenode(HashNode hn, int printflags)
 {
-    Style s, sn;
-    Stypat p, pn;
+    Style s = (Style)hn;
+    Stypat p;
+    char **v;
 
-    for (s = zstyles; s; s = sn) {
-	sn = s->next;
-	for (p = s->pats; p; p = pn) {
-	    pn = p->next;
-	    freestypat(p, NULL, NULL);
-	}
-	zsfree(s->name);
-	zfree(s, sizeof(*s));
+    if (printflags == ZSLIST_BASIC) {
+	quotedzputs(s->node.nam, stdout);
+	putchar('\n');
     }
-    zstyles = NULL;
+
+    for (p = s->pats; p; p = p->next) {
+	if (zstyle_contprog && !pattry(zstyle_contprog, p->pat))
+	    continue;
+	if (printflags == ZSLIST_BASIC)
+	    printf("%s  %s", (p->eval ? "(eval)" : "      "), p->pat);
+	else {
+	    printf("zstyle %s", (p->eval ? "-e " : ""));
+	    quotedzputs(p->pat, stdout);
+	    printf(" %s", s->node.nam);
+	}
+	for (v = p->vals; *v; v++) {
+	    putchar(' ');
+	    quotedzputs(*v, stdout);
+	}
+	putchar('\n');
+    }
 }
 
-/* Get the style struct for a name. */
+/*
+ * Scan the list for a particular pattern, maybe adding matches to
+ * the link list (heap memory).  Value to be added as
+ * shown in enum
+ */
+static LinkList zstyle_list;
+static char *zstyle_patname;
 
-static Style
-getstyle(char *name)
+enum {
+    ZSPAT_NAME,		/* Add style names for matched pattern to list */
+    ZSPAT_PAT,		/* Add all patterns to list, doesn't use patname */
+    ZSPAT_REMOVE,	/* Remove matched pattern, doesn't use list */
+};
+
+static void
+scanpatstyles(HashNode hn, int spatflags)
 {
-    Style s;
+    Style s = (Style)hn;
+    Stypat p, q;
+    LinkNode n;
 
-    for (s = zstyles; s; s = s->next)
-	if (!strcmp(name, s->name)) {
-	    return s;
+    for (q = NULL, p = s->pats; p; q = p, p = p->next) {
+	switch (spatflags) {
+	case ZSPAT_NAME:
+	    if (!strcmp(p->pat, zstyle_patname)) {
+		addlinknode(zstyle_list, s->node.nam);
+		return;
+	    }
+	    break;
+
+	case ZSPAT_PAT:
+	    /* Check pattern isn't already there */
+	    for (n = firstnode(zstyle_list); n; incnode(n))
+		if (!strcmp(p->pat, (char *) getdata(n)))
+		    break;
+	    if (!n)
+		addlinknode(zstyle_list, p->pat);
+	    break;
+
+	case ZSPAT_REMOVE:
+	    if (!strcmp(p->pat, zstyle_patname)) {
+		freestypat(p, s, q);
+		/*
+		 * May remove link node itself; that's OK
+		 * when scanning but we need to make sure
+		 * we don't look at it any more.
+		 */
+		return;
+	    }
+	    break;
 	}
+    }
+}
 
-    return NULL;
+
+static HashTable
+newzstyletable(int size, char const *name)
+{
+    HashTable ht;
+    ht = newhashtable(size, name, NULL);
+
+    ht->hash        = hasher;
+    ht->emptytable  = emptyhashtable;
+    ht->filltable   = NULL;
+    ht->cmpnodes    = strcmp;
+    ht->addnode     = addhashnode;
+    /* DISABLED is not supported */
+    ht->getnode     = gethashnode2;
+    ht->getnode2    = gethashnode2;
+    ht->removenode  = removehashnode;
+    ht->disablenode = NULL;
+    ht->enablenode  = NULL;
+    ht->freenode    = freestylenode;
+    ht->printnode   = printstylenode;
+
+    return ht;
 }
 
 /* Store a value for a style. */
@@ -148,7 +251,7 @@ setstypat(Style s, char *pat, Patprog prog, char **vals, int eval)
     if (eval) {
 	int ef = errflag;
 
-	eprog = parse_string(zjoin(vals, ' ', 1));
+	eprog = parse_string(zjoin(vals, ' ', 1), 0);
 	errflag = ef;
 
 	if (!eprog)
@@ -226,15 +329,9 @@ setstypat(Style s, char *pat, Patprog prog, char **vals, int eval)
 static Style
 addstyle(char *name)
 {
-    Style s;
+    Style s = (Style) zshcalloc(sizeof(*s));
 
-    s = (Style) zalloc(sizeof(*s));
-    s->next = NULL;
-    s->pats = NULL;
-    s->name = ztrdup(name);
-
-    s->next = zstyles;
-    zstyles = s;
+    zstyletab->addnode(zstyletab, ztrdup(name), s);
 
     return s;
 }
@@ -246,7 +343,7 @@ evalstyle(Stypat p)
     char **ret, *str;
 
     unsetparam("reply");
-    execode(p->eval, 1, 0);
+    execode(p->eval, 1, 0, "style");
     if (errflag) {
 	errflag = ef;
 	return NULL;
@@ -274,11 +371,12 @@ lookupstyle(char *ctxt, char *style)
     Style s;
     Stypat p;
 
-    for (s = zstyles; s; s = s->next)
-	if (!strcmp(s->name, style))
-	    for (p = s->pats; p; p = p->next)
-		if (pattry(p->prog, ctxt))
-		    return (p->eval ? evalstyle(p) : p->vals);
+    s = (Style)zstyletab->getnode2(zstyletab, style);
+    if (!s)
+	return NULL;
+    for (p = s->pats; p; p = p->next)
+	if (pattry(p->prog, ctxt))
+	    return (p->eval ? evalstyle(p) : p->vals);
 
     return NULL;
 }
@@ -286,21 +384,22 @@ lookupstyle(char *ctxt, char *style)
 static int
 bin_zstyle(char *nam, char **args, UNUSED(Options ops), UNUSED(int func))
 {
-    int min, max, n, add = 0, list = 0, eval = 0;
+    int min, max, n, add = 0, list = ZSLIST_NONE, eval = 0;
 
     if (!args[0])
-	list = 1;
+	list = ZSLIST_BASIC;
     else if (args[0][0] == '-') {
 	char oc;
 
 	if ((oc = args[0][1]) && oc != '-') {
 	    if (args[0][2]) {
-		zwarnnam(nam, "invalid argument: %s", args[0], 0);
+		zwarnnam(nam, "invalid argument: %s", args[0]);
 		return 1;
 	    }
-	    if (oc == 'L')
-		list = 2;
-	    else if (oc == 'e') {
+	    if (oc == 'L') {
+		list = ZSLIST_SYNTAX;
+		args++;
+	    } else if (oc == 'e') {
 		eval = add = 1;
 		args++;
 	    }
@@ -317,45 +416,62 @@ bin_zstyle(char *nam, char **args, UNUSED(Options ops), UNUSED(int func))
 	char *pat;
 
 	if (arrlen(args) < 2) {
-	    zwarnnam(nam, "not enough arguments", NULL, 0);
+	    zwarnnam(nam, "not enough arguments");
 	    return 1;
 	}
 	pat = dupstring(args[0]);
 	tokenize(pat);
 
 	if (!(prog = patcompile(pat, PAT_ZDUP, NULL))) {
-	    zwarnnam(nam, "invalid pattern: %s", args[0], 0);
+	    zwarnnam(nam, "invalid pattern: %s", args[0]);
 	    return 1;
 	}
-	if (!(s = getstyle(args[1])))
+	if (!(s = (Style)zstyletab->getnode2(zstyletab, args[1])))
 	    s = addstyle(args[1]);
 	return setstypat(s, args[0], prog, args + 2, eval);
     }
     if (list) {
 	Style s;
-	Stypat p;
-	char **v;
+	char *context, *stylename;
 
-	for (s = zstyles; s; s = s->next) {
-	    if (list == 1) {
-		quotedzputs(s->name, stdout);
-		putchar('\n');
-	    }
-	    for (p = s->pats; p; p = p->next) {
-		if (list == 1)
-		    printf("%s  %s", (p->eval ? "(eval)" : "      "), p->pat);
-		else {
-		    printf("zstyle %s", (p->eval ? "-e " : ""));
-		    quotedzputs(p->pat, stdout);
-		    printf(" %s", s->name);
-		}
-		for (v = p->vals; *v; v++) {
-		    putchar(' ');
-		    quotedzputs(*v, stdout);
-		}
-		putchar('\n');
-	    }
+	switch (arrlen(args)) {
+	case 2:
+	    context = args[0];
+	    stylename = args[1];
+	    break;
+
+	case 1:
+	    context = args[0];
+	    stylename = NULL;
+	    break;
+
+	case 0:
+	    context = stylename = NULL;
+	    break;
+
+	default:
+	    zwarnnam(nam, "too many arguments");
+	    return 1;
 	}
+	if (context) {
+	    tokenize(context);
+	    zstyle_contprog = patcompile(context, PAT_STATIC, NULL);
+
+	    if (!zstyle_contprog)
+		return 1;
+	} else
+	    zstyle_contprog = NULL;
+
+	if (stylename) {
+	    s = (Style)zstyletab->getnode2(zstyletab, stylename);
+	    if (!s)
+		return 1;
+	    zstyletab->printnode(&s->node, list);
+	} else {
+	    scanhashtable(zstyletab, 1, 0, 0,
+			  zstyletab->printnode, list);
+	}
+
 	return 0;
     }
     switch (args[0][1]) {
@@ -368,15 +484,15 @@ bin_zstyle(char *nam, char **args, UNUSED(Options ops), UNUSED(int func))
     case 'm': min = 3; max =  3; break;
     case 'g': min = 1; max =  3; break;
     default:
-	zwarnnam(nam, "invalid option: %s", args[0], 0);
+	zwarnnam(nam, "invalid option: %s", args[0]);
 	return 1;
     }
     n = arrlen(args) - 1;
     if (n < min) {
-	zwarnnam(nam, "not enough arguments", NULL, 0);
+	zwarnnam(nam, "not enough arguments");
 	return 1;
     } else if (max >= 0 && n > max) {
-	zwarnnam(nam, "too many arguments", NULL, 0);
+	zwarnnam(nam, "too many arguments");
 	return 1;
     }
     switch (args[0][1]) {
@@ -389,7 +505,8 @@ bin_zstyle(char *nam, char **args, UNUSED(Options ops), UNUSED(int func))
 		    char *pat = args[1];
 
 		    for (args += 2; *args; args++) {
-			if ((s = getstyle(*args))) {
+			if ((s = (Style)zstyletab->getnode2(zstyletab,
+							    *args))) {
 			    Stypat p, q;
 
 			    for (q = NULL, p = s->pats; p;
@@ -402,22 +519,14 @@ bin_zstyle(char *nam, char **args, UNUSED(Options ops), UNUSED(int func))
 			}
 		    }
 		} else {
-		    Style next;
-		    Stypat p, q;
+		    zstyle_patname = args[1];
 
-		    /* careful! style itself may be deleted */
-		    for (s = zstyles; s; s = next) {
-			next = s->next;
-			for (q = NULL, p = s->pats; p; q = p, p = p->next) {
-			    if (!strcmp(p->pat, args[1])) {
-				freestypat(p, s, q);
-				break;
-			    }
-			}
-		    }
+		    /* sorting not needed for deletion */
+		    scanhashtable(zstyletab, 0, 0, 0, scanpatstyles,
+				  ZSPAT_REMOVE);
 		}
 	    } else
-		freeallstyles();
+		zstyletab->emptytable(zstyletab);
 	}
 	break;
     case 's':
@@ -522,20 +631,21 @@ bin_zstyle(char *nam, char **args, UNUSED(Options ops), UNUSED(int func))
 	break;
     case 'g':
 	{
-	    LinkList l = newlinklist();
 	    int ret = 1;
 	    Style s;
 	    Stypat p;
 
+	    zstyle_list = newlinklist();
+
 	    if (args[2]) {
 		if (args[3]) {
-		    if ((s = getstyle(args[3]))) {
+		    if ((s = (Style)zstyletab->getnode2(zstyletab, args[3]))) {
 			for (p = s->pats; p; p = p->next) {
 			    if (!strcmp(args[2], p->pat)) {
 				char **v = p->vals;
 
 				while (*v)
-				    addlinknode(l, *v++);
+				    addlinknode(zstyle_list, *v++);
 
 				ret = 0;
 				break;
@@ -543,28 +653,17 @@ bin_zstyle(char *nam, char **args, UNUSED(Options ops), UNUSED(int func))
 			}
 		    }
 		} else {
-		    for (s = zstyles; s; s = s->next)
-			for (p = s->pats; p; p = p->next)
-			    if (!strcmp(args[2], p->pat)) {
-				addlinknode(l, s->name);
-				break;
-			    }
+		    zstyle_patname = args[2];
+		    scanhashtable(zstyletab, 1, 0, 0, scanpatstyles,
+				  ZSPAT_NAME);
 		    ret = 0;
 		}
 	    } else {
-		LinkNode n;
-
-		for (s = zstyles; s; s = s->next)
-		    for (p = s->pats; p; p = p->next) {
-			for (n = firstnode(l); n; incnode(n))
-			    if (!strcmp(p->pat, (char *) getdata(n)))
-				break;
-			if (!n)
-			    addlinknode(l, p->pat);
-		    }
+		scanhashtable(zstyletab, 1, 0, 0, scanpatstyles,
+			      ZSPAT_PAT);
 		ret = 0;
 	    }
-	    set_list_array(args[1], l);
+	    set_list_array(args[1], zstyle_list);
 
 	    return ret;
 	}
@@ -598,8 +697,8 @@ static char *zformat_substring(char* instr, char **specs, char **outp,
 	    if ((right = (*++s == '-')))
 		s++;
 
-	    if (*s >= '0' && *s <= '9') {
-		for (min = 0; *s >= '0' && *s <= '9'; s++)
+	    if (idigit(*s)) {
+		for (min = 0; idigit(*s); s++)
 		    min = (min * 10) + (int) STOUC(*s) - '0';
 	    }
 
@@ -611,8 +710,8 @@ static char *zformat_substring(char* instr, char **specs, char **outp,
 		right = 1;
 		s++;
 	    }
-	    if ((*s == '.' || testit) && s[1] >= '0' && s[1] <= '9') {
-		for (max = 0, s++; *s >= '0' && *s <= '9'; s++)
+	    if ((*s == '.' || testit) && idigit(s[1])) {
+		for (max = 0, s++; idigit(*s); s++)
 		    max = (max * 10) + (int) STOUC(*s) - '0';
 	    }
 	    else if (testit)
@@ -722,7 +821,7 @@ bin_zformat(char *nam, char **args, UNUSED(Options ops), UNUSED(int func))
     char opt;
 
     if (args[0][0] != '-' || !(opt = args[0][1]) || args[0][2]) {
-	zwarnnam(nam, "invalid argument: %s", args[0], 0);
+	zwarnnam(nam, "invalid argument: %s", args[0]);
 	return 1;
     }
     args++;
@@ -739,9 +838,8 @@ bin_zformat(char *nam, char **args, UNUSED(Options ops), UNUSED(int func))
 	    specs[')'] = ")";
 	    for (ap = args + 2; *ap; ap++) {
 		if (!ap[0][0] || ap[0][0] == '-' || ap[0][0] == '.' ||
-		    (ap[0][0] >= '0' && ap[0][0] <= '9') ||
-		    ap[0][1] != ':') {
-		    zwarnnam(nam, "invalid argument: %s", *ap, 0);
+		    idigit(ap[0][0]) || ap[0][1] != ':') {
+		    zwarnnam(nam, "invalid argument: %s", *ap);
 		    return 1;
 		}
 		specs[STOUC(ap[0][0])] = ap[0] + 2;
@@ -810,7 +908,7 @@ bin_zformat(char *nam, char **args, UNUSED(Options ops), UNUSED(int func))
 	}
 	break;
     }
-    zwarnnam(nam, "invalid option: -%c", 0, opt);
+    zwarnnam(nam, "invalid option: -%c", opt);
     return 1;
 }
 
@@ -1155,7 +1253,7 @@ rmatch(RParseResult *sm, char *subj, char *var1, char *var2, int comp)
 	    char *action = getdata(ln);
 
 	    if (action)
-		execstring(action, 1, 0);
+		execstring(action, 1, 0, "zregexparse-action");
 	}
 	return 0;
     }
@@ -1180,7 +1278,8 @@ rmatch(RParseResult *sm, char *subj, char *var1, char *var2, int comp)
 		    return 3;
 	    }
 	    if (next->pattern && pattry(next->patprog, subj) &&
-		(!next->guard || (execstring(next->guard, 1, 0), !lastval))) {
+		(!next->guard || (execstring(next->guard, 1, 0,
+					     "zregexparse-guard"), !lastval))) {
 		LinkNode aln;
 		char **mend;
 		int len;
@@ -1201,7 +1300,7 @@ rmatch(RParseResult *sm, char *subj, char *var1, char *var2, int comp)
 		    char *action = getdata(aln);
 
 		    if (action)
-			execstring(action, 1, 0);
+			execstring(action, 1, 0, "zregexparse-action");
 		}
 		restorematch(&match2);
 
@@ -1230,7 +1329,7 @@ rmatch(RParseResult *sm, char *subj, char *var1, char *var2, int comp)
 		    char *action = getdata(ln);
 
 		    if (action)
-			execstring(action, 1, 0);
+			execstring(action, 1, 0, "zregexparse-action");
 		}
 		return 0;
 	    }
@@ -1241,7 +1340,7 @@ rmatch(RParseResult *sm, char *subj, char *var1, char *var2, int comp)
 	for (ln = firstnode(nexts); ln; ln = nextnode(ln)) {
 	    br = getdata(ln);
 	    if (br->state->action)
-		execstring(br->state->action, 1, 0);
+		execstring(br->state->action, 1, 0, "zregexparse-action");
 	}
     }
     return empty(nexts) ? 2 : 1;
@@ -1275,9 +1374,9 @@ bin_zregexparse(char *nam, char **args, Options ops, UNUSED(int func))
     rparsestates = newlinklist();
     if (setjmp(rparseerr) || rparsealt(&result, &rparseerr) || *rparseargs) {
 	if (*rparseargs)
-	    zwarnnam(nam, "invalid regex : %s", *rparseargs, 0);
+	    zwarnnam(nam, "invalid regex : %s", *rparseargs);
 	else
-	    zwarnnam(nam, "not enough regex arguments", NULL, 0);
+	    zwarnnam(nam, "not enough regex arguments");
 	ret = 3;
     } else
 	ret = 0;
@@ -1306,6 +1405,8 @@ struct zoptdesc {
 #define ZOF_OPT  2
 #define ZOF_MULT 4
 #define ZOF_SAME 8
+#define ZOF_MAP 16
+#define ZOF_CYC 32
 
 struct zoptarr {
     Zoptarr next;
@@ -1360,12 +1461,44 @@ get_opt_arr(char *name)
     return NULL;
 }
 
+static Zoptdesc
+map_opt_desc(Zoptdesc start)
+{
+    Zoptdesc map = NULL;
+
+    if (!start || !(start->flags & ZOF_MAP))
+	return start;
+
+    map = get_opt_desc(start->arr->name);
+
+    if (!map)
+	return start;
+
+    if (map == start) {
+	start->flags &= ~ZOF_MAP;	/* optimize */
+	return start;
+    }
+
+    if (map->flags & ZOF_CYC)
+	return NULL;
+
+    start->flags |= ZOF_CYC;
+    map = map_opt_desc(map);
+    start->flags &= ~ZOF_CYC;
+
+    return map;
+}
+
 static void
 add_opt_val(Zoptdesc d, char *arg)
 {
     Zoptval v = NULL;
     char *n = dyncat("-", d->name);
     int new = 0;
+
+    Zoptdesc map = map_opt_desc(d);
+    if (map)
+	d = map;
 
     if (!(d->flags & ZOF_MULT))
 	v = d->vals;
@@ -1414,7 +1547,7 @@ static int
 bin_zparseopts(char *nam, char **args, UNUSED(Options ops), UNUSED(int func))
 {
     char *o, *p, *n, **pp, **aval, **ap, *assoc = NULL, **cp, **np;
-    int del = 0, f, extract = 0, keep = 0;
+    int del = 0, flags = 0, extract = 0, keep = 0;
     Zoptdesc sopts[256], d;
     Zoptarr a, defarr = NULL;
     Zoptval v;
@@ -1432,6 +1565,7 @@ bin_zparseopts(char *nam, char **args, UNUSED(Options ops), UNUSED(int func))
 	    case '-':
 		if (o[2])
 		    args--;
+		/* else unreachable, default parsing removes "--" */
 		o = NULL;
 		break;
 	    case 'D':
@@ -1458,9 +1592,17 @@ bin_zparseopts(char *nam, char **args, UNUSED(Options ops), UNUSED(int func))
 		}
 		keep = 1;
 		break;
+	    case 'M':
+		if (o[2]) {
+		    args--;
+		    o = NULL;
+		    break;
+		}
+		flags |= ZOF_MAP;
+		break;
 	    case 'a':
 		if (defarr) {
-		    zwarnnam(nam, "default array given more than once", NULL, 0);
+		    zwarnnam(nam, "default array given more than once");
 		    return 1;
 		}
 		if (o[2])
@@ -1468,7 +1610,7 @@ bin_zparseopts(char *nam, char **args, UNUSED(Options ops), UNUSED(int func))
 		else if (*args)
 		    n = *args++;
 		else {
-		    zwarnnam(nam, "missing array name", NULL, 0);
+		    zwarnnam(nam, "missing array name");
 		    return 1;
 		}
 		defarr = (Zoptarr) zhalloc(sizeof(*defarr));
@@ -1479,14 +1621,23 @@ bin_zparseopts(char *nam, char **args, UNUSED(Options ops), UNUSED(int func))
 		opt_arrs = defarr;
 		break;
 	    case 'A':
+		if (assoc) {
+		    zwarnnam(nam, "associative array given more than once");
+		    return 1;
+		}
 		if (o[2]) 
 		    assoc = o + 2;
 		else if (*args)
 		    assoc = *args++;
 		else {
-		    zwarnnam(nam, "missing array name", NULL, 0);
+		    zwarnnam(nam, "missing array name");
 		    return 1;
 		}
+		break;
+	    default:
+		/* Anything else is an option description */
+		args--;
+		o = NULL;
 		break;
 	    }
 	    if (!o) {
@@ -1499,15 +1650,15 @@ bin_zparseopts(char *nam, char **args, UNUSED(Options ops), UNUSED(int func))
 	}
     }
     if (!o) {
-	zwarnnam(nam, "missing option descriptions", NULL, 0);
+	zwarnnam(nam, "missing option descriptions");
 	return 1;
     }
     while ((o = dupstring(*args++))) {
+	int f = 0;
 	if (!*o) {
-	    zwarnnam(nam, "invalid option description: %s", o, 0);
+	    zwarnnam(nam, "invalid option description: %s", o);
 	    return 1;
 	}
-	f = 0;
 	for (p = o; *p; p++) {
 	    if (*p == '\\' && p[1])
 		p++;
@@ -1534,6 +1685,7 @@ bin_zparseopts(char *nam, char **args, UNUSED(Options ops), UNUSED(int func))
 	a = NULL;
 	if (*p == '=') {
 	    *p++ = '\0';
+	    f |= flags;
 	    if (!(a = get_opt_arr(p))) {
 		a = (Zoptarr) zhalloc(sizeof(*a));
 		a->name = p;
@@ -1543,10 +1695,10 @@ bin_zparseopts(char *nam, char **args, UNUSED(Options ops), UNUSED(int func))
 		opt_arrs = a;
 	    }
 	} else if (*p) {
-	    zwarnnam(nam, "invalid option description: %s", args[-1], 0);
+	    zwarnnam(nam, "invalid option description: %s", args[-1]);
 	    return 1;
 	} else if (!(a = defarr) && !assoc) {
-	    zwarnnam(nam, "no default array defined: %s", args[-1], 0);
+	    zwarnnam(nam, "no default array defined: %s", args[-1]);
 	    return 1;
 	}
 	for (p = n = o; *p; p++) {
@@ -1555,7 +1707,7 @@ bin_zparseopts(char *nam, char **args, UNUSED(Options ops), UNUSED(int func))
 	    *n++ = *p;
 	}
 	if (get_opt_desc(o)) {
-	    zwarnnam(nam, "option defined more than once: %s", o, 0);
+	    zwarnnam(nam, "option defined more than once: %s", o);
 	    return 1;
 	}
 	d = (Zoptdesc) zhalloc(sizeof(*d));
@@ -1567,6 +1719,10 @@ bin_zparseopts(char *nam, char **args, UNUSED(Options ops), UNUSED(int func))
 	opt_descs = d;
 	if (!o[1])
 	    sopts[STOUC(*o)] = d;
+	if ((flags & ZOF_MAP) && !map_opt_desc(d)) {
+	    zwarnnam(nam, "cyclic option mapping: %s", args[-1]);
+	    return 1;
+	}
     }
     np = cp = pp = ((extract && del) ? arrdup(pparams) : pparams);
     for (; (o = *pp); pp++) {
@@ -1597,7 +1753,7 @@ bin_zparseopts(char *nam, char **args, UNUSED(Options ops), UNUSED(int func))
 		    } else if (!(d->flags & ZOF_OPT)) {
 			if (!pp[1]) {
 			    zwarnnam(nam, "missing argument for option: %s",
-				    d->name, 0);
+				    d->name);
 			    return 1;
 			}
 			add_opt_val(d, *++pp);
@@ -1623,7 +1779,7 @@ bin_zparseopts(char *nam, char **args, UNUSED(Options ops), UNUSED(int func))
 		else if (!(d->flags & ZOF_OPT)) {
 		    if (!pp[1]) {
 			zwarnnam(nam, "missing argument for option: %s",
-				d->name, 0);
+				d->name);
 			return 1;
 		    }
 		    add_opt_val(d, *++pp);
@@ -1633,12 +1789,20 @@ bin_zparseopts(char *nam, char **args, UNUSED(Options ops), UNUSED(int func))
 		add_opt_val(d, NULL);
 	}
     }
+
+    if (flags & ZOF_MAP) {
+	for (d = opt_descs; d; d = d->next)
+	    if (d->arr && !d->vals && (d->flags & ZOF_MAP)) {
+		if (d->arr->num == 0 && get_opt_desc(d->arr->name))
+		    d->arr->num = -1;	/* this is not a real array */
+	    }
+    }
     if (extract && del)
 	while (*pp)
 	    *cp++ = *pp++;
 
     for (a = opt_arrs; a; a = a->next) {
-	if (!keep || a->num) {
+	if (a->num >= 0 && (!keep || a->num)) {
 	    aval = (char **) zalloc((a->num + 1) * sizeof(char *));
 	    for (ap = aval, v = a->vals; v; ap++, v = v->next) {
 		if (v->str)
@@ -1703,42 +1867,63 @@ bin_zparseopts(char *nam, char **args, UNUSED(Options ops), UNUSED(int func))
 }
 
 static struct builtin bintab[] = {
-    BUILTIN("zstyle", 0, bin_zstyle, 0, -1, 0, NULL, NULL),
     BUILTIN("zformat", 0, bin_zformat, 3, -1, 0, NULL, NULL),
-    BUILTIN("zregexparse", 0, bin_zregexparse, 3, -1, 0, "c", NULL),
     BUILTIN("zparseopts", 0, bin_zparseopts, 1, -1, 0, NULL, NULL),
+    BUILTIN("zregexparse", 0, bin_zregexparse, 3, -1, 0, "c", NULL),
+    BUILTIN("zstyle", 0, bin_zstyle, 0, -1, 0, NULL, NULL),
 };
 
+static struct features module_features = {
+    bintab, sizeof(bintab)/sizeof(*bintab),
+    NULL, 0,
+    NULL, 0,
+    NULL, 0,
+    0
+};
 
 /**/
 int
 setup_(UNUSED(Module m))
 {
-    zstyles = NULL;
+    zstyletab = newzstyletable(17, "zstyletab");
 
     return 0;
+}
+
+/**/
+int
+features_(Module m, char ***features)
+{
+    *features = featuresarray(m, &module_features);
+    return 0;
+}
+
+/**/
+int
+enables_(Module m, int **enables)
+{
+    return handlefeatures(m, &module_features, enables);
 }
 
 /**/
 int
 boot_(Module m)
 {
-    return !addbuiltins(m->nam, bintab, sizeof(bintab)/sizeof(*bintab));
+    return 0;
 }
 
 /**/
 int
 cleanup_(Module m)
 {
-    deletebuiltins(m->nam, bintab, sizeof(bintab)/sizeof(*bintab));
-    return 0;
+    return setfeatureenables(m, &module_features, NULL);
 }
 
 /**/
 int
 finish_(UNUSED(Module m))
 {
-    freeallstyles();
+    deletehashtable(zstyletab);
 
     return 0;
 }

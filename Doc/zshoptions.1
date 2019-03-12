@@ -1,4 +1,4 @@
-.TH "ZSHOPTIONS" "1" "December 17, 2007" "zsh 4\&.2\&.7"
+.TH "ZSHOPTIONS" "1" "July 21, 2012" "zsh 5\&.0\&.0"
 .SH "NAME"
 zshoptions \- zsh options
 .\" Yodl file: Zsh/options.yo
@@ -65,9 +65,9 @@ the section `Filename Expansion\&')\&.
 When changing to a directory containing a path segment `\fB\&.\&.\fP\&' which would
 otherwise be treated as canceling the previous segment in the path (in
 other words, `\fBfoo/\&.\&.\fP\&' would be removed from the path, or if `\fB\&.\&.\fP' is
-the first part of the path, the last part of \fB$PWD\fP would be deleted),
-instead resolve the path to the physical directory\&.  This option is
-overridden by \fBCHASE_LINKS\fP\&.
+the first part of the path, the last part of the current working directory
+would be removed), instead resolve the path to the physical directory\&.
+This option is overridden by \fBCHASE_LINKS\fP\&.
 .RS
 .PP
 For example, suppose \fB/foo/bar\fP is a link to the directory \fB/alt/rod\fP\&.
@@ -82,6 +82,26 @@ Resolve symbolic links to their true values when changing directory\&.
 This also has the effect of \fBCHASE_DOTS\fP, i\&.e\&. a `\fB\&.\&.\fP\&' path segment
 will be treated as referring to the physical parent, even if the preceding
 path segment is a symbolic link\&.
+.TP
+\fBPOSIX_CD\fP
+Modifies the behaviour of \fBcd\fP, \fBchdir\fP and \fBpushd\fP commands
+to make them more compatible with the POSIX standard\&. The behaviour with
+the option unset is described in the documentation for the \fBcd\fP
+builtin in
+\fIzshbuiltins\fP(1)\&.
+If the option is set, the shell does not test for directories beneath
+the local directory (`\fB\&.\fP\&') until after all directories in \fBcdpath\fP
+have been tested\&.
+.RS
+.PP
+Also, if the option is set, the conditions under which the shell
+prints the new directory after changing to it are modified\&.  It is
+no longer restricted to interactive shells (although printing of
+the directory stack with \fBpushd\fP is still limited to interactive
+shells); and any use of a component of \fBCDPATH\fP, including a `\fB\&.\fP\&' but
+excluding an empty component that is otherwise treated as `\fB\&.\fP\&', causes
+the directory to be printed\&.
+.RE
 .TP
 \fBPUSHD_IGNORE_DUPS\fP
 Don\&'t push multiple copies of the same directory onto the directory stack\&.
@@ -181,8 +201,9 @@ on the \fBGLOB_COMPLETE\fP option does not have this effect\&.
 .RE
 .TP
 \fBHASH_LIST_ALL\fP <D>
-Whenever a command completion is attempted, make sure the entire
-command path is hashed first\&.  This makes the first completion slower\&.
+Whenever a command completion or spelling correction is attempted, make
+sure the entire command path is hashed first\&.  This makes the first
+completion slower but avoids false reports of spelling errors\&.
 .TP
 \fBLIST_AMBIGUOUS\fP <D>
 This option works when \fBAUTO_LIST\fP or \fBBASH_AUTO_LIST\fP is also
@@ -249,6 +270,10 @@ will cause case\-insensitive matching\&.  For example, \fBcvs(/)\fP
 can match the directory \fBCVS\fP owing to the presence of the globbing flag
 (unless the option \fBBARE_GLOB_QUAL\fP is unset)\&.
 .TP
+\fBCASE_MATCH\fP <D>
+Make regular expressions using the \fBzsh/regex\fP module (including
+matches with \fB=~\fP) sensitive to case\&.
+.TP
 \fBCSH_NULL_GLOB\fP <C>
 If a pattern for filename generation has no matches,
 delete the pattern from the argument list;
@@ -291,8 +316,46 @@ characters resulting from command substitution as being eligible for
 filename generation\&.  Braces (and commas in between) do not become eligible
 for expansion\&.
 .TP
+\fBHIST_SUBST_PATTERN\fP
+Substitutions using the \fB:s\fP and \fB:&\fP history modifiers are performed
+with pattern matching instead of string matching\&.  This occurs wherever
+history modifiers are valid, including glob qualifiers and parameters\&.
+See
+the section Modifiers in \fIzshexpn\fP(1)\&.
+.TP
 \fBIGNORE_BRACES\fP (\fB\-I\fP) <S>
-Do not perform brace expansion\&.
+Do not perform brace expansion\&.  For historical reasons this
+also includes the effect of the \fBIGNORE_CLOSE_BRACES\fP option\&.
+.TP
+\fBIGNORE_CLOSE_BRACES\fP
+When neither this option nor \fBIGNORE_BRACES\fP is set, a sole
+close brace character `\fB}\fP\&' is syntactically significant at any
+point on a command line\&.  This has the effect that no semicolon
+or newline is necessary before the brace terminating a function
+or current shell construct\&.  When either option is set, a closing brace
+is syntactically significant only in command position\&.  Unlike
+\fBIGNORE_BRACES\fP, this option does not disable brace expansion\&.
+.RS
+.PP
+For example, with both options unset a function may be defined
+in the following fashion:
+.PP
+.RS
+.nf
+\fBargs() { echo $# }\fP
+.fi
+.RE
+.PP
+while if either option is set, this does not work and something
+equivalent to the following is required:
+.PP
+.RS
+.nf
+\fBargs() { echo $#; }\fP
+.fi
+.RE
+.PP
+.RE
 .TP
 \fBKSH_GLOB\fP <K>
 In pattern matching, the interpretation of parentheses is affected by
@@ -312,12 +375,39 @@ Note that this happens anyway with \fBtypeset\fP and similar statements\&.
 .PP
 This option respects the setting of the \fBKSH_TYPESET\fP option\&.  In other
 words, if both options are in effect, arguments looking like
-assignments will not undergo wordsplitting\&.
+assignments will not undergo word splitting\&.
 .RE
 .TP
 \fBMARK_DIRS\fP (\fB\-8\fP, ksh: \fB\-X\fP)
 Append a trailing `\fB/\fP\&' to all directory
 names resulting from filename generation (globbing)\&.
+.TP
+\fBMULTIBYTE\fP <C> <K> <Z>
+Respect multibyte characters when found in strings\&.
+When this option is set, strings are examined using the
+system library to determine how many bytes form a character, depending
+on the current locale\&.  This affects the way characters are counted in
+pattern matching, parameter values and various delimiters\&.
+.RS
+.PP
+The option is on by default if the shell was compiled with
+\fBMULTIBYTE_SUPPORT\fP except in \fBsh\fP emulation; otherwise it is off by
+default and has no effect if turned on\&.  The mode is off in \fBsh\fP
+emulation for compatibility but for interactive use may need to be
+turned on if the terminal interprets multibyte characters\&.
+.PP
+If the option is off a single byte is always treated as a single
+character\&.  This setting is designed purely for examining strings
+known to contain raw bytes or other values that may not be characters
+in the current locale\&.  It is not necessary to unset the option merely
+because the character set for the current locale does not contain multibyte
+characters\&.
+.PP
+The option does not affect the shell\&'s editor,  which always uses the
+locale to determine multibyte characters\&.  This is because
+the character set displayed by the terminal emulator is independent of
+shell settings\&.
+.RE
 .TP
 \fBNOMATCH\fP (\fB+3\fP) <C> <Z>
 If a pattern for filename generation has no matches,
@@ -340,18 +430,37 @@ Array expansions of the form
 `\fIfoo\fP\fB${\fP\fIxx\fP\fB}\fP\fIbar\fP\&', where the parameter
 \fIxx\fP is set to \fB(\fP\fIa b c\fP\fB)\fP, are substituted with
 `\fIfooabar foobbar foocbar\fP\&' instead of the default
-`\fIfooa b cbar\fP\&'\&.
+`\fIfooa b cbar\fP\&'\&.  Note that an empty array will therefore cause
+all arguments to be removed\&.
+.TP
+\fBREMATCH_PCRE\fP <Z>
+If set, regular expression matching with the \fB=~\fP operator will use
+Perl\-Compatible Regular Expressions from the PCRE library, if available\&.
+If not set, regular expressions will use the extended regexp syntax
+provided by the system libraries\&.
 .TP
 \fBSH_GLOB\fP <K> <S>
 Disables the special meaning of `\fB(\fP\&', `\fB|\fP', `\fB)\fP'
 and \&'\fB<\fP' for globbing the result of parameter and command substitutions,
 and in some other places where
-the shell accepts patterns\&.  This option is set by default if zsh is
-invoked as \fBsh\fP or \fBksh\fP\&.
+the shell accepts patterns\&.  If \fBSH_GLOB\fP is set but \fBKSH_GLOB\fP is
+not, the shell allows the interpretation of
+subshell expressions enclosed in parentheses in some cases where there
+is no space before the opening parenthesis, e\&.g\&. \fB!(true)\fP
+is interpreted as if there were a space after the \fB!\fP\&.  This option is
+set by default if zsh is invoked as \fBsh\fP or \fBksh\fP\&.
 .TP
 \fBUNSET\fP (\fB+u\fP, ksh: \fB+u\fP) <K> <S> <Z>
 Treat unset parameters as if they were empty when substituting\&.
 Otherwise they are treated as an error\&.
+.TP
+\fBWARN_CREATE_GLOBAL\fP
+Print a warning message when a global parameter is created in a function
+by an assignment\&.  This often indicates that a parameter has not been
+declared local when it should have been\&.  Parameters explicitly declared
+global from within a function using \fBtypeset \-g\fP do not cause a warning\&.
+Note that there is no warning when a local parameter is assigned to in
+a nested function, which may also indicate an error\&.
 .PP
 .SS "History"
 .PD 0
@@ -359,9 +468,12 @@ Otherwise they are treated as an error\&.
 .PD
 \fBAPPEND_HISTORY\fP <D>
 If this is set, zsh sessions will append their history list to
-the history file, rather than overwrite it\&. Thus, multiple parallel
-zsh sessions will all have their history lists added to the
-history file, in the order they are killed\&.
+the history file, rather than replace it\&. Thus, multiple parallel
+zsh sessions will all have the new entries from their history lists
+added to the history file, in the order that they exit\&.
+The file will still be periodically re\-written to trim it when the
+number of lines grows 20% beyond the value specified by
+\fB$SAVEHIST\fP (see also the HIST_SAVE_BY_COPY option)\&.
 .TP
 \fBBANG_HIST\fP (\fB+K\fP) <C> <Z>
 Perform textual history expansion, \fBcsh\fP\-style,
@@ -373,7 +485,7 @@ and the duration (in seconds) to the history file\&.  The format of
 this prefixed data is:
 .RS
 .PP
-`\fB:\fP\fI<beginning time>\fP\fB:\fP\fI<elapsed seconds>\fP\fB:\fP\fI<command>\fP\&'\&.
+`\fB:\fP \fI<beginning time>\fP\fB:\fP\fI<elapsed seconds>\fP\fB;\fP\fI<command>\fP\&'\&.
 .RE
 .TP
 \fBHIST_ALLOW_CLOBBER\fP
@@ -393,6 +505,14 @@ than \fBSAVEHIST\fP in order to give you some room for the duplicated
 events, otherwise this option will behave just like
 \fBHIST_IGNORE_ALL_DUPS\fP once the history fills up with unique events\&.
 .TP
+\fBHIST_FCNTL_LOCK\fP
+When writing out the history file, by default zsh uses ad\-hoc file locking
+to avoid known problems with locking on some operating systems\&.  With this
+option locking is done by means of the system\&'s \fBfcntl\fP call, where
+this method is available\&.  On recent operating systems this may
+provide better performance, in particular avoiding history corruption when
+files are stored on NFS\&.
+.TP
 \fBHIST_FIND_NO_DUPS\fP
 When searching for history entries in the line editor, do not display
 duplicates of a line previously found, even if the duplicates are not
@@ -410,11 +530,23 @@ if they are duplicates of the previous event\&.
 \fBHIST_IGNORE_SPACE\fP (\fB\-g\fP)
 Remove command lines from the history list when the first character on
 the line is a space, or when one of the expanded aliases contains a
-leading space\&.
+leading space\&.  Only normal aliases (not global or suffix aliases)
+have this behaviour\&.
 Note that the command lingers in the internal history until the next
 command is entered before it vanishes, allowing you to briefly reuse
 or edit the line\&.  If you want to make it vanish right away without
 entering another command, type a space and press return\&.
+.TP
+\fBHIST_LEX_WORDS\fP
+By default, shell history that is read in from files is split into
+words on all white space\&.  This means that arguments with quoted
+whitespace are not correctly handled, with the consequence that
+references to words in history lines that have been read from a file
+may be inaccurate\&.  When this option is set, words read in from a
+history file are divided up in a similar fashion to normal shell
+command line handling\&.  Although this produces more accurately delimited
+words, if the size of the history file is large this can be slow\&.  Trial
+and error is necessary to decide\&.
 .TP
 \fBHIST_NO_FUNCTIONS\fP
 Remove function definitions from the history list\&.
@@ -433,6 +565,23 @@ or edit the line\&.
 Remove superfluous blanks from each command line
 being added to the history list\&.
 .TP
+\fBHIST_SAVE_BY_COPY\fP <D>
+When the history file is re\-written, we normally write out a copy of
+the file named $HISTFILE\&.new and then rename it over the old one\&.
+However, if this option is unset, we instead truncate the old
+history file and write out the new version in\-place\&.  If one of the
+history\-appending options is enabled, this option only has an effect
+when the enlarged history file needs to be re\-written to trim it
+down to size\&.  Disable this only if you have special needs, as doing
+so makes it possible to lose history entries if zsh gets interrupted
+during the save\&.
+.RS
+.PP
+When writing out a copy of the history file, zsh preserves the old
+file\&'s permissions and group information, but will refuse to write
+out a new file if it would change the history file\&'s owner\&.
+.RE
+.TP
 \fBHIST_SAVE_NO_DUPS\fP
 When writing out the history file, older commands that duplicate
 newer ones are omitted\&.
@@ -445,9 +594,10 @@ history expansion and reload the line into the editing buffer\&.
 \fBINC_APPEND_HISTORY\fP
 This options works like \fBAPPEND_HISTORY\fP except that new history lines
 are added to the \fB$HISTFILE\fP incrementally (as soon as they are
-entered), rather than waiting until the shell is killed\&.
-The file is periodically trimmed to the number of lines specified by
-\fB$SAVEHIST\fP, but can exceed this value between trimmings\&.
+entered), rather than waiting until the shell exits\&.
+The file will still be periodically re\-written to trim it when the
+number of lines grows 20% beyond the value specified by
+\fB$SAVEHIST\fP (see also the HIST_SAVE_BY_COPY option)\&.
 .TP
 \fBSHARE_HISTORY\fP <K>
 .RS
@@ -530,6 +680,11 @@ Try to correct the spelling of commands\&.
 Note that, when the \fBHASH_LIST_ALL\fP option is not set or when some
 directories in the path are not readable, this may falsely report spelling
 errors the first time some commands are used\&.
+.RS
+.PP
+The shell variable \fBCORRECT_IGNORE\fP may be set to a pattern to
+match words that will never be offered as corrections\&.
+.RE
 .TP
 \fBCORRECT_ALL\fP (\fB\-O\fP)
 Try to correct the spelling of all arguments in a line\&.
@@ -574,6 +729,14 @@ Whenever a command name is hashed, hash the directory containing it,
 as well as all directories that occur earlier in the path\&.
 Has no effect if neither \fBHASH_CMDS\fP nor \fBCORRECT\fP is set\&.
 .TP
+\fBHASH_EXECUTABLES_ONLY\fP
+When hashing commands because of \fBHASH_COMMANDS\fP, check that the
+file to be hashed is actually an executable\&.  This option
+is unset by default as if the path contains a large number of commands,
+or consists of many remote files, the additional tests can take
+a long time\&.  Trial and error is needed to show if this option is
+beneficial\&.
+.TP
 \fBMAIL_WARNING\fP (\fB\-U\fP)
 Print a warning message if a mail file has been
 accessed since the shell last checked\&.
@@ -585,7 +748,7 @@ Thus if `\fB/usr/local/bin\fP\&' is in the user's path, and he or she types
 (assuming it exists)\&.
 Commands explicitly beginning with `\fB/\fP\&', `\fB\&./\fP' or `\fB\&.\&./\fP'
 are not subject to the path search\&.
-This also applies to the \fB\&.\fP builtin\&.
+This also applies to the `\fB\&.\fP\&' builtin\&.
 .RS
 .PP
 Note that subdirectories of the current directory are always searched for
@@ -593,6 +756,14 @@ executables specified in this form\&.  This takes place before any search
 indicated by this option, and regardless of whether `\fB\&.\fP\&' or the current
 directory appear in the command search path\&.
 .RE
+.TP
+\fBPATH_SCRIPT\fP <K> <S>
+If this option is not set, a script passed as the first non\-option argument
+to the shell must contain the name of the file to open\&.  If this
+option is set, and the script does not specify a directory path,
+the script is looked for first in the current directory, then in the
+command path\&.  See
+the section INVOCATION in \fIzsh\fP(1)\&.
 .TP
 \fBPRINT_EIGHT_BIT\fP
 Print eight bit characters literally in completion lists, etc\&.
@@ -627,6 +798,8 @@ If a line ends with a backquote, and there are an odd number
 of backquotes on the line, ignore the trailing backquote\&.
 This is useful on some keyboards where the return key is
 too small, and the backquote key lies annoyingly close to it\&.
+As an alternative the variable \fBKEYBOARD_HACK\fP lets you choose the
+character to be removed\&.
 .PP
 .SS "Job Control"
 .PD 0
@@ -654,8 +827,10 @@ such jobs will be killed automatically\&.
 .PP
 The check is omitted if the commands run from the previous command line
 included a `\fBjobs\fP\&' command, since it is assumed the user is aware that
-there are background or suspended jobs\&.  A `\fBjobs\fP\&' command run from the
-\fBprecmd\fP function is not counted for this purpose\&.
+there are background or suspended jobs\&.  A `\fBjobs\fP\&' command run from one
+of the hook functions defined in
+the section SPECIAL FUNCTIONS in \fIzshmisc\fP(1)
+is not counted for this purpose\&.
 .RE
 .TP
 \fBHUP\fP <Z>
@@ -671,6 +846,33 @@ Allow job control\&.  Set by default in interactive shells\&.
 \fBNOTIFY\fP (\fB\-5\fP, ksh: \fB\-b\fP) <Z>
 Report the status of background jobs immediately, rather than
 waiting until just before printing a prompt\&.
+.TP
+\fBPOSIX_JOBS\fP <K> <S>
+This option makes job control more compliant with the POSIX standard\&.
+.RS
+.PP
+When the option is not set, the \fBMONITOR\fP option is unset on entry to
+subshells, so that job control is no longer active\&.  When the option is
+set, the \fBMONITOR\fP option and job control remain active in the
+subshell, but note that the subshell has no access to jobs in the parent
+shell\&.
+.PP
+When the option is not set, jobs put in the background or foreground
+with \fBbg\fP or \fBfg\fP are displayed with the same information that would
+be reported by \fBjobs\fP\&.  When the option is set, only the text is
+printed\&.  The output from \fBjobs\fP itself is not affected by the option\&.
+.PP
+When the option is not set, job information from the parent
+shell is saved for output within a subshell (for example, within a
+pipeline)\&.  When the option is set, the output of \fBjobs\fP is empty
+until a job is started within the subshell\&.
+.PP
+When the option is set, it becomes possible to use the \fBwait\fP builtin to
+wait for the last job started in the background (as given by \fB$!\fP) even
+if that job has already exited\&.  This works even if the option is turned
+on temporarily around the use of the \fBwait\fP builtin\&.
+.RE
+.RE
 .PP
 .SS "Prompting"
 .PD 0
@@ -678,18 +880,38 @@ waiting until just before printing a prompt\&.
 .PD
 \fBPROMPT_BANG\fP <K>
 If set, `\fB!\fP\&' is treated specially in prompt expansion\&.
-See the section `Prompt Expansion\&'\&.
+See
+EXPANSION OF PROMPT SEQUENCES in \fIzshmisc\fP(1)\&.
 .TP
 \fBPROMPT_CR\fP (\fB+V\fP) <D>
 Print a carriage return just before printing
 a prompt in the line editor\&.  This is on by default as multi\-line editing
 is only possible if the editor knows where the start of the line appears\&.
 .TP
+\fBPROMPT_SP\fP <D>
+Attempt to preserve a partial line (i\&.e\&. a line that did not end with a
+newline) that would otherwise be covered up by the command prompt due to
+the \fBPROMPT_CR\fP option\&.  This works by outputting some cursor\-control
+characters, including a series of spaces, that should make the terminal
+wrap to the next line when a partial line is present (note that this is
+only successful if your terminal has automatic margins, which is typical)\&.
+.RS
+.PP
+When a partial line is preserved, by default you will see an inverse+bold
+character at the end of the partial line:  a "%" for a normal user or
+a "#" for root\&.  If set, the shell parameter \fBPROMPT_EOL_MARK\fP can be
+used to customize how the end of partial lines are shown\&.
+.PP
+NOTE: if the \fBPROMPT_CR\fP option is not set, enabling this option will
+have no effect\&.  This option is on by default\&.
+.RE
+.TP
 \fBPROMPT_PERCENT\fP <C> <Z>
 If set, `\fB%\fP\&' is treated specially in prompt expansion\&.
-See the section `Prompt Expansion\&'\&.
+See
+EXPANSION OF PROMPT SEQUENCES in \fIzshmisc\fP(1)\&.
 .TP
-\fBPROMPT_SUBST\fP <K>
+\fBPROMPT_SUBST\fP <K> <S>
 If set, \fIparameter expansion\fP, \fIcommand substitution\fP and
 \fIarithmetic expansion\fP are performed in prompts\&.  Substitutions
 within prompts do not affect the command status\&.
@@ -711,10 +933,30 @@ on the choice of the output base, nor on the output of bases other than
 hexadecimal and octal\&.  Note that these formats will be understood on input
 irrespective of the setting of \fBC_BASES\fP\&.
 .TP
+\fBC_PRECEDENCES\fP
+This alters the precedence of arithmetic operators to be more
+like C and other programming languages;
+the section ARITHMETIC EVALUATION in \fIzshmisc\fP(1)
+has an explicit list\&.
+.TP
+\fBDEBUG_BEFORE_CMD\fP
+Run the \fBDEBUG\fP trap before each command; otherwise it is run after
+each command\&.  Setting this option mimics the behaviour of ksh 93; with
+the option unset the behaviour is that of ksh 88\&.
+.TP
 \fBERR_EXIT\fP (\fB\-e\fP, ksh: \fB\-e\fP)
 If a command has a non\-zero exit status, execute the \fBZERR\fP
 trap, if set, and exit\&.  This is disabled while running initialization
 scripts\&.
+.RS
+.PP
+The behaviour is also disabled inside \fBDEBUG\fP traps\&.  In this
+case the option is handled specially: it is unset on entry to
+the trap\&.  If the option \fBDEBUG_BEFORE_CMD\fP is set,
+as it is by default, and the option \fBERR_EXIT\fP is found to have been set
+on exit, then the command for which the \fBDEBUG\fP trap is being executed is
+skipped\&.  The option is restored after the trap exits\&.
+.RE
 .TP
 \fBERR_RETURN\fP
 If a command has a non\-zero exit status, return immediately from the
@@ -746,8 +988,9 @@ temporarily to the name of the function/script\&.
 .TP
 \fBLOCAL_OPTIONS\fP <K>
 If this option is set at the point of return from a shell function,
-all the options (including this one) which were in force upon entry to
-the function are restored\&.  Otherwise, only this option and the
+most options (including this one) which were in force upon entry to
+the function are restored; options that are not restored are
+\fBPRIVILEGED\fP and \fBRESTRICTED\fP\&.  Otherwise, only this option and the
 \fBXTRACE\fP and \fBPRINT_EXIT_VALUE\fP options are restored\&.  Hence
 if this is explicitly unset by a shell function the other options in
 force at the point of return will remain so\&.
@@ -773,8 +1016,15 @@ fn() { setopt localtraps; trap \&'' INT; sleep 3; }\fP
 .fi
 .RE
 .PP
-will restore normally handling of \fBSIGINT\fP after the function exits\&.
+will restore normal handling of \fBSIGINT\fP after the function exits\&.
 .RE
+.TP
+\fBMULTI_FUNC_DEF\fP <Z>
+Allow definitions of multiple functions at once in the form `\fBfn1
+fn2\fP\fI\&.\&.\&.\fP\fB()\fP\&'; if the option is not set, this causes
+a parse error\&.  Definition of multiple functions with the \fBfunction\fP
+keyword is always allowed\&.  Multiple function definitions are not often
+used and can cause obscure errors\&.
 .TP
 \fBMULTIOS\fP <Z>
 Perform implicit \fBtee\fPs or \fBcat\fPs when multiple
@@ -785,6 +1035,20 @@ Interpret any integer constant beginning with a 0 as octal, per IEEE Std
 1003\&.2\-1992 (ISO 9945\-2:1993)\&.  This is not enabled by default as it
 causes problems with parsing of, for example, date and time strings with
 leading zeroes\&.
+.RS
+.PP
+Sequences of digits indicating a numeric base such as the `\fB08\fP\&'
+component in `\fB08#77\fP\&' are always interpreted as decimal, regardless
+of leading zeroes\&.
+.RE
+.TP
+\fBSOURCE_TRACE\fP
+If set, zsh will print an informational message announcing the name of
+each file it loads\&.  The format of the output is similar to that
+for the \fBXTRACE\fP option, with the message \fB<sourcetrace>\fP\&.
+A file may be loaded by the shell itself when it
+starts up and shuts down (\fBStartup/Shutdown Files\fP) or by the use of
+the `\fBsource\fP\&' and `\fBdot\fP' builtin commands\&.
 .TP
 \fBTYPESET_SILENT\fP
 If this is unset, executing any of the `\fBtypeset\fP\&' family of
@@ -798,12 +1062,26 @@ the option is set\&.
 Print shell input lines as they are read\&.
 .TP
 \fBXTRACE\fP (\fB\-x\fP, ksh: \fB\-x\fP)
-Print commands and their arguments as they are executed\&.
+Print commands and their arguments as they are executed\&.  The
+output is proceded by the value of \fB$PS4\fP, formatted as described
+in
+the section EXPANSION OF PROMPT SEQUENCES in \fIzshmisc\fP(1)\&.
 .PP
 .SS "Shell Emulation"
 .PD 0
 .TP
 .PD
+\fBBASH_REMATCH\fP
+When set, matches performed with the \fB=~\fP operator will set the
+\fBBASH_REMATCH\fP array variable, instead of the default \fBMATCH\fP and
+\fBmatch\fP variables\&.  The first element of the \fBBASH_REMATCH\fP array
+will contain the entire matched text and subsequent elements will contain
+extracted substrings\&.  This option makes more sense when \fBKSH_ARRAYS\fP is
+also set, so that the entire matched portion is stored at index 0 and the
+first substring is at index 1\&.  Without this option, the \fBMATCH\fP variable
+contains the entire matched text and the \fBmatch\fP array variable contains
+substrings\&.
+.TP
 \fBBSD_ECHO\fP <S>
 Make the \fBecho\fP builtin compatible with the BSD \fIecho\fP(1) command\&.
 This disables backslashed escape sequences in echo strings unless the
@@ -859,6 +1137,57 @@ Alters the way arguments to the \fBtypeset\fP family of commands, including
 word splitting after command and parameter expansion in arguments of an
 assignment; with it, word splitting does not take place in those cases\&.
 .TP
+\fBKSH_ZERO_SUBSCRIPT\fP
+Treat use of a subscript of value zero in array or string expressions as a
+reference to the first element, i\&.e\&. the element that usually has the
+subscript 1\&.  Ignored if \fBKSH_ARRAYS\fP is also set\&.
+.RS
+.PP
+If neither this option nor \fBKSH_ARRAYS\fP is set, accesses to an element of
+an array or string with subscript zero return an empty element or string,
+while attempts to set element zero of an array or string are treated as an
+error\&.  However, attempts to set an otherwise valid subscript range that
+includes zero will succeed\&.  For example, if \fBKSH_ZERO_SUBSCRIPT\fP is not
+set,
+.PP
+.RS
+.nf
+\fBarray[0]=(element)\fP
+.fi
+.RE
+.PP
+is an error, while
+.PP
+.RS
+.nf
+\fBarray[0,1]=(element)\fP
+.fi
+.RE
+.PP
+is not and will replace the first element of the array\&.
+.PP
+This option is for compatibility with older versions of the shell and
+is not recommended in new code\&.
+.RE
+.TP
+\fBPOSIX_ALIASES\fP <K> <S>
+When this option is set, reserved words are not candidates for
+alias expansion:  it is still possible to declare any of them as an alias,
+but the alias will never be expanded\&.  Reserved words are described in
+the section RESERVED WORDS in \fIzshmisc\fP(1)\&.
+.RS
+.PP
+Alias expansion takes place while text is being read; hence when this
+option is set it does not take effect until the end of any function or
+other piece of shell code parsed as one unit\&.  Note this may
+cause differences from other shells even when the option is in
+effect\&.  For example, when running a command with `\fBzsh \-c\fP\&',
+or even `\fBzsh \-o posixaliases \-c\fP\&', the entire command argument is parsed
+as one unit, so aliases defined within the argument are not available even
+in later lines\&.  If in doubt, avoid use of aliases in non\-interactive
+code\&.
+.RE
+.TP
 \fBPOSIX_BUILTINS\fP <K> <S>
 When this option is set the \fBcommand\fP builtin can be used to execute
 shell builtin commands\&.  Parameter assignments specified before shell
@@ -883,6 +1212,61 @@ builtins are
 \fBtimes\fP,
 \fBtrap\fP and
 \fBunset\fP\&.
+.RS
+.PP
+In addition, various error conditions associated with the above builtins
+or \fBexec\fP cause a non\-interactive shell to exit and an interactive
+shell to return to its top\-level processing\&.
+.RE
+.TP
+\fBPOSIX_IDENTIFIERS\fP <K> <S>
+When this option is set, only the ASCII characters \fBa\fP to \fBz\fP, \fBA\fP to
+\fBZ\fP, \fB0\fP to \fB9\fP and \fB_\fP may be used in identifiers (names
+of shell parameters and modules)\&.
+.RS
+.PP
+When the option is unset and multibyte character support is enabled (i\&.e\&. it
+is compiled in and the option \fBMULTIBYTE\fP is set), then additionally any
+alphanumeric characters in the local character set may be used in
+identifiers\&.  Note that scripts and functions written with this feature are
+not portable, and also that both options must be set before the script
+or function is parsed; setting them during execution is not sufficient
+as the syntax \fIvariable\fP\fB=\fP\fIvalue\fP has already been parsed as
+a command rather than an assignment\&.
+.PP
+If multibyte character support is not compiled into the shell this option is
+ignored; all octets with the top bit set may be used in identifiers\&.
+This is non\-standard but is the traditional zsh behaviour\&.
+.RE
+.TP
+\fBPOSIX_STRINGS\fP <K> <S>
+This option affects processing of quoted strings\&.  Currently it only
+affects the behaviour of null characters, i\&.e\&. character 0 in the
+portable character set corresponding to US ASCII\&.
+.RS
+.PP
+When this option is not set, null characters embedded within strings
+of the form \fB$\&'\fP\fI\&.\&.\&.\fP\fB'\fP are treated as ordinary characters\&. The
+entire string is maintained within the shell and output to files where
+necessary, although owing to restrictions of the library interface
+the string is truncated at the null character in file names, environment
+variables, or in arguments to external programs\&.
+.PP
+When this option is set, the \fB$\&'\fP\fI\&.\&.\&.\fP\fB'\fP expression is truncated at
+the null character\&.  Note that remaining parts of the same string
+beyond the termination of the quotes are not trunctated\&.
+.PP
+For example, the command line argument \fBa$\&'b\e0c'd\fP is treated with
+the option off as the characters \fBa\fP, \fBb\fP, null, \fBc\fP, \fBd\fP,
+and with the option on as the characters \fBa\fP, \fBb\fP, \fBd\fP\&.
+.RE
+.TP
+\fBPOSIX_TRAPS\fP <K> <S>
+When the is option is set, the usual zsh behaviour of executing
+traps for \fBEXIT\fP on exit from shell functions is suppressed\&.
+In that case, manipulating \fBEXIT\fP traps always alters the global
+trap for exiting the shell; the \fBLOCAL_TRAPS\fP option is
+ignored for the \fBEXIT\fP trap\&.
 .TP
 \fBSH_FILE_EXPANSION\fP <K> <S>
 Perform filename expansion (e\&.g\&., ~ expansion) \fIbefore\fP
@@ -922,11 +1306,13 @@ the standard input is a tty and commands are being read from standard input\&.
 (See the discussion of \fBSHIN_STDIN\fP\&.)
 This heuristic may be overridden by specifying a state for this option
 on the command line\&.
-The value of this option cannot be changed anywhere other than the command line\&.
+The value of this option can only be changed via flags supplied at
+invocation of the shell\&.
+It cannot be changed once zsh is running\&.
 .TP
 \fBLOGIN\fP (\fB\-l\fP, ksh: \fB\-l\fP)
 This is a login shell\&.
-If this option is not explicitly set, the shell is a login shell if
+If this option is not explicitly set, the shell becomes a login shell if
 the first character of the \fBargv[0]\fP passed to the shell is a `\fB\-\fP\&'\&.
 .TP
 \fBPRIVILEGED\fP (\fB\-p\fP, ksh: \fB\-p\fP)
@@ -960,14 +1346,17 @@ Note that setting or unsetting this option on the command line does not
 necessarily affect the state the option will have while the shell is
 running \- that is purely an indicator of whether on not commands are
 \fIactually\fP being read from standard input\&.
-The value of this option cannot be changed anywhere other 
-than the command line\&.
+The value of this option can only be changed via flags supplied at
+invocation of the shell\&.
+It cannot be changed once zsh is running\&.
 .TP
 \fBSINGLE_COMMAND\fP (\fB\-t\fP, ksh: \fB\-t\fP)
 If the shell is reading from standard input, it exits after a single command
 has been executed\&.  This also makes the shell non\-interactive, unless the
 \fBINTERACTIVE\fP option is explicitly set on the command line\&.
-The value of this option cannot be changed anywhere other than the command line\&.
+The value of this option can only be changed via flags supplied at
+invocation of the shell\&.
+It cannot be changed once zsh is running\&.
 .PP
 .SS "Zle"
 .PD 0
@@ -975,6 +1364,22 @@ The value of this option cannot be changed anywhere other than the command line\
 .PD
 \fBBEEP\fP (\fB+B\fP) <D>
 Beep on error in ZLE\&.
+.TP
+\fBCOMBINING_CHARS\fP
+Assume that the terminal displays combining characters correctly\&.
+Specifically, if a base alphanumeric character is followed by one or more
+zero\-width punctuation characters, assume that the zero\-width characters
+will be displayed as modifications to the base character within the
+same width\&.  Not all terminals handle this\&.  If this option is not
+set, zero\-width characters are displayed separately with special
+mark\-up\&.
+.RS
+.PP
+If this option is set, the pattern test \fB[[:WORD:]]\fP matches a
+zero\-width punctuation character on the assumption that it will be
+used as part of a word in combination with a word character\&.
+Otherwise the base shell does not handle combining characters specially\&.
+.RE
 .TP
 \fBEMACS\fP
 If ZLE is loaded, turning on this option has the equivalent effect
@@ -988,6 +1393,14 @@ Start up the line editor in overstrike mode\&.
 .TP
 \fBSINGLE_LINE_ZLE\fP (\fB\-M\fP) <K>
 Use single\-line command line editing instead of multi\-line\&.
+.RS
+.PP
+Note that although this is on by default in ksh emulation it only
+provides superficial compatibility with the ksh line editor and
+reduces the effectiveness of the zsh line editor\&.  As it has no
+effect on shell syntax, many users may wish to disable this option
+when using ksh emulation interactively\&.
+.RE
 .TP
 \fBVI\fP
 If ZLE is loaded, turning on this option has the equivalent effect

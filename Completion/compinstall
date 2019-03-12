@@ -1,3 +1,5 @@
+# Configure the completion system.
+
 emulate -L zsh
 setopt extendedglob
 
@@ -25,10 +27,24 @@ __ci_newline() {
 
 typeset startline='# The following lines were added by compinstall'
 typeset endline='# End of lines added by compinstall'
-typeset ifile line fpath_line compinit_args
+typeset ifile line fpath_line compinit_args opt detect basic line2
 typeset -A styles
-typeset match mbegin mend warn_unknown warn_old warn_comment
+typeset match mbegin mend warn_unknown warn_old warn_comment output
 integer lines_found
+
+while getopts "do" opt; do
+  case $opt in
+    (d)
+    # Detect an existing compinstall setup.
+    detect=1
+    ;;
+
+    (o)
+    # Output basic setup information only.
+    basic=1
+    ;;
+  esac
+done
 
 #
 # Check the user's .zshrc, if any.
@@ -60,14 +76,56 @@ else
   fi
 fi
 
+
+if [[ -n $detect ]]; then
+  __ci_tidyup
+  [[ $foundold = true ]]
+  return
+fi
+
+
+__ci_output() {
+  print -r "$startline"
+  [[ -n $output ]] && print -r "$output"
+  if [[ -n $ifile ]]; then
+    line="zstyle :compinstall filename ${(qq)ifile}"
+    print -r "$line"
+    eval "$line"
+  fi
+
+  [[ -n $fpath_line ]] && print -r "$fpath_line"
+
+  print -r "
+autoload -Uz compinit
+compinit${compinit_args:+ $compinit_args}"
+
+  print -r "$endline"
+}
+
+
+if [[ -n $basic ]]; then
+  __ci_output
+  __ci_tidyup
+  return
+fi
+
 local newifile=$ifile
 if [[ $foundold = true ]]; then
-  print "I have found completion definitions in $ifile.
+  if [[ $newifile != [~/]* ]]; then
+    newifile=${ZDOTDIR:-~}/$newifile
+    print "[Existing completion definition file is not absolute path:
+updating to $newifile]"
+  fi
+  print "I have found completion definitions in $newifile.
 If you want me to read these, just hit return.  Otherwise, edit the file
 name to look for definitions somewhere else, or delete the whole line
 in order not to use existing definitions."
   vared -ch -p 'file> ' newifile
-  [[ -z $newifile ]] && foundold=false
+  if [[ -n $newifile && $newifile != [/~]* ]]; then
+    newifile=$PWD/$newifile
+    print "[Not absolute path: updating to $newifile]"
+  fi
+  [[ -z $newifile || ! -f $newifile ]] && foundold=false
 else
   print "I haven't found any existing completion definitions.
 If you have some already defined by compinstall, edit the name of the
@@ -76,6 +134,10 @@ are exactly the form in which compinstall inserted them.  If you leave
 the line as it is, or empty, I won't search."
   while true;  do
     vared -ch -p 'file> ' newifile || break
+    if [[ -n $newifile && $newifile != [/~]* ]]; then
+      newifile=$PWD/$newifile
+      print "[Not absolute path: updating to $newifile]"
+    fi
     if [[ -n $newifile && $ifile != $newifile ]]; then
       if __ci_test_ifile $newifile; then
         foundold=true
@@ -88,12 +150,23 @@ leave the line blank to ignore it."
     fi
   done
 fi
-ifile=$newifile
+ifile=${~newifile}
 
 if [[ $foundold = true ]]; then
   sed -n "/^[ 	]*$startline/,/^[ 	]*$endline/p" $ifile |
-  # Use the default read behaviour to handle any continuation lines.
-  while read line; do
+  # We can't use the default read behaviour to handle continuation lines
+  # since it messes up internal backslashes.
+  while read -r line; do
+    # detect real continuation backslashes by checking there are an
+    # odd number together.  i think this is reliable since the only
+    # other way of quoting a backslash involves following it with
+    # a closing quote.
+    while [[ $line = *\\ ]]; do
+      line2=${(M)line%%\\##}
+      (( ${#line2} & 1 )) || break
+      read -r line2 || break
+      line="${line[1,-2]}$line2"
+    done
     (( lines_found++ ))
     if [[ $line = *'$fpath'* ]]; then
       fpath_line=$line
@@ -119,7 +192,7 @@ ${match[3]}"
     then
       compinit_args=$match[1]
     elif [[ $line != [[:blank:]]# &&
-      $line != [[:blank:]]#'autoload -Uz compinit' &&
+      $line != [[:blank:]]#'autoload '*' compinit' &&
       $line != [[:blank:]]#compinit &&
       $line != [[:blank:]]#zstyle[[:blank:]]#:compinstall* ]]; then
       warn_unknown="${warn_unknown:+$warn_unknown
@@ -379,7 +452,7 @@ o.     Set options for _oldlist: when to keep old list.
 m.     Set options for _match: whether to assume a \`*' at the cursor.
 p.     Set options for _prefix: whether to add a space before the suffix.
 
-q.     Return to the without saving.
+q.     Return to the previous menu without saving.
 0.     Done setting completer options.
 "
 
@@ -433,7 +506,7 @@ s.    Specify a list of completers.
 		      ;;
 		[sS]) olist=
 		      tmparr=(_complete _approximate _correct _match _expand)
-		      while true; do 
+		      while true; do
 			clear
 			print "\
      *** compinstall:  choosing completers to have _oldlist behaviour ***
@@ -766,7 +839,11 @@ __ci_do_completers() {
   for c in ${=newc}; do
     completers[$c]=1
   done
-  clist=(_list _oldlist _menu _expand _complete _ignored 
+  if (( ${#completers} == 0 )); then
+    completers[_complete]=1
+    completers[_ignored]=1
+  fi
+  clist=(_list _oldlist _menu _expand _complete _ignored
          _match _correct _approximate _prefix)
 
   # TODO: these are a bit brief, so could provide some more detailed help.
@@ -908,8 +985,14 @@ __ci_do_matchers() {
   for (( eltcnt = 1; eltcnt <= $#mlist; eltcnt++ )); do
     [[ $mlist[eltcnt] == "+"* ]] && a_or_r[$eltcnt]='+'
     [[ -z $mlist[$eltcnt] ]] && n_list[$eltcnt]=$eltcnt
+    # Accept the old form of lower/upper correspondence, but we'll
+    # output the new one instead.
     [[ $mlist[$eltcnt] = *"m:{a-z}={A-Z}"* ]] && c_list[$eltcnt]=$eltcnt
+    [[ $mlist[$eltcnt] = *"m:{[:lower:]}={[:upper:]}"* ]] &&
+      c_list[$eltcnt]=$eltcnt
     [[ $mlist[$eltcnt] = *"m:{a-zA-Z}={A-Za-z}"* ]] && C_list[$eltcnt]=$eltcnt
+    [[ $mlist[$eltcnt] = *"m:{[:lower:][:upper:]}={[:upper:][:lower:]}"* ]] &&
+      C_list[$eltcnt]=$eltcnt
     # For partial word stuff, we use backreferences to find out what
     # the set of separators was.
     if [[ $mlist[$eltcnt] = (#b)*"r:|["([^\]]#)"]=*"#" r:|=*"* ]]; then
@@ -1028,8 +1111,10 @@ terminators to be matched in this way? (y/n) [n] "
   # and reconstructing the elements of the matcher array.
   for (( eltcnt = 1; eltcnt <= 4; eltcnt++ )); do
     elt=
-    [[ $c_list[$eltcnt] != ' ' ]] && elt="${elt:+$elt }m:{a-z}={A-Z}"
-    [[ $C_list[$eltcnt] != ' ' ]] && elt="${elt:+$elt }m:{a-zA-Z}={A-Za-z}"
+    [[ $c_list[$eltcnt] != ' ' ]] &&
+      elt="${elt:+$elt }m:{[:lower:]}={[:upper:]}"
+    [[ $C_list[$eltcnt] != ' ' ]] &&
+      elt="${elt:+$elt }m:{[:lower:][:upper:]}={[:upper:][:lower:]}"
     [[ $p_list[$eltcnt] != ' ' ]] &&
       elt="${elt:+$elt }r:|[${pw_seps[$eltcnt]}]=*${pw_dstar[$eltcnt]}\
  r:|=*${pw_dstar[$eltcnt]}"
@@ -1361,7 +1446,7 @@ number of completions.  Please enter:
 	 done
 	 amenu=(${=menu})
 	 elt=${amenu[(i)*select*]}
-	 [[ $elt -gt $#amenu ]] && elt=
+	 [[ $elt -eq 0 || $elt -gt $#amenu ]] && elt=
 	 case $select in
 	   <->) if [[ -n $elt ]]; then
 		  amenu[$elt]="select=$select"
@@ -1848,15 +1933,13 @@ q.  Return without saving.
 done
 
 
-local output
-
 if (( $#styles )); then
   typeset style stylevals context values
   for style in ${(ko)styles}; do
     stylevals=(${(f)styles[$style]})
     while (( $#stylevals )); do
       output="$output
-zstyle ${(qq)stylevals[1]} $style $stylevals[2]"
+zstyle ${(qq)stylevals[1]} $style ${stylevals[2]}"
       shift 2 stylevals
     done
   done
@@ -1867,6 +1950,10 @@ if [[ -z $ifile || -d $ifile ]] ||
    print "Enter file to save in (~ will be expanded), or return to abort:"
    ifile=
    vared -ch -p 'file> ' ifile
+   if [[ $ifile != [/~]* ]]; then
+     ifile=$PWD/$ifile
+     print "[Not absolute path; updating to $ifile]"
+   fi
    ifile=${~ifile}
 fi
 
@@ -1875,22 +1962,7 @@ local tmpout=${TMPPREFIX:-/tmp/zsh}compinstall$$
 # Assemble the complete set of lines to
 # insert.
 #
-{ print -r "$startline
-$output"
-  if [[ -n $ifile ]]; then
-    line="zstyle :compinstall filename ${(qq)ifile}"
-    print -r "$line"
-    eval "$line"
-  fi
-
-  [[ -n $fpath_line ]] && print -r "$fpath_line"
-
-  print -r "
-autoload -Uz compinit
-compinit${compinit_args:+ $compinit_args}"
-
-  print -r "$endline"
-} >$tmpout
+__ci_output >$tmpout
 
 if [[ -n $ifile ]]; then
   if [[ $ifile != *(zshrc|zlogin|zshenv) ]]; then 

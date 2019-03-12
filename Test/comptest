@@ -25,6 +25,8 @@ comptestinit () {
   }
 
   comptesteval \
+"export LC_ALL=C" \
+"emulate -R zsh" \
 "export ZDOTDIR=$ZTST_testdir" \
 "module_path=( $module_path )" \
 "fpath=( $fpath )" \
@@ -78,7 +80,7 @@ comptesteval () {
 
   print -lr - "$@" > $tmp
   zpty -w zsh ". $tmp"
-  zpty -r zsh log_eval "*<PROMPT>*" || {
+  zpty -r -m zsh log_eval "*<PROMPT>*" || {
     print "prompt hasn't appeared."
     return 1
   }
@@ -88,7 +90,7 @@ comptesteval () {
 comptest () {
   input="$*"
   zpty -n -w zsh "$input"$'\C-Z'
-  zpty -r zsh log "*<WIDGET><finish>*<PROMPT>*" || {
+  zpty -r -m zsh log "*<WIDGET><finish>*<PROMPT>*" || {
     print "failed to invoke finish widget."
     return 1
   }

@@ -1,4 +1,4 @@
-.TH "ZSHCOMPCTL" "1" "December 17, 2007" "zsh 4\&.2\&.7"
+.TH "ZSHCOMPCTL" "1" "July 21, 2012" "zsh 5\&.0\&.0"
 .SH "NAME"
 zshcompctl \- zsh programmable completion
 .\" Yodl file: Zsh/compctl.yo
@@ -52,7 +52,7 @@ with a \fB=\fP, completion is tried with the pathname of the command\&.
 .RS
 .PP
 Any of the \fIcommand\fP strings may be patterns of the form normally
-used for filename generation\&.  These should be be quoted to protect them
+used for filename generation\&.  These should be quoted to protect them
 from immediate expansion; for example the command string \fB\&'foo*'\fP
 arranges for completion of the words of any command beginning with
 \fBfoo\fP\&.  When completion is attempted, all pattern completions are
@@ -170,10 +170,10 @@ These produce completion lists made up by the shell itself:
 .TP
 .PD
 \fB\-f\fP
-Filenames and filesystem paths\&.
+Filenames and file system paths\&.
 .TP
 \fB\-/\fP
-Just filesystem paths\&.
+Just file system paths\&.
 .TP
 \fB\-c\fP
 Command names, including aliases, shell functions, builtins
@@ -494,7 +494,8 @@ string\&.
 .RS
 .PP
 The sequences \fB%B\fP, \fB%b\fP, \fB%S\fP, \fB%s\fP, \fB%U\fP, and \fB%u\fP specify
-output attributes (bold, standout, and underline) and \fB%{\&.\&.\&.%}\fP can
+output attributes (bold, standout, and underline), \fB%F\fP, \fB%f\fP, \fB%K\fP,
+\fB%k\fP specify foreground and background colours, and \fB%{\&.\&.\&.%}\fP can
 be used to include literal escape sequences as in prompts\&.
 .RE
 .TP

@@ -30,6 +30,8 @@
 #include "zsh.mdh"
 #include "subst.pro"
 
+#define LF_ARRAY	1
+
 /**/
 char nulstring[] = {Nularg, '\0'};
 
@@ -42,7 +44,7 @@ char nulstring[] = {Nularg, '\0'};
  *  - Brace expansion
  *  - Tilde and equals substitution
  *
- * PF_* flags are defined in zsh.h
+ * PREFORK_* flags are defined in zsh.h
  */
 
 /**/
@@ -50,31 +52,35 @@ mod_export void
 prefork(LinkList list, int flags)
 {
     LinkNode node, stop = 0;
-    int keep = 0, asssub = (flags & PF_TYPESET) && isset(KSHTYPESET);
+    int keep = 0, asssub = (flags & PREFORK_TYPESET) && isset(KSHTYPESET);
 
     queue_signals();
     for (node = firstnode(list); node; incnode(node)) {
-	char *str, c;
-
-	str = (char *)getdata(node);
-	if (((c = *str) == Inang || c == Outang || c == Equals) &&
-	    str[1] == Inpar) {
-	    if (c == Inang || c == Outang)
-		setdata(node, (void *) getproc(str));	/* <(...) or >(...) */
-	    else
-		setdata(node, (void *) getoutputfile(str));	/* =(...) */
-	    if (!getdata(node)) {
-		unqueue_signals();
-		return;
-	    }
-	} else {
-	    if (isset(SHFILEEXPANSION))
-		filesub((char **)getaddrdata(node),
-			flags & (PF_TYPESET|PF_ASSIGN));
-	    if (!(node = stringsubst(list, node, flags & PF_SINGLE, asssub))) {
-		unqueue_signals();
-		return;
-	    }
+	if (isset(SHFILEEXPANSION)) {
+	    /*
+	     * Here and below we avoid taking the address
+	     * of a void * and then pretending it's a char **
+	     * instead of a void ** by a little inefficiency.
+	     * This could be avoided with some extra linked list
+	     * machinery, but that would need quite a lot of work
+	     * to ensure consistency.  What we really need is
+	     * templates...
+	     */
+	    char *cptr = (char *)getdata(node);
+	    filesub(&cptr, flags & (PREFORK_TYPESET|PREFORK_ASSIGN));
+	    /*
+	     * The assignment is so simple it's not worth
+	     * testing if cptr changed...
+	     */
+	    setdata(node, cptr);
+	}
+	if (!(node = stringsubst(list, node,
+				 flags & (PREFORK_SINGLE|PREFORK_SPLIT|
+					  PREFORK_SHWORDSPLIT|
+					  PREFORK_NOSHWORDSPLIT),
+				 asssub))) {
+	    unqueue_signals();
+	    return;
 	}
     }
     for (node = firstnode(list); node; incnode(node)) {
@@ -82,7 +88,7 @@ prefork(LinkList list, int flags)
 	    keep = 0;
 	if (*(char *)getdata(node)) {
 	    remnulargs(getdata(node));
-	    if (unset(IGNOREBRACES) && !(flags & PF_SINGLE)) {
+	    if (unset(IGNOREBRACES) && !(flags & PREFORK_SINGLE)) {
 		if (!keep)
 		    stop = nextnode(node);
 		while (hasbraces(getdata(node))) {
@@ -90,10 +96,12 @@ prefork(LinkList list, int flags)
 		    xpandbraces(list, &node);
 		}
 	    }
-	    if (unset(SHFILEEXPANSION))
-		filesub((char **)getaddrdata(node),
-			flags & (PF_TYPESET|PF_ASSIGN));
-	} else if (!(flags & PF_SINGLE) && !keep)
+	    if (unset(SHFILEEXPANSION)) {
+		char *cptr = (char *)getdata(node);
+		filesub(&cptr, flags & (PREFORK_TYPESET|PREFORK_ASSIGN));
+		setdata(node, cptr);
+	    }
+	} else if (!(flags & PREFORK_SINGLE) && !keep)
 	    uremnode(list, node);
 	if (errflag) {
 	    unqueue_signals();
@@ -103,19 +111,93 @@ prefork(LinkList list, int flags)
     unqueue_signals();
 }
 
+/*
+ * Perform $'...' quoting.  The arguments are
+ *   strstart   The start of the string
+ *   pstrdpos   Initially, *pstrdpos is the position where the $ of the $'
+ *              occurs.  It will be updated to the next character after the
+ *              last ' of the $'...'.
+ * The return value is the entire allocated string from strstart on the heap.
+ * Note the original string may be modified in the process.
+ */
+/**/
+static char *
+stringsubstquote(char *strstart, char **pstrdpos)
+{
+    int len;
+    char *strdpos = *pstrdpos, *strsub, *strret;
+
+    strsub = getkeystring(strdpos+2, &len,
+			  GETKEYS_DOLLARS_QUOTE, NULL);
+    len += 2;			/* measured from strdpos */
+
+    if (strstart != strdpos) {
+	*strdpos = '\0';
+	if (strdpos[len])
+	    strret = zhtricat(strstart, strsub, strdpos + len);
+	else
+	    strret = dyncat(strstart, strsub);
+    } else if (strdpos[len])
+	strret = dyncat(strsub, strdpos + len);
+    else
+	strret = strsub;
+
+    *pstrdpos = strret + (strdpos - strstart) + strlen(strsub);
+
+    return strret;
+}
+
 /**/
 static LinkNode
-stringsubst(LinkList list, LinkNode node, int ssub, int asssub)
+stringsubst(LinkList list, LinkNode node, int pf_flags, int asssub)
 {
     int qt;
     char *str3 = (char *)getdata(node);
     char *str  = str3, c;
 
     while (!errflag && (c = *str)) {
+	if (((c = *str) == Inang || c == OutangProc ||
+	     (str == str3 && c == Equals))
+	    && str[1] == Inpar) {
+	    char *subst, *rest, *snew, *sptr;
+	    int str3len = str - str3, sublen, restlen;
+
+	    if (c == Inang || c == OutangProc)
+		subst = getproc(str, &rest);	/* <(...) or >(...) */
+	    else
+		subst = getoutputfile(str, &rest);	/* =(...) */
+	    if (errflag)
+		return NULL;
+	    if (!subst)
+		subst = "";
+
+	    sublen = strlen(subst);
+	    restlen = strlen(rest);
+	    sptr = snew = hcalloc(str3len + sublen + restlen + 1);
+	    if (str3len) {
+		memcpy(sptr, str3, str3len);
+		sptr += str3len;
+	    }
+	    if (sublen) {
+		memcpy(sptr, subst, sublen);
+		sptr += sublen;
+	    }
+	    if (restlen)
+		memcpy(sptr, rest, restlen);
+	    sptr[restlen] = '\0';
+	    str3 = snew;
+	    str = snew + str3len + sublen;
+	    setdata(node, str3);
+	} else
+	    str++;
+    }
+    str = str3;
+
+    while (!errflag && (c = *str)) {
 	if ((qt = c == Qstring) || c == String) {
 	    if ((c = str[1]) == Inpar) {
 		if (!qt)
-		    mult_isarr = 1;
+		    list->list.flags |= LF_ARRAY;
 		str++;
 		goto comsub;
 	    } else if (c == Inbrack) {
@@ -123,7 +205,7 @@ stringsubst(LinkList list, LinkNode node, int ssub, int asssub)
 		char *str2 = str;
 		str2++;
 		if (skipparens(Inbrack, Outbrack, &str2)) {
-		    zerr("closing bracket missing", NULL, 0);
+		    zerr("closing bracket missing");
 		    return NULL;
 		}
 		str2[-1] = *str = '\0';
@@ -131,16 +213,35 @@ stringsubst(LinkList list, LinkNode node, int ssub, int asssub)
 		setdata(node, (void *) str3);
 		continue;
 	    } else if (c == Snull) {
-		str = getkeystring(str, NULL, 4, NULL);
+		str3 = stringsubstquote(str3, &str);
+		setdata(node, (void *) str3);
 		continue;
 	    } else {
-		node = paramsubst(list, node, &str, qt, ssub);
+		/*
+		 * To avoid setting and unsetting the SHWORDSPLIT
+		 * option, we pass flags if we need to control it for
+		 * recursive expansion via multsub()
+		 * If PREFORK_NOSHWORDSPLIT is set, the option is
+		 * disregarded; otherwise, use it if set.
+		 * If PREFORK_SPLIT is set, splitting is forced,
+		 * regardless of the option
+		 * If PREFORK_SHWORDSPLIT is already set, or used by the
+		 * previous two to signal paramsubst(), we'll do
+		 * sh-style wordsplitting on parameters.
+		 */
+		if ((isset(SHWORDSPLIT) &&
+		     !(pf_flags & PREFORK_NOSHWORDSPLIT)) ||
+		    (pf_flags & PREFORK_SPLIT))
+		    pf_flags |= PREFORK_SHWORDSPLIT;
+		node = paramsubst(
+		    list, node, &str, qt,
+		    pf_flags & (PREFORK_SINGLE|PREFORK_SHWORDSPLIT));
 		if (errflag || !node)
 		    return NULL;
 		str3 = (char *)getdata(node);
 		continue;
 	    }
-	} else if ((qt = c == Qtick) || (c == Tick ? (mult_isarr = 1) : 0))
+	} else if ((qt = c == Qtick) || (c == Tick ? (list->list.flags |= LF_ARRAY) : 0))
 	  comsub: {
 	    LinkList pl;
 	    char *s, *str2 = str;
@@ -168,7 +269,10 @@ stringsubst(LinkList list, LinkNode node, int ssub, int asssub)
 	    if (endchar == Outpar && str2[1] == '(' && str[-2] == ')') {
 		/* Math substitution of the form $((...)) */
 		str[-2] = '\0';
-		str = arithsubst(str2 + 2, &str3, str);
+		if (isset(EXECOPT))
+		    str = arithsubst(str2 + 2, &str3, str);
+		else
+		    strncpy(str3, str2, 1);
 		setdata(node, (void *) str3);
 		continue;
 	    }
@@ -186,8 +290,9 @@ stringsubst(LinkList list, LinkNode node, int ssub, int asssub)
 		       (qt && str[1] == '"'))))
 		    *str = ztokens[c - Pound];
 	    str++;
-	    if (!(pl = getoutput(str2 + 1, qt || ssub))) {
-		zerr("parse error in command substitution", NULL, 0);
+	    if (!(pl = getoutput(str2 + 1, qt ||
+				 (pf_flags & PREFORK_SINGLE)))) {
+		zerr("parse error in command substitution");
 		return NULL;
 	    }
 	    if (endchar == Outpar)
@@ -196,7 +301,7 @@ stringsubst(LinkList list, LinkNode node, int ssub, int asssub)
 		str = strcpy(str2, str);
 		continue;
 	    }
-	    if (!qt && ssub && isset(GLOBSUBST))
+	    if (!qt && (pf_flags & PREFORK_SINGLE) && isset(GLOBSUBST))
 		shtokenize(s);
 	    l1 = str2 - str3;
 	    l2 = strlen(s);
@@ -224,7 +329,7 @@ stringsubst(LinkList list, LinkNode node, int ssub, int asssub)
 	     * We are in a normal argument which looks like an assignment
 	     * and is to be treated like one, with no word splitting.
 	     */
-	    ssub = 1;
+	    pf_flags |= PREFORK_SINGLE;
 	}
 	str++;
     }
@@ -243,22 +348,25 @@ stringsubst(LinkList list, LinkNode node, int ssub, int asssub)
  * The remnulargs() makes this consistent with the other forms
  * of substitution, indicating that quotes have been fully
  * processed.
+ *
+ * The fully processed string is returned.
  */
 
 /**/
-void
+char *
 quotesubst(char *str)
 {
     char *s = str;
 
     while (*s) {
 	if (*s == String && s[1] == Snull) {
-	    s = getkeystring(s, NULL, 4, NULL);
+	    str = stringsubstquote(str, &s);
 	} else {
 	    s++;
 	}
     }
     remnulargs(str);
+    return str;
 }
 
 /**/
@@ -273,7 +381,7 @@ globlist(LinkList list, int nountok)
 	zglob(list, node, nountok);
     }
     if (badcshglob == 1)
-	zerr("no match", NULL, 0);
+	zerr("no match");
 }
 
 /* perform substitution on a single word */
@@ -282,71 +390,128 @@ globlist(LinkList list, int nountok)
 mod_export void
 singsub(char **s)
 {
-    int omi = mult_isarr;
     local_list1(foo);
 
     init_list1(foo, *s);
 
-    prefork(&foo, PF_SINGLE);
-    mult_isarr = omi;
+    prefork(&foo, PREFORK_SINGLE);
     if (errflag)
 	return;
     *s = (char *) ugetnode(&foo);
     DPUTS(nonempty(&foo), "BUG: singsub() produced more than one word!");
 }
 
-/* Perform substitution on a single word. Unlike with singsub, the      *
- * result can have more than one word. A single word result is stored   *
- * in *s and *isarr is set to zero; otherwise *isarr is set to 1 and    *
- * the result is stored in *a. If `a' is zero a multiple word result is *
- * joined using sep or the IFS parameter if sep is zero and the result  *
- * is returned in *s.  The return value is true iff the expansion       *
- * resulted in an empty list.                                           *
- * The mult_isarr variable is used by paramsubst() to tell if it yields *
- * an array.                                                            */
-
-/**/
-static int mult_isarr;
+/* Perform substitution on a single word, *s. Unlike with singsub(), the
+ * result can be more than one word. If split is non-zero, the string is
+ * first word-split using IFS, but only for non-quoted "whitespace" (as
+ * indicated by Dnull, Snull, Tick, Bnull, Inpar, and Outpar).
+ *
+ * If arg "a" was non-NULL and we got an array as a result of the parsing,
+ * the strings are stored in *a (even for a 1-element array) and *isarr is
+ * set to 1.  Otherwise, *isarr is set to 0, and the result is put into *s,
+ * with any necessary joining of multiple elements using sep (which can be
+ * NULL to use IFS).  The return value is true iff the expansion resulted
+ * in an empty list. */
 
 /**/
 static int
-multsub(char **s, char ***a, int *isarr, UNUSED(char *sep))
+multsub(char **s, int pf_flags, char ***a, int *isarr, char *sep)
 {
-    int l, omi = mult_isarr;
-    char **r, **p;
+    int l;
+    char **r, **p, *x = *s;
     local_list1(foo);
 
-    mult_isarr = 0;
-    init_list1(foo, *s);
-    prefork(&foo, 0);
+    if (pf_flags & PREFORK_SPLIT) {
+	/*
+	 * This doesn't handle multibyte characters, but we're
+	 * looking for whitespace separators which must be ASCII.
+	 */
+	for ( ; *x; x += l) {
+	    char c = (l = *x == Meta) ? x[1] ^ 32 : *x;
+	    l++;
+	    if (!iwsep(STOUC(c)))
+		break;
+	}
+    }
+
+    init_list1(foo, x);
+
+    if (pf_flags & PREFORK_SPLIT) {
+	LinkNode n = firstnode(&foo);
+	int inq = 0, inp = 0;
+	MB_METACHARINIT();
+	for ( ; *x; x += l) {
+	    int rawc = -1;
+	    convchar_t c;
+	    if (itok(STOUC(*x))) {
+		/* token, can't be separator, must be single byte */
+		rawc = *x;
+		l = 1;
+	    } else {
+		l = MB_METACHARLENCONV(x, &c);
+		if (!inq && !inp && WC_ZISTYPE(c, ISEP)) {
+		    *x = '\0';
+		    for (x += l; *x; x += l) {
+			if (itok(STOUC(*x))) {
+			    /* as above */
+			    rawc = *x;
+			    l = 1;
+			    break;
+			}
+			l = MB_METACHARLENCONV(x, &c);
+			if (!WC_ZISTYPE(c, ISEP))
+			    break;
+		    }
+		    if (!*x)
+			break;
+		    insertlinknode(&foo, n, (void *)x), incnode(n);
+		}
+	    }
+	    switch (rawc) {
+	    case Dnull:  /* " */
+	    case Snull:  /* ' */
+	    case Tick:   /* ` (note: no Qtick!) */
+		/* These always occur in unnested pairs. */
+		inq = !inq;
+		break;
+	    case Inpar:  /* ( */
+		inp++;
+		break;
+	    case Outpar: /* ) */
+		inp--;
+		break;
+	    case Bnull:  /* \ */
+	    case Bnullkeep:
+		/* The parser verified the following char's existence. */
+		x += l;
+		l = MB_METACHARLEN(x);
+		break;
+	    }
+	}
+    }
+
+    prefork(&foo, pf_flags);
     if (errflag) {
 	if (isarr)
 	    *isarr = 0;
-	mult_isarr = omi;
 	return 0;
     }
-    if ((l = countlinknodes(&foo))) {
+
+    if ((l = countlinknodes(&foo)) > 1 || (foo.list.flags & LF_ARRAY && a)) {
 	p = r = hcalloc((l + 1) * sizeof(char*));
 	while (nonempty(&foo))
 	    *p++ = (char *)ugetnode(&foo);
 	*p = NULL;
-	/*
-	 * This is the most obscure way of deciding whether a value is
-	 * an array it would be possible to imagine.  It seems to result
-	 * partly because we don't pass down the qt and ssub flags from
-	 * paramsubst() through prefork() properly, partly because we
-	 * don't tidy up to get back the return type from multsub we
-	 * need properly.  The crux of neatening this up is to get rid
-	 * of the following test.
-	 */
-	if (a && mult_isarr) {
+	/* We need a way to figure out if a one-item result was a scalar
+	 * or a single-item array.  The parser will have set LF_ARRAY
+	 * in the latter case, allowing us to return it as an array to
+	 * our caller (if they provided for that result). */
+	if (a && (l > 1 || foo.list.flags & LF_ARRAY)) {
 	    *a = r;
 	    *isarr = SCANPM_MATCHMANY;
-	    mult_isarr = omi;
 	    return 0;
 	}
-	*s = sepjoin(r, NULL, 1);
-	mult_isarr = omi;
+	*s = sepjoin(r, sep, 1);
 	if (isarr)
 	    *isarr = 0;
 	return 0;
@@ -357,13 +522,12 @@ multsub(char **s, char ***a, int *isarr, UNUSED(char *sep))
 	*s = dupstring("");
     if (isarr)
 	*isarr = 0;
-    mult_isarr = omi;
     return !l;
 }
 
 /*
- * ~, = subs: assign & PF_TYPESET => typeset or magic equals
- *            assign & PF_ASSIGN => normal assignment
+ * ~, = subs: assign & PREFORK_TYPESET => typeset or magic equals
+ *            assign & PREFORK_ASSIGN => normal assignment
  */
 
 /**/
@@ -378,7 +542,7 @@ filesub(char **namptr, int assign)
     if (!assign)
 	return;
 
-    if (assign & PF_TYPESET) {
+    if (assign & PREFORK_TYPESET) {
 	if ((*namptr)[1] && (eql = sub = strchr(*namptr + 1, Equals))) {
 	    str = sub + 1;
 	    if ((sub[1] == Tilde || sub[1] == Equals) && filesubstr(&str, assign)) {
@@ -403,29 +567,73 @@ filesub(char **namptr, int assign)
     }
 }
 
+#define isend(c) ( !(c) || (c)=='/' || (c)==Inpar || (assign && (c)==':') )
+#define isend2(c) ( !(c) || (c)==Inpar || (assign && (c)==':') )
+
+/*
+ * do =foo substitution, or equivalent.
+ * on entry, str should point to the "foo".
+ * if assign, this is in an assignment
+ * if nomatch, report hard error on failure.
+ * if successful, returns the expansion, else NULL.
+ */
+
+/**/
+char *
+equalsubstr(char *str, int assign, int nomatch)
+{
+    char *pp, *cnam, *cmdstr, *ret;
+
+    for (pp = str; !isend2(*pp); pp++)
+	;
+    cmdstr = dupstrpfx(str, pp-str);
+    untokenize(cmdstr);
+    remnulargs(cmdstr);
+    if (!(cnam = findcmd(cmdstr, 1))) {
+	if (nomatch)
+	    zerr("%s not found", cmdstr);
+	return NULL;
+    }
+    ret = dupstring(cnam);
+    if (*pp)
+	ret = dyncat(ret, pp);
+    return ret;
+}
+
 /**/
 mod_export int
 filesubstr(char **namptr, int assign)
 {
-#define isend(c) ( !(c) || (c)=='/' || (c)==Inpar || (assign && (c)==':') )
-#define isend2(c) ( !(c) || (c)==Inpar || (assign && (c)==':') )
     char *str = *namptr;
 
     if (*str == Tilde && str[1] != '=' && str[1] != Equals) {
-	char *ptr;
+	char *ptr, *tmp, *res, *ptr2;
 	int val;
 
 	val = zstrtol(str + 1, &ptr, 10);
 	if (isend(str[1])) {   /* ~ */
-	    *namptr = dyncat(home, str + 1);
+	    *namptr = dyncat(home ? home : "", str + 1);
 	    return 1;
 	} else if (str[1] == '+' && isend(str[2])) {   /* ~+ */
 	    *namptr = dyncat(pwd, str + 2);
 	    return 1;
 	} else if (str[1] == '-' && isend(str[2])) {   /* ~- */
-	    char *tmp;
 	    *namptr = dyncat((tmp = oldpwd) ? tmp : pwd, str + 2);
 	    return 1;
+	} else if (str[1] == Inbrack &&
+		   (ptr2 = strchr(str+2, Outbrack))) {
+	    char **arr;
+	    untokenize(tmp = dupstrpfx(str+2, ptr2 - (str+2)));
+	    remnulargs(tmp);
+	    arr = subst_string_by_hook("zsh_directory_name", "n", tmp);
+	    res = arr ? *arr : NULL;
+	    if (res) {
+		*namptr = dyncat(res, ptr2+1);
+		return 1;
+	    }
+	    if (isset(NOMATCH))
+		zerr("no directory expansion: ~[%s]", tmp);
+	    return 0;
 	} else if (!inblank(str[1]) && isend(*ptr) &&
 		   (!idigit(str[1]) || (ptr - str < 4))) {
 	    char *ds;
@@ -437,17 +645,16 @@ filesubstr(char **namptr, int assign)
 		return 0;
 	    *namptr = dyncat(ds, ptr);
 	    return 1;
-	} else if (iuser(str[1])) {   /* ~foo */
-	    char *ptr, *hom, save;
+	} else if ((ptr = itype_end(str+1, IUSER, 0)) != str+1) {   /* ~foo */
+	    char *hom, save;
 
-	    for (ptr = ++str; *ptr && iuser(*ptr); ptr++);
 	    save = *ptr;
 	    if (!isend(save))
 		return 0;
 	    *ptr = 0;
-	    if (!(hom = getnameddir(str))) {
+	    if (!(hom = getnameddir(++str))) {
 		if (isset(NOMATCH))
-		    zerr("no such user or named directory: %s", str, 0);
+		    zerr("no such user or named directory: %s", str);
 		*ptr = save;
 		return 0;
 	    }
@@ -456,27 +663,17 @@ filesubstr(char **namptr, int assign)
 	    return 1;
 	}
     } else if (*str == Equals && isset(EQUALS) && str[1]) {   /* =foo */
-	char sav, *pp, *cnam;
-
-	for (pp = str + 1; !isend2(*pp); pp++);
-	sav = *pp;
-	*pp = 0;
-	if (!(cnam = findcmd(str + 1, 1))) {
-	    if (isset(NOMATCH))
-		zerr("%s not found", str + 1, 0);
-	    return 0;
+	char *expn = equalsubstr(str+1, assign, isset(NOMATCH));
+	if (expn) {
+	    *namptr = expn;
+	    return 1;
 	}
-	*namptr = dupstring(cnam);
-	if (sav) {
-	    *pp = sav;
-	    *namptr = dyncat(*namptr, pp);
-	}
-	return 1;
     }
     return 0;
+}
+
 #undef isend
 #undef isend2
-}
 
 /**/
 static char *
@@ -504,156 +701,78 @@ strcatsub(char **d, char *pb, char *pe, char *src, int l, char *s, int glbsub,
     return dest;
 }
 
-typedef int (*CompareFn) _((const void *, const void *));
+#ifdef MULTIBYTE_SUPPORT
+#define WCPADWIDTH(cchar, mw)	wcpadwidth(cchar, mw)
 
-/**/
-int
-strpcmp(const void *a, const void *b)
+/*
+ * Width of character for padding purposes.
+ * 0: all characters count 1.
+ * 1: use width of multibyte character.
+ * 2: non-zero width characters count 1, zero width 0.
+ */
+static int
+wcpadwidth(wchar_t wc, int multi_width)
 {
-#ifdef HAVE_STRCOLL
-    return strcoll(*(char **)a, *(char **)b);
-#else
-    return strcmp(*(char **)a, *(char **)b);
-#endif
-}
+    int width;
 
-/**/
-int
-invstrpcmp(const void *a, const void *b)
-{
-#ifdef HAVE_STRCOLL
-    return -strcoll(*(char **)a, *(char **)b);
-#else
-    return -strcmp(*(char **)a, *(char **)b);
-#endif
-}
+    switch (multi_width)
+    {
+    case 0:
+	return 1;
 
-/**/
-int
-cstrpcmp(const void *a, const void *b)
-{
-#ifdef HAVE_STRCOLL
-    VARARR(char, c, strlen(*(char **) a) + 1);
-    VARARR(char, d, strlen(*(char **) b) + 1);
-    char *s, *t;
-    int   cmp;
+    case 1:
+	width = WCWIDTH(wc);
+	if (width >= 0)
+	    return width;
+	return 0;
 
-    for (s = *(char **) a, t = c; (*t++ = tulower(*s++)););
-    for (s = *(char **) b, t = d; (*t++ = tulower(*s++)););
-
-    cmp = strcoll(c, d);
-
-    return cmp;
-#else
-    char *c = *(char **)a, *d = *(char **)b;
-
-    for (; *c && tulower(*c) == tulower(*d); c++, d++);
-
-    return (int)STOUC(tulower(*c)) - (int)STOUC(tulower(*d));
-#endif
-}
-
-/**/
-int
-invcstrpcmp(const void *a, const void *b)
-{
-#ifdef HAVE_STRCOLL
-    VARARR(char, c, strlen(*(char **) a) + 1);
-    VARARR(char, d, strlen(*(char **) b) + 1);
-    char *s, *t;
-    int   cmp;
-
-    for (s = *(char **) a, t = c; (*t++ = tulower(*s++)););
-    for (s = *(char **) b, t = d; (*t++ = tulower(*s++)););
-
-    cmp = strcoll(c, d);
-
-    return -cmp;
-#else
-    char *c = *(char **)a, *d = *(char **)b;
-
-    for (; *c && tulower(*c) == tulower(*d); c++, d++);
-
-    return (int)STOUC(tulower(*d)) - (int)STOUC(tulower(*c));
-#endif
-}
-
-/**/
-int
-nstrpcmp(const void *a, const void *b)
-{
-    char *c = *(char **)a, *d = *(char **)b;
-    int cmp;
-
-#ifdef HAVE_STRCOLL
-    cmp = strcoll(c, d);
-#endif
-    for (; *c == *d && *c; c++, d++);
-#ifndef HAVE_STRCOLL
-    cmp = (int)STOUC(*c) - (int)STOUC(*d);
-#endif
-    if (idigit(*c) || idigit(*d)) {
-	for (; c > *(char **)a && idigit(c[-1]); c--, d--);
-	if (idigit(*c) && idigit(*d)) {
-	    while (*c == '0')
-		c++;
-	    while (*d == '0')
-		d++;
-	    for (; idigit(*c) && *c == *d; c++, d++);
-	    if (idigit(*c) || idigit(*d)) {
-		cmp = (int)STOUC(*c) - (int)STOUC(*d);
-		while (idigit(*c) && idigit(*d))
-		    c++, d++;
-		if (idigit(*c) && !idigit(*d))
-		    return 1;
-		if (idigit(*d) && !idigit(*c))
-		    return -1;
-	    }
-	}
+    default:
+	return WCWIDTH(wc) > 0 ? 1 : 0;
     }
-    return cmp;
 }
 
-/**/
-int
-invnstrpcmp(const void *a, const void *b)
-{
-    return -nstrpcmp(a, b);
-}
+#else
+#define WCPADWIDTH(cchar, mw)	(1)
+#endif
 
-/**/
-int
-instrpcmp(const void *a, const void *b)
-{
-    VARARR(char, c, strlen(*(char **) a) + 1);
-    VARARR(char, d, strlen(*(char **) b) + 1);
-    char **e = (char **)&c;
-    char **f = (char **)&d;
-    char *s, *t;
+/*
+ * Pad the string str, returning a result from the heap (or str itself,
+ * if it didn't need padding).  If str is too large, it will be truncated.
+ * Calculations are in terms of width if MULTIBYTE is in effect and
+ * multi_width is non-zero, else characters.
+ *
+ * prenum and postnum are the width to which the string needs padding
+ * on the left and right.
+ *
+ * preone and postone are string to insert once only before and after
+ * str.  They will be truncated on the left or right, respectively,
+ * if necessary to fit the width.  Either or both may be NULL in which
+ * case they will not be used.
+ *
+ * premul and postmul are the padding strings to be repeated before
+ * on the left (if prenum is non-zero) and right (if postnum is non-zero).  If
+ * NULL the first character of IFS (typically but not necessarily a space)
+ * will be used.
+ */
 
-    for (s = *(char **) a, t = c; (*t++ = tulower(*s++)););
-    for (s = *(char **) b, t = d; (*t++ = tulower(*s++)););
-
-    return nstrpcmp(&e, &f);
-}
-
-/**/
-int
-invinstrpcmp(const void *a, const void *b)
-{
-    return -instrpcmp(a, b);
-}
-
-/**/
 static char *
-dopadding(char *str, int prenum, int postnum, char *preone, char *postone, char *premul, char *postmul)
+dopadding(char *str, int prenum, int postnum, char *preone, char *postone,
+	  char *premul, char *postmul
+#ifdef MULTIBYTE_SUPPORT
+	  , int multi_width
+#endif
+    )
 {
-    char def[3], *ret, *t, *r;
-    int ls, ls2, lpreone, lpostone, lpremul, lpostmul, lr, f, m, c, cc;
+    char *def, *ret, *t, *r;
+    int ls, ls2, lpreone, lpostone, lpremul, lpostmul, lr, f, m, c, cc, cl;
+    convchar_t cchar;
 
-    def[0] = *ifs ? *ifs : ' ';
-    def[1] = *ifs == Meta ? ifs[1] ^ 32 : '\0';
-    def[2] = '\0';
+    MB_METACHARINIT();
+    if (!ifs || *ifs) {
+	char *tmpifs = ifs ? ifs : DEFAULT_IFS;
+	def = dupstrpfx(tmpifs, MB_METACHARLEN(tmpifs));
+    } else
+	def = "";
     if (preone && !*preone)
 	preone = def;
     if (postone && !*postone)
@@ -663,89 +782,413 @@ dopadding(char *str, int prenum, int postnum, char *preone, char *postone, char 
     if (!postmul || !*postmul)
 	postmul = def;
 
-    ls = strlen(str);
-    lpreone = preone ? strlen(preone) : 0;
-    lpostone = postone ? strlen(postone) : 0;
-    lpremul = strlen(premul);
-    lpostmul = strlen(postmul);
+    ls = MB_METASTRLEN2(str, multi_width);
+    lpreone = preone ? MB_METASTRLEN2(preone, multi_width) : 0;
+    lpostone = postone ? MB_METASTRLEN2(postone, multi_width) : 0;
+    lpremul = MB_METASTRLEN2(premul, multi_width);
+    lpostmul = MB_METASTRLEN2(postmul, multi_width);
 
-    lr = prenum + postnum;
-
-    if (lr == ls)
+    if (prenum + postnum == ls)
 	return str;
 
+    /*
+     * Try to be careful with allocated lengths.  The following
+     * is a maximum, in case we need the entire repeated string
+     * for each repetition.  We probably don't, but in case the user
+     * has given us something pathological which doesn't convert
+     * easily into a width we'd better be safe.
+     */
+    lr = strlen(str) + strlen(premul) * prenum + strlen(postmul) * postnum;
+    /*
+     * Same logic for preone and postone, except those may be NULL.
+     */
+    if (preone)
+	lr += strlen(preone);
+    if (postone)
+	lr += strlen(postone);
     r = ret = (char *)zhalloc(lr + 1);
 
     if (prenum) {
+	/*
+	 * Pad on the left.
+	 */
 	if (postnum) {
+	    /*
+	     * Pad on both right and left.
+	     * The strategy is to divide the string into two halves.
+	     * The first half is dealt with by the left hand padding
+	     * code, the second by the right hand.
+	     */
 	    ls2 = ls / 2;
 
+	    /* The width left to pad for the first half. */
 	    f = prenum - ls2;
-	    if (f <= 0)
-		for (str -= f, c = prenum; c--; *r++ = *str++);
-	    else {
-		if (f <= lpreone)
-		    for (c = f, t = preone + lpreone - f; c--; *r++ = *t++);
-		else {
-		    f -= lpreone;
-		    if ((m = f % lpremul))
-			for (c = m, t = premul + lpremul - m; c--; *r++ = *t++);
-		    for (cc = f / lpremul; cc--;)
-			for (c = lpremul, t = premul; c--; *r++ = *t++);
-		    for (c = lpreone; c--; *r++ = *preone++);
+	    if (f <= 0) {
+		/* First half doesn't fit.  Skip the first -f width. */
+		f = -f;
+		MB_METACHARINIT();
+		while (f > 0) {
+		    cl = MB_METACHARLENCONV(str, &cchar);
+		    if (!cl)
+			break;
+		    str += cl;
+		    f -= WCPADWIDTH(cchar, multi_width);
 		}
-		for (c = ls2; c--; *r++ = *str++);
+		/* Now finish the first half. */
+		for (c = prenum; c > 0; ) {
+		    cl = MB_METACHARLENCONV(str, &cchar);
+		    if (!cl)
+			break;
+		    while (cl--)
+			*r++ = *str++;
+		    c -= WCPADWIDTH(cchar, multi_width);
+		}
+	    } else {
+		if (f <= lpreone) {
+		    if (preone) {
+			/*
+			 * The unrepeated string doesn't fit.
+			 */
+			MB_METACHARINIT();
+			/* The width we need to skip */
+			f = lpreone - f;
+			/* So skip. */
+			for (t = preone; f > 0; ) {
+			    cl = MB_METACHARLENCONV(t, &cchar);
+			    if (!cl)
+				break;
+			    t += cl;
+			    f -= WCPADWIDTH(cchar, multi_width);
+			}
+			/* Then copy the entire remainder. */
+			while (*t)
+			    *r++ = *t++;
+		    }
+		} else {
+		    f -= lpreone;
+		    if (lpremul) {
+			if ((m = f % lpremul)) {
+			    /*
+			     * Left over fraction of repeated string.
+			     */
+			    MB_METACHARINIT();
+			    /* Skip this much. */
+			    m = lpremul - m;
+			    for (t = premul; m > 0; ) {
+				cl = MB_METACHARLENCONV(t, &cchar);
+				if (!cl)
+				    break;
+				t += cl;
+				m -= WCPADWIDTH(cchar, multi_width);
+			    }
+			    /* Output the rest. */
+			    while (*t)
+				*r++ = *t++;
+			}
+			for (cc = f / lpremul; cc--;) {
+			    /* Repeat the repeated string */
+			    MB_METACHARINIT();
+			    for (c = lpremul, t = premul; c > 0; ) {
+				cl = MB_METACHARLENCONV(t, &cchar);
+				if (!cl)
+				    break;
+				while (cl--)
+				    *r++ = *t++;
+				c -= WCPADWIDTH(cchar, multi_width);
+			    }
+			}
+		    }
+		    if (preone) {
+			/* Output the full unrepeated string */
+			while (*preone)
+			    *r++ = *preone++;
+		    }
+		}
+		/* Output the first half width of the original string. */
+		for (c = ls2; c > 0; ) {
+		    cl = MB_METACHARLENCONV(str, &cchar);
+		    if (!cl)
+			break;
+		    c -= WCPADWIDTH(cchar, multi_width);
+		    while (cl--)
+			*r++ = *str++;
+		}
 	    }
+	    /* Other half.  In case the string had an odd length... */
 	    ls2 = ls - ls2;
+	    /* Width that needs padding... */
 	    f = postnum - ls2;
-	    if (f <= 0)
-		for (c = postnum; c--; *r++ = *str++);
-	    else {
-		for (c = ls2; c--; *r++ = *str++);
-		if (f <= lpostone)
-		    for (c = f; c--; *r++ = *postone++);
-		else {
-		    f -= lpostone;
-		    for (c = lpostone; c--; *r++ = *postone++);
-		    for (cc = f / lpostmul; cc--;)
-			for (c = lpostmul, t = postmul; c--; *r++ = *t++);
-		    if ((m = f % lpostmul))
-			for (; m--; *r++ = *postmul++);
+	    if (f <= 0) {
+		/* ...is negative, truncate original string */
+		MB_METACHARINIT();
+		for (c = postnum; c > 0; ) {
+		    cl = MB_METACHARLENCONV(str, &cchar);
+		    if (!cl)
+			break;
+		    c -= WCPADWIDTH(cchar, multi_width);
+		    while (cl--)
+			*r++ = *str++;
+		}
+	    } else {
+		/* Rest of original string fits, output it complete */
+		while (*str)
+		    *r++ = *str++;
+		if (f <= lpostone) {
+		    if (postone) {
+			/* Can't fit unrepeated string, truncate it */
+			for (c = f; c > 0; ) {
+			    cl = MB_METACHARLENCONV(postone, &cchar);
+			    if (!cl)
+				break;
+			    c -= WCPADWIDTH(cchar, multi_width);
+			    while (cl--)
+				*r++ = *postone++;
+			}
+		    }
+		} else {
+		    if (postone) {
+			f -= lpostone;
+			/* Output entire unrepeated string */
+			while (*postone)
+			    *r++ = *postone++;
+		    }
+		    if (lpostmul) {
+			for (cc = f / lpostmul; cc--;) {
+			    /* Begin the beguine */
+			    for (t = postmul; *t; )
+				*r++ = *t++;
+			}
+			if ((m = f % lpostmul)) {
+			    /* Fill leftovers with chunk of repeated string */
+			    MB_METACHARINIT();
+			    while (m > 0) {
+				cl = MB_METACHARLENCONV(postmul, &cchar);
+				if (!cl)
+				    break;
+				m -= WCPADWIDTH(cchar, multi_width);
+				while (cl--)
+				    *r++ = *postmul++;
+			    }
+			}
+		    }
 		}
 	    }
 	} else {
+	    /*
+	     * Pad only on the left.
+	     */
 	    f = prenum - ls;
-	    if (f <= 0)
-		for (c = prenum, str -= f; c--; *r++ = *str++);
-	    else {
-		if (f <= lpreone)
-		    for (c = f, t = preone + lpreone - f; c--; *r++ = *t++);
-		else {
-		    f -= lpreone;
-		    if ((m = f % lpremul))
-			for (c = m, t = premul + lpremul - m; c--; *r++ = *t++);
-		    for (cc = f / lpremul; cc--;)
-			for (c = lpremul, t = premul; c--; *r++ = *t++);
-		    for (c = lpreone; c--; *r++ = *preone++);
+	    if (f <= 0) {
+		/*
+		 * Original string is at least as wide as padding.
+		 * Truncate original string to width.
+		 * Truncate on left, so skip the characters we
+		 * don't need.
+		 */
+		f = -f;
+		MB_METACHARINIT();
+		while (f > 0) {
+		    cl = MB_METACHARLENCONV(str, &cchar);
+		    if (!cl)
+			break;
+		    str += cl;
+		    f -= WCPADWIDTH(cchar, multi_width);
 		}
-		for (c = ls; c--; *r++ = *str++);
+		/* Copy the rest of the original string */
+		for (c = prenum; c > 0; ) {
+		    cl = MB_METACHARLENCONV(str, &cchar);
+		    if (!cl)
+			break;
+		    while (cl--)
+			*r++ = *str++;
+		    c -= WCPADWIDTH(cchar, multi_width);
+		}
+	    } else {
+		/*
+		 * We can fit the entire string...
+		 */
+		if (f <= lpreone) {
+		    if (preone) {
+			/*
+			 * ...with some fraction of the unrepeated string.
+			 */
+			/* We need this width of characters. */
+			c = f;
+			/*
+			 * We therefore need to skip this width of
+			 * characters.
+			 */
+			f = lpreone - f;
+			MB_METACHARINIT();
+			for (t = preone; f > 0; ) {
+			    cl = MB_METACHARLENCONV(t, &cchar);
+			    if (!cl)
+				break;
+			    t += cl;
+			    f -= WCPADWIDTH(cchar, multi_width);
+			}
+			/* Copy the rest of preone */
+			while (*t)
+			    *r++ = *t++;
+		    }
+		} else {
+		    /*
+		     * We can fit the whole of preone, needing this width
+		     * first
+		     */
+		    f -= lpreone;
+		    if (lpremul) {
+			if ((m = f % lpremul)) {
+			    /*
+			     * Some fraction of the repeated string needed.
+			     */
+			    /* Need this much... */
+			    c = m;
+			    /* ...skipping this much first. */
+			    m = lpremul - m;
+			    MB_METACHARINIT();
+			    for (t = premul; m > 0; ) {
+				cl = MB_METACHARLENCONV(t, &cchar);
+				if (!cl)
+				    break;
+				t += cl;
+				m -= WCPADWIDTH(cchar, multi_width);
+			    }
+			    /* Now the rest of the repeated string. */
+			    while (c > 0) {
+				cl = MB_METACHARLENCONV(t, &cchar);
+				if (!cl)
+				    break;
+				while (cl--)
+				    *r++ = *t++;
+				c -= WCPADWIDTH(cchar, multi_width);
+			    }
+			}
+			for (cc = f / lpremul; cc--;) {
+			    /*
+			     * Repeat the repeated string.
+			     */
+			    MB_METACHARINIT();
+			    for (c = lpremul, t = premul; c > 0; ) {
+				cl = MB_METACHARLENCONV(t, &cchar);
+				if (!cl)
+				    break;
+				while (cl--)
+				    *r++ = *t++;
+				c -= WCPADWIDTH(cchar, multi_width);
+			    }
+			}
+		    }
+		    if (preone) {
+			/*
+			 * Now the entire unrepeated string.  Don't
+			 * count the width, just dump it.  This is
+			 * significant if there are special characters
+			 * in this string.  It's sort of a historical
+			 * accident that this worked, but there's nothing
+			 * to stop us just dumping the thing out and assuming
+			 * the user knows what they're doing.
+			 */
+			while (*preone)
+			    *r++ = *preone++;
+		    }
+		}
+		/* Now the string being padded */
+		while (*str)
+		    *r++ = *str++;
 	    }
 	}
     } else if (postnum) {
+	/*
+	 * Pad on the right.
+	 */
 	f = postnum - ls;
-	if (f <= 0)
-	    for (c = postnum; c--; *r++ = *str++);
-	else {
-	    for (c = ls; c--; *r++ = *str++);
-	    if (f <= lpostone)
-		for (c = f; c--; *r++ = *postone++);
-	    else {
-		f -= lpostone;
-		for (c = lpostone; c--; *r++ = *postone++);
-		for (cc = f / lpostmul; cc--;)
-		    for (c = lpostmul, t = postmul; c--; *r++ = *t++);
-		if ((m = f % lpostmul))
-		    for (; m--; *r++ = *postmul++);
+	MB_METACHARINIT();
+	if (f <= 0) {
+	    /*
+	     * Original string is at least as wide as padding.
+	     * Truncate original string to width.
+	     */
+	    for (c = postnum; c > 0; ) {
+		cl = MB_METACHARLENCONV(str, &cchar);
+		if (!cl)
+		    break;
+		while (cl--)
+		    *r++ = *str++;
+		c -= WCPADWIDTH(cchar, multi_width);
+	    }
+	} else {
+	    /*
+	     * There's some space to fill.  First copy the original
+	     * string, counting the width.  Make sure we copy the
+	     * entire string.
+	     */
+	    for (c = ls; *str; ) {
+		cl = MB_METACHARLENCONV(str, &cchar);
+		if (!cl)
+		    break;
+		while (cl--)
+		    *r++ = *str++;
+		c -= WCPADWIDTH(cchar, multi_width);
+	    }
+	    MB_METACHARINIT();
+	    if (f <= lpostone) {
+		if (postone) {
+		    /*
+		     * Not enough or only just enough space to fit
+		     * the unrepeated string.  Truncate as necessary.
+		     */
+		    for (c = f; c > 0; ) {
+			cl = MB_METACHARLENCONV(postone, &cchar);
+			if (!cl)
+			    break;
+			while (cl--)
+			    *r++ = *postone++;
+			c -= WCPADWIDTH(cchar, multi_width);
+		    }
+		}
+	    } else {
+		if (postone) {
+		    f -= lpostone;
+		    /* Copy the entire unrepeated string */
+		    for (c = lpostone; *postone; ) {
+			cl = MB_METACHARLENCONV(postone, &cchar);
+			if (!cl)
+			    break;
+			while (cl--)
+			    *r++ = *postone++;
+			c -= WCPADWIDTH(cchar, multi_width);
+		    }
+		}
+		if (lpostmul) {
+		    /* Repeat the repeated string */
+		    for (cc = f / lpostmul; cc--;) {
+			MB_METACHARINIT();
+			for (c = lpostmul, t = postmul; *t; ) {
+			    cl = MB_METACHARLENCONV(t, &cchar);
+			    if (!cl)
+				break;
+			    while (cl--)
+				*r++ = *t++;
+			    c -= WCPADWIDTH(cchar, multi_width);
+			}
+		    }
+		    /*
+		     * See if there's any fraction of the repeated
+		     * string needed to fill up the remaining space.
+		     */
+		    if ((m = f % lpostmul)) {
+			MB_METACHARINIT();
+			while (m > 0) {
+			    cl = MB_METACHARLENCONV(postmul, &cchar);
+			    if (!cl)
+				break;
+			    while (cl--)
+				*r++ = *postmul++;
+			    m -= WCPADWIDTH(cchar, multi_width);
+			}
+		    }
+		}
 	    }
 	}
     }
@@ -754,62 +1197,114 @@ dopadding(char *str, int prenum, int postnum, char *preone, char *postone, char 
     return ret;
 }
 
+
+/*
+ * Look for a delimited portion of a string.  The first (possibly
+ * multibyte) character at s is the delimiter.  Various forms
+ * of brackets are treated separately, as documented.
+ *
+ * Returns a pointer to the final delimiter.  Sets *len to the
+ * length of the final delimiter; a NULL causes *len to be set
+ * to zero since we shouldn't advance past it.  (The string is
+ * tokenized, so a NULL is a real end of string.)
+ */
+
 /**/
 char *
-get_strarg(char *s)
+get_strarg(char *s, int *lenp)
 {
-    char t = *s++;
+    convchar_t del;
+    int len;
+    char tok = 0;
 
-    if (!t)
-	return s - 1;
+    MB_METACHARINIT();
+    len = MB_METACHARLENCONV(s, &del);
+    if (!len) {
+	*lenp = 0;
+	return s;
+    }
 
-    switch (t) {
-    case '(':
-	t = ')';
+#ifdef MULTIBYTE_SUPPORT
+    if (del == WEOF)
+	del = (wint_t)((*s == Meta) ? s[1] ^ 32 : *s);
+#endif
+    s += len;
+    switch (del) {
+    case ZWC('('):
+	del = ZWC(')');
 	break;
     case '[':
-	t = ']';
+	del = ZWC(']');
 	break;
     case '{':
-	t = '}';
+	del = ZWC('}');
 	break;
     case '<':
-	t = '>';
+	del = ZWC('>');
 	break;
     case Inpar:
-	t = Outpar;
+	tok = Outpar;
 	break;
     case Inang:
-	t = Outang;
+	tok = Outang;
 	break;
     case Inbrace:
-	t = Outbrace;
+	tok = Outbrace;
 	break;
     case Inbrack:
-	t = Outbrack;
+	tok = Outbrack;
 	break;
     }
 
-    while (*s && *s != t)
-	s++;
+    if (tok) {
+	/*
+	 * Looking for a matching token; we want the literal byte,
+	 * not a decoded multibyte character, so search specially.
+	 */
+	while (*s && *s != tok)
+	    s++;
+    } else {
+	convchar_t del2;
+	len = 0;
+	while (*s) {
+	    len = MB_METACHARLENCONV(s, &del2);
+#ifdef MULTIBYTE_SUPPORT
+	    if (del2 == WEOF)
+		del2 = (wint_t)((*s == Meta) ? s[1] ^ 32 : *s);
+#endif
+	    if (del == del2)
+		break;
+	    s += len;
+	}
+    }
 
+    *lenp = len;
     return s;
 }
 
+/*
+ * Get an integer argument; update *s to the end of the
+ * final delimiter.  *delmatchp is set to the length of the
+ * matched delimiter if we have matching, delimiters and there was no error in
+ * the evaluation, else 0.
+ */
+
 /**/
 static int
-get_intarg(char **s)
+get_intarg(char **s, int *delmatchp)
 {
-    char *t = get_strarg(*s + 1);
+    int arglen;
+    char *t = get_strarg(*s, &arglen);
     char *p, sav;
     zlong ret;
 
+    *delmatchp = 0;
     if (!*t)
 	return -1;
     sav = *t;
     *t = '\0';
-    p = dupstring(*s + 2);
-    *s = t;
+    p = dupstring(*s + arglen);
+    *s = t + arglen;
     *t = sav;
     if (parsestr(p))
 	return -1;
@@ -821,6 +1316,7 @@ get_intarg(char **s)
 	return -1;
     if (ret < 0)
 	ret = -ret;
+    *delmatchp = arglen;
     return ret < 0 ? -ret : ret;
 }
 
@@ -851,6 +1347,95 @@ subst_parse_str(char **sp, int single, int err)
     return 1;
 }
 
+/* Evaluation for (#) flag */
+
+static char *
+substevalchar(char *ptr)
+{
+    zlong ires = mathevali(ptr);
+    int len = 0;
+
+    if (errflag)
+	return NULL;
+#ifdef MULTIBYTE_SUPPORT
+    if (isset(MULTIBYTE) && ires > 127) {
+	/* '\\' + 'U' + 8 bytes of character + '\0' */
+	char buf[11];
+
+	/* inefficient: should separate out \U handling from getkeystring */
+	sprintf(buf, "\\U%.8x", (unsigned int)ires & 0xFFFFFFFFu);
+	ptr = getkeystring(buf, &len, GETKEYS_BINDKEY, NULL);
+    }
+    if (len == 0)
+#endif
+    {
+	ptr = zhalloc(2);
+	len = 1;
+	sprintf(ptr, "%c", (int)ires);
+    }
+    return metafy(ptr, len, META_USEHEAP);
+}
+
+/*
+ * Helper function for arguments to parameter flags which
+ * handles the (p) and (~) flags as escapes and tok_arg respectively.
+ */
+
+static char *
+untok_and_escape(char *s, int escapes, int tok_arg)
+{
+    int klen;
+    char *dst;
+
+    untokenize(dst = dupstring(s));
+    if (escapes) {
+	dst = getkeystring(dst, &klen, GETKEYS_SEP, NULL);
+	dst = metafy(dst, klen, META_HREALLOC);
+    }
+    if (tok_arg)
+	shtokenize(dst);
+    return dst;
+}
+
+/*
+ * See if an argument str looks like a subscript or length following
+ * a colon and parse it.  It must be followed by a ':' or nothing.
+ * If this succeeds, expand and return the evaulated expression if
+ * found, else return NULL.
+ *
+ * We assume this is what is meant if the first character is not
+ * an alphabetic character or '&', which signify modifiers.
+ *
+ * Set *endp to point to the next character following.
+ */
+static char *
+check_colon_subscript(char *str, char **endp)
+{
+    int sav;
+
+    /* Could this be a modifier (or empty)? */
+    if (!*str || ialpha(*str) || *str == '&')
+	return NULL;
+
+    *endp = parse_subscript(str, 0, ':');
+    if (!*endp) {
+	/* No trailing colon? */
+	*endp = parse_subscript(str, 0, '\0');
+	if (!*endp)
+	    return NULL;
+    }
+    sav = **endp;
+    **endp = '\0';
+    if (parsestr(str = dupstring(str)))
+	return NULL;
+    singsub(&str);
+    remnulargs(str);
+    untokenize(str);
+
+    **endp = sav;
+    return str;
+}
+
 /* parameter substitution */
 
 #define	isstring(c) ((c) == '$' || (char)(c) == String || (char)(c) == Qstring)
@@ -874,8 +1459,8 @@ subst_parse_str(char **sp, int single, int err)
  */
 
 /**/
-LinkNode
-paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
+static LinkNode
+paramsubst(LinkList l, LinkNode n, char **str, int qt, int pf_flags)
 {
     char *aptr = *str, c, cc;
     char *s = aptr, *fstr, *idbeg, *idend, *ostr = (char *) getdata(n);
@@ -895,13 +1480,16 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
      * parameter (the value v) to storing them in val and aval.
      * However, sometimes you find v reappearing temporarily.
      *
-     * The values -1 and 2 are special to isarr.  It looks like 2 is
-     * some kind of an internal flag to do with whether the array's been
-     * copied, in which case I don't know why we don't use the copied
-     * flag, but they do both occur close together so they presumably
-     * have different effects.  The value -1 is isued to force us to
-     * keep an empty array.  It's tested in the YUK chunk (I mean the
-     * one explicitly marked as such).
+     * The values -1 and 2 are special to isarr.  The value -1 is used
+     * to force us to keep an empty array.  It's tested in the YUK chunk
+     * (I mean the one explicitly marked as such).  The value 2
+     * indicates an array has come from splitting a scalar.  We use
+     * that to override the usual rule that in double quotes we don't
+     * remove empty elements (so "${(s.:):-foo::bar}" produces two
+     * words).  This seems to me to be quite the wrong thing to do,
+     * but it looks like code may be relying on it.  So we require (@)
+     * as well before we keep the empty fields (look for assignments
+     * like "isarr = nojoin ? 1 : 2").
      */
     int isarr = 0;
     /*
@@ -911,9 +1499,14 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
     int plan9 = isset(RCEXPANDPARAM);
     /*
      * Likwise, but with ~ and ~~.  Also, we turn it off later
-     * on if qt is passed down.
+     * on if qt is passed down. The value can go to 2 if we
+     * use ~ to force this on.
      */
     int globsubst = isset(GLOBSUBST);
+    /*
+     * Indicates ${(#)...}.
+     */
+    int evalchar = 0;
     /*
      * Indicates ${#pm}, massaged by whichlen which is set by
      * the (c), (w), and (W) flags to indicate how we take the length.
@@ -944,14 +1537,10 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
      * where we shouldn't, in particular on the multsubs for
      * handling embedded values for ${...=...} and the like.
      */
-    int spbreak = isset(SHWORDSPLIT) && !ssub && !qt;
+    int spbreak = (pf_flags & PREFORK_SHWORDSPLIT) &&
+	!(pf_flags & PREFORK_SINGLE) && !qt;
     /* Scalar and array value, see isarr above */
     char *val = NULL, **aval = NULL;
-    /*
-     * Padding based on setting in parameter rather than substitution
-     * flags.  This is only used locally.
-     */
-    unsigned int fwidth = 0;
     /*
      * vbuf and v are both used to retrieve parameter values; this
      * is a kludge, we pass down vbuf and it may or may not return v.
@@ -967,35 +1556,42 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
     /* Value from (I) flag, used for ditto. */
     int flnum = 0;
     /*
-     * sortit is an obscure combination of the settings for (o), (O),
-     * (i) and (n). casind is (i) and numord is (n); these are
-     * separate so we can have fun doing the obscure combinatorics later.
+     * sortit is to be passed to strmetasort().
      * indord is the (a) flag, which for consistency doesn't get
      * combined into sortit.
      */
-    int sortit = 0, casind = 0, numord = 0, indord = 0;
+    int sortit = SORTIT_ANYOLDHOW, indord = 0;
     /* (u): straightforward. */
     int unique = 0;
     /* combination of (L), (U) and (C) flags. */
-    int casmod = 0;
+    int casmod = CASMOD_NONE;
     /*
      * quotemod says we are doing either (q) (positive), (Q) (negative)
      * or not (0).  quotetype counts the q's for the first case.
      * quoterr is simply (X) but gets passed around a lot because the
      * combination (eX) needs it.
      */
-    int quotemod = 0, quotetype = 0, quoteerr = 0;
+    int quotemod = 0, quotetype = QT_NONE, quoteerr = 0;
     /*
-     * (V) flag: fairly straightforward, except that as with so
-     * many flags it's not easy to decide where to put it in the order.
+     * Various fairly straightforward modifications, except that as with so
+     * many flags it's not easy to decide where to put them in the order.
+     * bit 0: (D) flag.
+     * bit 1: (V) flag.
      */
-    int visiblemod = 0;
+    int mods = 0;
     /*
      * The (z) flag, nothing to do with SH_WORD_SPLIT which is tied
      * spbreak, see above; fairly straighforward in use but c.f.
-     * the comment for visiblemod.
+     * the comment for mods.
+     *
+     * This gets set to one of the LEXFLAGS_* values.
      */
     int shsplit = 0;
+    /*
+     * "ssub" is true when we are called from singsub (via prefork):
+     * it means that we must join arrays and should not split words.
+     */
+    int ssub = (pf_flags & PREFORK_SINGLE);
     /*
      * The separator from (j) and (s) respectively, or (F) and (f)
      * respectively (hardwired to "\n" in that case).  Slightly
@@ -1013,6 +1609,10 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
     char *replstr = NULL;
     /* The numbers for (l) and (r) */
     zlong prenum = 0, postnum = 0;
+#ifdef MULTIBYTE_SUPPORT
+    /* The (m) flag: use width of multibyte characters */
+    int multi_width = 0;
+#endif
     /*
      * Whether the value has been copied.  Optimisation:  if we
      * are modifying an expression, we only need to copy it the
@@ -1028,7 +1628,7 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
     int arrasg = 0;
     /*
      * The (e) flag.  As we need to do extra work not quite
-     * at the end, the effect of this is kludged in in several places.
+     * at the end, the effect of this is kludged in several places.
      */
     int eval = 0;
     /*
@@ -1037,15 +1637,19 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
      */
     int aspar = 0;
     /*
-     * The (%) flag, c.f. visiblemod again.
+     * The (%) flag, c.f. mods again.
      */	
     int presc = 0;
+    /*
+     * The (g) flag.  Process escape sequences with various GETKEY_ flags.
+     */
+    int getkeys = -1;
     /*
      * The (@) flag; interacts obscurely with qt and isarr.
      * This is one of the things that decides whether multsub
      * will produce an array, but in an extremely indirect fashion.
      */
-    int nojoin = 0;
+    int nojoin = (pf_flags & PREFORK_SHWORDSPLIT) ? !(ifs && *ifs) && !qt : 0;
     /*
      * != 0 means ${...}, otherwise $...  What works without braces
      * is largely a historical artefact (everything works with braces,
@@ -1072,6 +1676,12 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
      * and the argument passing to fetchvalue has another kludge.
      */
     int subexp;
+    /*
+     * If we're referring to the positional parameters, then
+     * e.g ${*:1:1} refers to $1.
+     * This is for compatibility.
+     */
+    int horrible_offset_hack = 0;
 
     *s++ = '\0';
     /*
@@ -1081,9 +1691,10 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
      * Shouldn't this be a table or something?  We test for all
      * these later on, too.
      */
-    if (!ialnum(c = *s) && c != '#' && c != Pound && c != '-' &&
-	c != '!' && c != '$' && c != String && c != Qstring &&
-	c != '?' && c != Quest && c != '_' &&
+    c = *s;
+    if (itype_end(s, IIDENT, 1) == s && *s != '#' && c != Pound &&
+	c != '-' && c != '!' && c != '$' && c != String && c != Qstring &&
+	c != '?' && c != Quest &&
 	c != '*' && c != Star && c != '@' && c != '{' &&
 	c != Inbrace && c != '=' && c != Equals && c != Hat &&
 	c != '^' && c != '~' && c != Tilde && c != '+') {
@@ -1107,7 +1718,7 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 	 * doesn't have parameter flags it might be neater to
 	 * handle this with the ^, =, ~ stuff, below.
 	 */
-	if ((c = *s) == '!' && s[1] != Outbrace && emulation == EMULATE_KSH) {
+	if ((c = *s) == '!' && s[1] != Outbrace && EMULATION(EMULATE_KSH)) {
 	    hkeys = SCANPM_WANTKEYS;
 	    s++;
 	} else if (c == '(' || c == Inpar) {
@@ -1115,34 +1726,36 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 	    int tt = 0;
 	    zlong num;
 	    /*
-	     * The (p) flag is (uniquely) only remembered within
+	     * The (p) flag is only remembered within
 	     * this block.  It says we do print-style handling
 	     * on the values for flags, but only on those.
-	     * This explains the ghastly macro, but why can't it
-	     * be a function?  UNTOK_AND_ESCAPE is defined
-	     * so that the argument must be an lvalue.
 	     */
 	    int escapes = 0;
-	    int klen;
-#define UNTOK(C)  (itok(C) ? ztokens[(C) - Pound] : (C))
-#define UNTOK_AND_ESCAPE(X) {\
-		untokenize(X = dupstring(s + 1));\
-		if (escapes) {\
-		    X = getkeystring(X, &klen, 3, NULL);\
-		    X = metafy(X, klen, META_HREALLOC);\
-		}\
-	    }
+	    /*
+	     * '~' in parentheses caused tokenization of string arg:
+	     * similar to (p).
+	     */
+	    int tok_arg = 0;
 
 	    for (s++; (c = *s) != ')' && c != Outpar; s++, tt = 0) {
+		int arglen;	/* length of modifier argument */
+		int dellen;	/* length of matched delimiter, 0 if not */
+		char *del0;	/* pointer to initial delimiter */
+
 		switch (c) {
 		case ')':
 		case Outpar:
+		    /* how can this happen? */
+		    break;
+		case '~':
+		case Tilde:
+		    tok_arg = !tok_arg;
 		    break;
 		case 'A':
 		    ++arrasg;
 		    break;
 		case '@':
-		    nojoin = 1;
+		    nojoin = 2;	/* nojoin = 2 means force */
 		    break;
 		case 'M':
 		    flags |= SUB_MATCH;
@@ -1163,43 +1776,64 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 		    flags |= SUB_SUBSTR;
 		    break;
 		case 'I':
-		    flnum = get_intarg(&s);
+		    s++;
+		    flnum = get_intarg(&s, &dellen);
 		    if (flnum < 0)
 			goto flagerr;
+		    s--;
 		    break;
 
 		case 'L':
-		    casmod = 2;
+		    casmod = CASMOD_LOWER;
 		    break;
 		case 'U':
-		    casmod = 1;
+		    casmod = CASMOD_UPPER;
 		    break;
 		case 'C':
-		    casmod = 3;
+		    casmod = CASMOD_CAPS;
 		    break;
 
 		case 'o':
-		    sortit = 1;
+		    if (!sortit)
+			sortit |= SORTIT_SOMEHOW; /* sort, no modifiers */
 		    break;
 		case 'O':
-		    sortit = 2;
+		    sortit |= SORTIT_BACKWARDS;
 		    break;
 		case 'i':
-		    casind = 1;
+		    sortit |= SORTIT_IGNORING_CASE;
 		    break;
 		case 'n':
-		    numord = 1;
+		    sortit |= SORTIT_NUMERICALLY;
 		    break;
 		case 'a':
+		    sortit |= SORTIT_SOMEHOW;
 		    indord = 1;
 		    break;
 
+		case 'D':
+		    mods |= 1;
+		    break;
 		case 'V':
-		    visiblemod++;
+		    mods |= 2;
 		    break;
 
 		case 'q':
-		    quotemod++, quotetype++;
+		    if (quotetype == QT_DOLLARS)
+			goto flagerr;
+		    if (s[1] == '-') {
+			if (quotemod)
+			    goto flagerr;
+			s++;
+			quotemod = 1;
+			quotetype = QT_SINGLE_OPTIONAL;
+		    } else {
+			if (quotetype == QT_SINGLE_OPTIONAL) {
+			    /* extra q's after '-' not allowed */
+			    goto flagerr;
+			}
+			quotemod++, quotetype++;
+		    }
 		    break;
 		case 'Q':
 		    quotemod--;
@@ -1243,16 +1877,18 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 		    tt = 1;
 		/* fall through */
 		case 'j':
-		    t = get_strarg(++s);
+		    t = get_strarg(++s, &arglen);
 		    if (*t) {
 			sav = *t;
 			*t = '\0';
 			if (tt)
-			    UNTOK_AND_ESCAPE(spsep)
+			    spsep = untok_and_escape(s + arglen,
+						     escapes, tok_arg);
 			else
-			    UNTOK_AND_ESCAPE(sep)
+			    sep = untok_and_escape(s + arglen,
+						   escapes, tok_arg);
 			*t = sav;
-			s = t;
+			s = t + arglen - 1;
 		    } else
 			goto flagerr;
 		    break;
@@ -1261,43 +1897,62 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 		    tt = 1;
 		/* fall through */
 		case 'r':
-		    sav = s[1];
-		    num = get_intarg(&s);
+		    s++;
+		    /* delimiter position */
+		    del0 = s;
+		    num = get_intarg(&s, &dellen);
 		    if (num < 0)
 			goto flagerr;
 		    if (tt)
 			prenum = num;
 		    else
 			postnum = num;
-		    if (UNTOK(s[1]) != UNTOK(sav))
-			break;
-		    t = get_strarg(++s);
-		    if (!*t)
-			goto flagerr;
-		    sav = *t;
-		    *t = '\0';
-		    if (tt)
-			UNTOK_AND_ESCAPE(premul)
-		    else
-			UNTOK_AND_ESCAPE(postmul)
-		    *t = sav;
-		    sav = *s;
-		    s = t + 1;
-		    if (UNTOK(*s) != UNTOK(sav)) {
+		    /* must have same delimiter if more arguments */
+		    if (!dellen || memcmp(del0, s, dellen)) {
+			/* decrement since loop will increment */
 			s--;
 			break;
 		    }
-		    t = get_strarg(s);
+		    t = get_strarg(s, &arglen);
 		    if (!*t)
 			goto flagerr;
 		    sav = *t;
 		    *t = '\0';
 		    if (tt)
-			UNTOK_AND_ESCAPE(preone)
+			premul = untok_and_escape(s + arglen, escapes,
+						  tok_arg);
 		    else
-			UNTOK_AND_ESCAPE(postone)
+			postmul = untok_and_escape(s + arglen, escapes,
+						   tok_arg);
 		    *t = sav;
-		    s = t;
+		    sav = *s;
+		    s = t + arglen;
+		    /* again, continue only if another start delimiter */
+		    if (memcmp(del0, s, dellen)) {
+			/* decrement since loop will increment */
+			s--;
+			break;
+		    }
+		    t = get_strarg(s, &arglen);
+		    if (!*t)
+			goto flagerr;
+		    sav = *t;
+		    *t = '\0';
+		    if (tt)
+			preone = untok_and_escape(s + arglen,
+						  escapes, tok_arg);
+		    else
+			postone = untok_and_escape(s + arglen,
+						   escapes, tok_arg);
+		    *t = sav;
+		    /* -1 since loop will increment */
+		    s = t + arglen - 1;
+		    break;
+
+		case 'm':
+#ifdef MULTIBYTE_SUPPORT
+		    multi_width++;
+#endif
 		    break;
 
 		case 'p':
@@ -1319,32 +1974,110 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 		    presc++;
 		    break;
 
+		case 'g':
+		    t = get_strarg(++s, &arglen);
+		    if (getkeys < 0)
+			getkeys = 0;
+		    if (*t) {
+			sav = *t;
+			*t = 0;
+			while (*++s) {
+			    switch (*s) {
+			    case 'e':
+				getkeys |= GETKEY_EMACS;
+				break;
+			    case 'o':
+				getkeys |= GETKEY_OCTAL_ESC;
+				break;
+			    case 'c':
+				getkeys |= GETKEY_CTRL;
+				break;
+
+			    default:
+				*t = sav;
+				goto flagerr;
+			    }
+			}
+			*t = sav;
+			s = t + arglen - 1;
+		    } else
+			goto flagerr;
+		    break;
+
 		case 'z':
-		    shsplit = 1;
+		    shsplit = LEXFLAGS_ACTIVE;
+		    break;
+
+		case 'Z':
+		    t = get_strarg(++s, &arglen);
+		    if (*t) {
+			sav = *t;
+			*t = 0;
+			while (*++s) {
+			    switch (*s) {
+			    case 'c':
+				/* Parse and keep comments */
+				shsplit |= LEXFLAGS_COMMENTS_KEEP;
+				break;
+
+			    case 'C':
+				/* Parse and remove comments */
+				shsplit |= LEXFLAGS_COMMENTS_STRIP;
+				break;
+
+			    case 'n':
+				/* Treat newlines as whitespace */
+				shsplit |= LEXFLAGS_NEWLINE;
+				break;
+
+			    default:
+				*t = sav;
+ 				goto flagerr;
+			    }
+			}
+			*t = sav;
+			s = t + arglen - 1;
+		    } else
+			goto flagerr;
 		    break;
 
 		case 'u':
 		    unique = 1;
 		    break;
 
+		case '#':
+		case Pound:
+		    evalchar = 1;
+		    break;
+
+		case '_':
+		    t = get_strarg(++s, &arglen);
+		    if (*t) {
+			sav = *t;
+			*t = 0;
+			while (*++s) {
+			    /* Reserved for future use */
+			    switch (*s) {
+			    default:
+				*t = sav;
+				goto flagerr;
+			    }
+			}
+			*t = sav;
+			s = t + arglen - 1;
+		    } else
+			goto flagerr;
+		    break;
+
 		default:
 		  flagerr:
-		    zerr("error in flags", NULL, 0);
+		    zerr("error in flags");
 		    return NULL;
 		}
 	    }
 	    s++;
 	}
     }
-    /* Sort is done by indexing on sortit-1:
-     *   bit 1: ascending (o)/descending (O)
-     *   bit 2: case sensitive/independent (i)
-     *   bit 3: strict order/numeric (n)
-     * unless indord (a) is set set, in which case only test for
-     * descending by assuming only (O) is possible (not verified).
-     */
-    if (sortit)
-	sortit += (casind << 1) + (numord << 2);
 
     /*
      * premul, postmul specify the padding character to be used
@@ -1372,12 +2105,29 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 	    /* SH_WORD_SPLIT on or off (doubled). spbreak = 2 means force */
 	    if ((c = *++s) == '=' || c == Equals) {
 		spbreak = 0;
+		if (nojoin < 2)
+		    nojoin = 0;
 		s++;
-	    } else
+	    } else {
 		spbreak = 2;
+		if (nojoin < 2)
+		    nojoin = !(ifs && *ifs);
+	    }
 	} else if ((c == '#' || c == Pound) &&
-		   (iident(cc = s[1])
-		    || cc == '*' || cc == Star || cc == '@'
+		   (itype_end(s+1, IIDENT, 0) != s + 1
+		    || (cc = s[1]) == '*' || cc == Star || cc == '@'
+		    || cc == '?' || cc == Quest
+		    || cc == '$' || cc == String || cc == Qstring
+		    /*
+		     * Me And My Squiggle:
+		     * ${##} is the length of $#, but ${##foo}
+		     * is $# with a "foo" removed from the start.
+		     * If someone had defined the *@!@! language
+		     * properly in the first place we wouldn't
+		     * have this nonsense.
+		     */
+		    || ((cc == '#' || cc == Pound) &&
+			s[2] == Outbrace)
 		    || cc == '-' || (cc == ':' && s[2] == '-')
 		    || (isstring(cc) && (s[2] == Inbrace || s[2] == Inpar)))) {
 	    getlen = 1 + whichlen, s++;
@@ -1389,19 +2139,19 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 	     * spsep, NULL means $IFS.
 	     */
 	} else if (c == '~' || c == Tilde) {
-	    /* GLOB_SUBST on or off (doubled) */
+	    /* GLOB_SUBST (forced) on or off (doubled) */
 	    if ((c = *++s) == '~' || c == Tilde) {
 		globsubst = 0;
 		s++;
 	    } else
-		globsubst = 1;
+		globsubst = 2;
 	} else if (c == '+') {
 	    /*
 	     * Return whether indicated parameter is set. 
 	     * Try to handle this when parameter is named
 	     * by (P) (second part of test).
 	     */
-	    if (iident(s[1]) || (aspar && isstring(s[1]) &&
+	    if (itype_end(s+1, IIDENT, 0) != s+1 || (aspar && isstring(s[1]) &&
 				 (s[2] == Inbrace || s[2] == Inpar)))
 		chkset = 1, s++;
 	    else if (!inbrace) {
@@ -1410,10 +2160,10 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 		*str = aptr + 1;
 		return n;
 	    } else {
-		zerr("bad substitution", NULL, 0);
+		zerr("bad substitution");
 		return NULL;
 	    }
-	} else if (inbrace && INULL(*s)) {
+	} else if (inbrace && inull(*s)) {
 	    /*
 	     * Handles things like ${(f)"$(<file)"} by skipping 
 	     * the double quotes.  We don't need to know what was
@@ -1425,7 +2175,8 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 	    break;
     }
     /* Don't activate special pattern characters if inside quotes */
-    globsubst = globsubst && !qt;
+    if (qt)
+	globsubst = 0;
 
     /*
      * At this point, we usually expect a parameter name.
@@ -1455,7 +2206,7 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 	 * remove the aspar test and extract a value from an array, if
 	 * necessary, when we handle (P) lower down.
 	 */
-	if (multsub(&val, (aspar ? NULL : &aval), &isarr, NULL) && quoted) {
+	if (multsub(&val, 0, (aspar ? NULL : &aval), &isarr, NULL) && quoted) {
 	    /* Empty quoted string --- treat as null string, not elided */
 	    isarr = -1;
 	    aval = (char **) hcalloc(sizeof(char *));
@@ -1467,7 +2218,7 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 	 * This tests for the second double quote in an expression
 	 * like ${(f)"$(<file)"}, compare above.
 	 */
-	while (INULL(*s))
+	while (inull(*s))
 	    s++;
 	v = (Value) NULL;
     } else if (aspar) {
@@ -1526,7 +2277,8 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 			     hkeys|hvals|
 			     (arrasg ? SCANPM_ASSIGNING : 0)|
 			     (qt ? SCANPM_DQUOTED : 0))) ||
-	    (v->pm && (v->pm->flags & PM_UNSET)))
+	    (v->pm && (v->pm->node.flags & PM_UNSET)) ||
+	    (v->flags & VALFLAG_EMPTY))
 	    vunset = 1;
 
 	if (wantt) {
@@ -1534,8 +2286,8 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 	     * Handle the (t) flag: value now becomes the type
 	     * information for the parameter.
 	     */
-	    if (v && v->pm && !(v->pm->flags & PM_UNSET)) {
-		int f = v->pm->flags;
+	    if (v && v->pm && !(v->pm->node.flags & PM_UNSET)) {
+		int f = v->pm->node.flags;
 
 		switch (PM_TYPE(f)) {
 		case PM_SCALAR:  val = "scalar"; break;
@@ -1617,7 +2369,7 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 	    v->isarr = isarr;
 	    v->pm = pm;
 	    v->end = -1;
-	    if (getindex(&s, v, qt) || s == os)
+	    if (getindex(&s, v, qt ? SCANPM_DQUOTED : 0) || s == os)
 		break;
 	}
 	/*
@@ -1626,26 +2378,27 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 	 * array (aval) value.  TODO: move val and aval into
 	 * a structure with a discriminator.  Hope we can make
 	 * more things array values at this point and dearrayify later.
-	 * v->isarr tells us whether the stuff form down below looks
-	 * like an array.  Unlike multsub() this is probably clean
-	 * enough to keep, although possibly the parameter passing
-	 * needs reorganising.
+	 * v->isarr tells us whether the stuff from down below looks
+	 * like an array.
 	 *
 	 * I think we get to discard the existing value of isarr
 	 * here because it's already been taken account of, either
 	 * in the subexp stuff or immediately above.
 	 */
 	if ((isarr = v->isarr)) {
-	    /* No way to get here with v->inv != 0, so getvaluearr() *
-	     * is called by getarrvalue(); needn't test PM_HASHED.   */
+	    /*
+	     * No way to get here with v->flags & VALFLAG_INV, so
+	     * getvaluearr() is called by getarrvalue(); needn't test
+	     * PM_HASHED.
+	     */
 	    if (v->isarr == SCANPM_WANTINDEX) {
 		isarr = v->isarr = 0;
-		val = dupstring(v->pm->nam);
+		val = dupstring(v->pm->node.nam);
 	    } else
 		aval = getarrvalue(v);
 	} else {
 	    /* Value retrieved from parameter/subexpression is scalar */
-	    if (v->pm->flags & PM_ARRAY) {
+	    if (v->pm->node.flags & PM_ARRAY) {
 		/*
 		 * Although the value is a scalar, the parameter
 		 * itself is an array.  Presumably this is due to
@@ -1659,136 +2412,30 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 		int tmplen = arrlen(v->pm->gsu.a->getfn(v->pm));
 
 		if (v->start < 0)
-		    v->start += tmplen + v->inv;
-		if (!v->inv && (v->start >= tmplen || v->start < 0))
+		    v->start += tmplen + ((v->flags & VALFLAG_INV) ? 1 : 0);
+		if (!(v->flags & VALFLAG_INV) &&
+		    (v->start >= tmplen || v->start < 0))
 		    vunset = 1;
 	    }
 	    if (!vunset) {
 		/*
-		 * There really is a value.  Apply any necessary
-		 * padding or case transformation.  Note these
-		 * are the per-parameter transformations specified
-		 * with typeset, not the per-substitution ones set
-		 * by flags.  TODO: maybe therefore this would
-		 * be more consistent if moved into getstrvalue()?
-		 * Bet that's easier said than done.
+		 * There really is a value.  Padding and case
+		 * transformations used to be handled here, but
+		 * are now handled in getstrvalue() for greater
+		 * consistency.  However, we get unexpected effects
+		 * if we allow them to applied on every call, so
+		 * set the flag that allows them to be substituted.
 		 */
+		v->flags |= VALFLAG_SUBST;
 		val = getstrvalue(v);
-		fwidth = v->pm->width ? v->pm->width : (int)strlen(val);
-		switch (v->pm->flags & (PM_LEFT | PM_RIGHT_B | PM_RIGHT_Z)) {
-		    char *t;
-		    unsigned int t0;
-
-		case PM_LEFT:
-		case PM_LEFT | PM_RIGHT_Z:
-		    t = val;
-		    if (v->pm->flags & PM_RIGHT_Z)
-			while (*t == '0')
-			    t++;
-		    else
-			while (iblank(*t))
-			    t++;
-		    val = (char *) hcalloc(fwidth + 1);
-		    val[fwidth] = '\0';
-		    if ((t0 = strlen(t)) > fwidth)
-			t0 = fwidth;
-		    memset(val, ' ', fwidth);
-		    strncpy(val, t, t0);
-		    break;
-		case PM_RIGHT_B:
-		case PM_RIGHT_Z:
-		case PM_RIGHT_Z | PM_RIGHT_B:
-		    {
-			int zero = 1;
-
-			if (strlen(val) < fwidth) {
-			    char *valprefend = val;
-			    if (v->pm->flags & PM_RIGHT_Z) {
-				/*
-				 * This is a documented feature: when deciding
-				 * whether to pad with zeroes, ignore
-				 * leading blanks already in the value;
-				 * only look for numbers after that.
-				 * Not sure how useful this really is.
-				 * It's certainly confusing to code around.
-				 */
-				for (t = val; iblank(*t); t++)
-				    ;
-				/*
-				 * Allow padding after initial minus
-				 * for numeric variables.
-				 */
-				if ((v->pm->flags &
-				     (PM_INTEGER|PM_EFLOAT|PM_FFLOAT)) &&
-				    *t == '-')
-				    t++;
-				/*
-				 * Allow padding after initial 0x or
-				 * base# for integer variables.
-				 */
-				if (v->pm->flags & PM_INTEGER) {
-				    if (isset(CBASES) &&
-					t[0] == '0' && t[1] == 'x')
-					t += 2;
-				    else if ((valprefend = strchr(t, '#')))
-					t = valprefend + 1;
-				}
-				valprefend = t;
-				if (!*t)
-				    zero = 0;
-				else if (v->pm->flags &
-					 (PM_INTEGER|PM_EFLOAT|PM_FFLOAT)) {
-				    /* zero always OK */
-				} else if (!idigit(*t))
-				    zero = 0;
-			    }
-			    t = (char *) hcalloc(fwidth + 1);
-			    memset(t, (((v->pm->flags & PM_RIGHT_B) || !zero) ?
-				       ' ' : '0'), fwidth);
-			    /*
-			     * How can the following trigger?  We
-			     * haven't altered val or fwidth since
-			     * the last time we tested this.
-			     */
-			    if ((t0 = strlen(val)) > fwidth)
-				t0 = fwidth;
-			    /*
-			     * Copy - or 0x or base# before any padding
-			     * zeroes.
-			     */
-			    if (zero && val != valprefend) {
-				int preflen = valprefend - val;
-				memcpy(t, val, preflen);
-				strcpy(t + (fwidth - t0) + preflen,
-				       valprefend);
-			    } else
-				strcpy(t + (fwidth - t0), val);
-			    val = t;
-			} else {
-			    t = (char *) hcalloc(fwidth + 1);
-			    t[fwidth] = '\0';
-			    strncpy(t, val + strlen(val) - fwidth, fwidth);
-			    val = t;
-			}
-		    }
-		    break;
-		}
-		switch (v->pm->flags & (PM_LOWER | PM_UPPER)) {
-		    char *t;
-
-		case PM_LOWER:
-		    t = val;
-		    for (; (c = *t); t++)
-			*t = tulower(c);
-		    break;
-		case PM_UPPER:
-		    t = val;
-		    for (; (c = *t); t++)
-			*t = tuupper(c);
-		    break;
-		}
 	    }
 	}
+	/* See if this is a reference to the positional parameters. */
+	if (v && v->pm && v->pm->gsu.a == &vararray_gsu &&
+	    (char ***)v->pm->u.data == &pparams)
+	    horrible_offset_hack = 1;
+	else
+	    horrible_offset_hack = 0;
 	/*
 	 * Finished with the original parameter and its indices;
 	 * carry on looping to see if we need to do more indexing.
@@ -1814,7 +2461,7 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 	c != '#' && c != Pound &&
 	c != '?' && c != Quest &&
 	c != '}' && c != Outbrace) {
-	zerr("bad substitution", NULL, 0);
+	zerr("bad substitution");
 	return NULL;
     }
     /*
@@ -1857,7 +2504,7 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 	 * we didn't have a subexpression, e.g. ${"foo"}.
 	 * This form is pointless, but logically it ought to work.
 	 */
-	while (INULL(*s))
+	while (inull(*s))
 	    s++;
     }
     /*
@@ -1883,7 +2530,7 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 
 	if (bct) {
 	noclosebrace:
-	    zerr("closing brace expected", NULL, 0);
+	    zerr("closing brace expected");
 	    return NULL;
 	}
 	if (c)
@@ -1932,15 +2579,24 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 		c = *++s;
 	    }
 	    /* Check for anchored substitution */
-	    if (c == '%') {
+	    if (c == '#' || c == Pound) {
+		/*
+		 * anchor at head: this is the `normal' case in
+		 * getmatch and we only require the flag if SUB_END
+		 * is also present.
+		 */
+		flags |= SUB_START;
+		s++;
+	    }
+	    if (*s == '%') {
 		/* anchor at tail */
 		flags |= SUB_END;
 		s++;
-	    } else if (c == '#' || c == Pound) {
-		/* anchor at head: this is the `normal' case in getmatch */
-		s++;
-	    } else
+	    }
+	    if (!(flags & (SUB_START|SUB_END))) {
+		/* No anchor, so substring */
 		flags |= SUB_SUBSTR;
+	    }
 	    /*
 	     * Find the / marking the end of the search pattern.
 	     * If there isn't one, we're just going to delete that,
@@ -1975,6 +2631,11 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 	if (!(flags & (SUB_MATCH|SUB_REST|SUB_BIND|SUB_EIND|SUB_LEN)))
 	    flags |= SUB_REST;
 
+	/*
+	 * With ":" treat a value as unset if the variable is set but
+	 * - (array) contains no elements
+	 * - (scalar) contains an empty string
+	 */
 	if (colf && !vunset)
 	    vunset = (isarr) ? !*aval : !*val || (*val == Nularg && !val[1]);
 
@@ -1990,26 +2651,34 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 	/* Fall Through! */
 	case '-':
 	    if (vunset) {
+		int split_flags;
 		val = dupstring(s);
-		/*
-		 * This is not good enough for sh emulation!  Sh would
-		 * split unquoted substrings, yet not split quoted ones
-		 * (except according to $@ rules); but this leaves the
-		 * unquoted substrings unsplit, and other code below
-		 * for spbreak splits even within the quoted substrings.
-		 *
-		 * TODO: I think multsub needs to be told enough to
-		 * decide about splitting with spbreak at this point
-		 * (and equally in the `=' handler below).  Then
-		 * we can turn off spbreak to avoid the join & split
-		 * nastiness later.
-		 *
-		 * What we really want to do is make this look as
-		 * if it were the result of an assignment from
-		 * the same value, taking account of quoting.
-		 */
-		multsub(&val, (aspar ? NULL : &aval), &isarr, NULL);
+		/* If word-splitting is enabled, we ask multsub() to split
+		 * the substituted string at unquoted whitespace.  Then, we
+		 * turn off spbreak so that no further splitting occurs.
+		 * This allows a construct such as ${1+"$@"} to correctly
+		 * keep its array splits, and weird constructs such as
+		 * ${str+"one two" "3 2 1" foo "$str"} to only be split
+		 * at the unquoted spaces. */
+		if (spbreak) {
+		    split_flags = PREFORK_SHWORDSPLIT;
+		    if (!aspar)
+			split_flags |= PREFORK_SPLIT;
+		} else {
+		    /*
+		     * It's not good enough not passing the flag to use
+		     * SHWORDSPLIT, because when we get to a nested
+		     * paramsubst we need to ignore isset(SHWORDSPLIT).
+		     */
+		    split_flags = PREFORK_NOSHWORDSPLIT;
+		}
+		multsub(&val, split_flags, (aspar ? NULL : &aval),
+			&isarr, NULL);
 		copied = 1;
+		spbreak = 0;
+		/* Leave globsubst on if forced */
+		if (globsubst != 2)
+		    globsubst = 0;
 	    }
 	    break;
 	case ':':
@@ -2023,31 +2692,31 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 	case Equals:
 	    if (vunset) {
 		char sav = *idend;
-		int l;
+		int l, split_flags;
 
 		*idend = '\0';
 		val = dupstring(s);
-		isarr = 0;
-		/*
-		 * TODO: this is one of those places where I don't
-		 * think we want to do the joining until later on.
-		 * We also need to handle spbreak and spsep at this
-		 * point and unset them.
-		 */
-		if (spsep || spbreak || !arrasg)
-		    multsub(&val, NULL, NULL, sep);
-		else
-		    multsub(&val, &aval, &isarr, NULL);
+		if (spsep || !arrasg) {
+		    /* POSIX requires PREFORK_SINGLE semantics here, but
+		     * traditional zsh used PREFORK_NOSHWORDSPLIT.  Base
+		     * behavior on caller choice of PREFORK_SHWORDSPLIT. */
+		    multsub(&val,
+			    spbreak ? PREFORK_SINGLE : PREFORK_NOSHWORDSPLIT,
+			    NULL, &isarr, NULL);
+		} else {
+		    if (spbreak)
+			split_flags = PREFORK_SPLIT|PREFORK_SHWORDSPLIT;
+		    else
+			split_flags = PREFORK_NOSHWORDSPLIT;
+		    multsub(&val, split_flags, &aval, &isarr, NULL);
+		    spbreak = 0;
+		}
 		if (arrasg) {
-		    /*
-		     * This is an array assignment in a context
-		     * where we have no syntactic way of finding
-		     * out what an array element is.  So we just guess.
-		     */
+		    /* This is an array assignment. */
 		    char *arr[2], **t, **a, **p;
 		    if (spsep || spbreak) {
 			aval = sepsplit(val, spsep, 0, 1);
-			isarr = 2;
+			isarr = nojoin ? 1 : 2;
 			l = arrlen(aval);
 			if (l && !*(aval[l-1]))
 			    l--;
@@ -2086,28 +2755,35 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 		*idend = sav;
 		copied = 1;
 		if (isarr) {
-		  if (nojoin)
-		    isarr = -1;
-		  if (qt && !getlen && isarr > 0 && !spsep && spbreak < 2) {
-		    val = sepjoin(aval, sep, 1);
-		    isarr = 0;
-		  }
-		  sep = spsep = NULL;
-		  spbreak = 0;
+		    if (nojoin)
+			isarr = -1;
+		    if (qt && !getlen && isarr > 0 && !spsep && spbreak < 2) {
+			val = sepjoin(aval, sep, 1);
+			isarr = 0;
+		    }
+		    sep = spsep = NULL;
+		    spbreak = 0;
 		}
 	    }
 	    break;
 	case '?':
 	case Quest:
 	    if (vunset) {
-		char *msg;
-
-		*idend = '\0';
-		msg = tricat(idbeg, ": ", *s ? s : "parameter not set");
-		zerr("%s", msg, 0);
-		zsfree(msg);
-		if (!interact)
-		    exit(1);
+                if (isset(EXECOPT)) {
+                    *idend = '\0';
+                    zerr("%s: %s", idbeg, *s ? s : "parameter not set");
+                    if (!interact) {
+                        if (mypid == getpid()) {
+                            /*
+                             * paranoia: don't check for jobs, but there
+                             * shouldn't be any if not interactive.
+                             */
+                            stopmsg = 1;
+                            zexit(1, 0);
+                        } else
+                            _exit(1);
+                    }
+                }
 		return NULL;
 	    }
 	    break;
@@ -2118,7 +2794,7 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
             /* This once was executed only `if (qt) ...'. But with that
              * patterns in a expansion resulting from a ${(e)...} aren't
              * tokenized even though this function thinks they are (it thinks
-             * they are because subst_parse_str() turns Qstring tokens
+             * they are because parse_subst_str() turns Qstring tokens
              * into String tokens and for unquoted parameter expansions the
              * lexer normally does tokenize patterns inside parameter
              * expansions). */
@@ -2134,8 +2810,7 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 		    if (haserr)
 			shtokenize(s);
 		} else if (haserr || errflag) {
-		    zerr("parse error in ${...%c...} substitution",
-			 NULL, s[-1]);
+		    zerr("parse error in ${...%c...} substitution", s[-1]);
 		    return NULL;
 		}
 	    }
@@ -2170,23 +2845,105 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 	    /*
 	     * Either loop over an array doing replacements or
 	     * do the replacment on a string.
+	     *
+	     * We need an untokenized value for matching.
 	     */
 	    if (!vunset && isarr) {
+		char **ap;
+		if (!copied) {
+		    aval = arrdup(aval);
+		    copied = 1;
+		}
+		for (ap = aval; *ap; ap++) {
+		    untokenize(*ap);
+		}
 		getmatcharr(&aval, s, flags, flnum, replstr);
-		copied = 1;
 	    } else {
-		if (vunset)
+		if (vunset) {
+		    if (unset(UNSET)) {
+			*idend = '\0';
+			zerr("%s: parameter not set", idbeg);
+			return NULL;
+		    }
 		    val = dupstring("");
+		}
+		if (!copied) {
+		    val = dupstring(val);
+		    copied = 1;
+		    untokenize(val);
+		}
 		getmatch(&val, s, flags, flnum, replstr);
-		copied = 1;
 	    }
 	    break;
+	}
+    } else if (inbrace && (*s == '|' || *s == Bar ||
+			   *s == '*' || *s == Star)) {
+	int intersect = (*s == '*' || *s == Star);
+	char **compare, **ap, **apsrc;
+	++s;
+	if (*itype_end(s, IIDENT, 0)) {
+	    untokenize(s);
+	    zerr("not an identifier: %s", s);
+	    return NULL;
+	}
+	compare = getaparam(s);
+	if (compare) {
+	    HashTable ht = newuniqtable(arrlen(compare)+1);
+	    int present;
+	    for (ap = compare; *ap; ap++)
+		(void)addhashnode2(ht, *ap, (HashNode)
+				   zhalloc(sizeof(struct hashnode)));
+	    if (!vunset && isarr) {
+		if (!copied) {
+		    aval = arrdup(aval);
+		    copied = 1;
+		}
+		for (ap = apsrc = aval; *apsrc; apsrc++) {
+		    untokenize(*apsrc);
+		    present = (gethashnode2(ht, *apsrc) != NULL);
+		    if (intersect ? present : !present) {
+			if (ap != apsrc) {
+			    *ap = *apsrc;
+			}
+			ap++;
+		    }
+		}
+		*ap = NULL;
+	    } else {
+		if (vunset) {
+		    if (unset(UNSET)) {
+			*idend = '\0';
+			zerr("%s: parameter not set", idbeg);
+			deletehashtable(ht);
+			return NULL;
+		    }
+		    val = dupstring("");
+		} else {
+		    present = (gethashnode2(ht, val) != NULL);
+		    if (intersect ? !present : present)
+			val = dupstring("");
+		}
+	    }
+	    deletehashtable(ht);
+	} else if (intersect) {
+	    /*
+	     * The intersection with nothing is nothing...
+	     * Seems a bit pointless complaining that the first
+	     * expression is unset here if the second is, too.
+	     */
+	    if (!vunset) {
+		if (isarr) {
+		    aval = mkarray(NULL);
+		} else {
+		    val = dupstring("");
+		}
+	    }
 	}
     } else {			/* no ${...=...} or anything, but possible modifiers. */
 	/*
 	 * Handler ${+...}.  TODO: strange, why do we handle this only
 	 * if there isn't a trailing modifier?  Why don't we do this
-	 * e.g. when we hanlder the ${(t)...} flag?
+	 * e.g. when we handle the ${(t)...} flag?
 	 */
 	if (chkset) {
 	    val = dupstring(vunset ? "0" : "1");
@@ -2194,10 +2951,147 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 	} else if (vunset) {
 	    if (unset(UNSET)) {
 		*idend = '\0';
-		zerr("%s: parameter not set", idbeg, 0);
+		zerr("%s: parameter not set", idbeg);
 		return NULL;
 	    }
 	    val = dupstring("");
+	}
+	if (colf && inbrace) {
+	    /*
+	     * Look for ${PARAM:OFFSET} or ${PARAM:OFFSET:LENGTH}.
+	     * This must appear before modifiers.  For compatibility
+	     * with bash we perform both standard string substitutions
+	     * and math eval.
+	     */
+	    char *check_offset2;
+	    char *check_offset = check_colon_subscript(s, &check_offset2);
+	    if (check_offset) {
+		zlong offset = mathevali(check_offset);
+		zlong length = 0;
+		int length_set = 0;
+		int offset_hack_argzero = 0;
+		if (errflag)
+		    return NULL;
+		if ((*check_offset2 && *check_offset2 != ':')) {
+		    zerr("invalid subscript: %s", check_offset);
+		    return NULL;
+		}
+		if (*check_offset2) {
+		    check_offset = check_colon_subscript(check_offset2 + 1,
+							 &check_offset2);
+		    if (*check_offset2 && *check_offset2 != ':') {
+			zerr("invalid length: %s", check_offset);
+			return NULL;
+		    }
+		    if (check_offset) {
+			length = mathevali(check_offset);
+			length_set = 1;
+			if (errflag)
+			    return NULL;
+		    }
+		}
+		if (isarr) {
+		    int alen, count;
+		    char **srcptr, **dstptr, **newarr;
+
+		    if (horrible_offset_hack) {
+			/*
+			 * As part of the 'orrible hoffset 'ack,
+			 * (what hare you? Han 'orrible hoffset 'ack,
+			 * sergeant major), if we are given a ksh/bash/POSIX
+			 * style positional parameter array which includes
+			 * offset 0, we use $0.
+			 */
+			if (offset == 0) {
+			    offset_hack_argzero = 1;
+			} else if (offset > 0) {
+			    offset--;
+			}
+		    }
+
+		    alen = arrlen(aval);
+		    if (offset < 0) {
+			offset += alen;
+			if (offset < 0)
+			    offset = 0;
+		    }
+		    if (offset_hack_argzero)
+			alen++;
+		    if (length_set) {
+			if (length < 0)
+			    length += alen - offset;
+			if (length < 0) {
+			    zerr("substring expression: %d < %d",
+			         (int)(length + offset), (int)offset);
+			    return NULL;
+			}
+		    } else
+			length = alen;
+		    if (offset > alen)
+			offset = alen;
+		    if (offset + length > alen)
+			length = alen - offset;
+		    count = length;
+		    srcptr = aval + offset;
+		    newarr = dstptr = (char **)
+			zhalloc((length+1)*sizeof(char *));
+		    if (count && offset_hack_argzero) {
+			*dstptr++ = dupstring(argzero);
+			count--;
+		    }
+		    while (count--)
+			*dstptr++ = dupstring(*srcptr++);
+		    *dstptr = (char *)NULL;
+		    aval = newarr;
+		} else {
+		    char *sptr, *eptr;
+		    int given_offset;
+		    if (offset < 0) {
+			MB_METACHARINIT();
+			for (sptr = val; *sptr; ) {
+			    sptr += MB_METACHARLEN(sptr);
+			    offset++;
+			}
+			if (offset < 0)
+			    offset = 0;
+		    }
+		    given_offset = offset;
+		    MB_METACHARINIT();
+		    if (length_set && length < 0)
+			length -= offset;
+		    for (sptr = val; *sptr && offset; ) {
+			sptr += MB_METACHARLEN(sptr);
+			offset--;
+		    }
+		    if (length_set) {
+			if (length < 0) {
+			    MB_METACHARINIT();
+			    for (eptr = val; *eptr; ) {
+				eptr += MB_METACHARLEN(eptr);
+				length++;
+			    }
+			    if (length < 0) {
+				zerr("substring expression: %d < %d",
+				     (int)(length + given_offset),
+				     (int)given_offset);
+				return NULL;
+			    }
+			}
+			for (eptr = sptr; *eptr && length; ) {
+			    eptr += MB_METACHARLEN(eptr);
+			    length--;
+			}
+			val = dupstrpfx(sptr, eptr - sptr);
+		    } else {
+			val = dupstring(sptr);
+		    }
+		}
+		if (!*check_offset2) {
+		    colf = 0;
+		} else {
+		    s = check_offset2 + 1;
+		}
+	    }
 	}
 	if (colf) {
 	    /*
@@ -2228,9 +3122,9 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 		copied = 1;
 		if (inbrace && *s) {
 		    if (*s == ':' && !imeta(s[1]))
-			zerr("unrecognized modifier `%c'", NULL, s[1]);
+			zerr("unrecognized modifier `%c'", s[1]);
 		    else
-			zerr("unrecognized modifier", NULL, 0);
+			zerr("unrecognized modifier");
 		    return NULL;
 		}
 	    }
@@ -2240,12 +3134,47 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
     }
     if (errflag)
 	return NULL;
+    if (evalchar) {
+	int one = noerrs, oef = errflag, haserr = 0;
+
+	if (!quoteerr)
+	    noerrs = 1;
+	/*
+	 * Evaluate the value numerically and output the result as
+	 * a character.
+	 */
+	if (isarr) {
+	    char **aval2, **avptr, **av2ptr;
+
+	    aval2 = (char **)zhalloc((arrlen(aval)+1)*sizeof(char *));
+
+	    for (avptr = aval, av2ptr = aval2; *avptr; avptr++, av2ptr++)
+	    {
+		/* When noerrs = 1, the only error is out-of-memory */
+		if (!(*av2ptr = substevalchar(*avptr))) {
+		    haserr = 1;
+		    break;
+		}
+	    }
+	    *av2ptr = NULL;
+	    aval = aval2;
+	} else {
+	    /* When noerrs = 1, the only error is out-of-memory */
+	    if (!(val = substevalchar(val)))
+		haserr = 1;
+	}
+	noerrs = one;
+	if (!quoteerr)
+	    errflag = oef;
+	if (haserr || errflag)
+	    return NULL;
+    }
     /*
      * This handles taking a length with ${#foo} and variations.
      * TODO: again. one might naively have thought this had the
      * same sort of effect as the ${(t)...} flag and the ${+...}
      * test, although in this case we do need the value rather
-     * the the parameter, so maybe it's a bit different.
+     * the parameter, so maybe it's a bit different.
      */
     if (getlen) {
 	long len = 0;
@@ -2253,14 +3182,15 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 
 	if (isarr) {
 	    char **ctr;
-	    int sl = sep ? ztrlen(sep) : 1;
+	    int sl = sep ? MB_METASTRLEN(sep) : 1;
 
 	    if (getlen == 1)
 		for (ctr = aval; *ctr; ctr++, len++);
 	    else if (getlen == 2) {
 		if (*aval)
 		    for (len = -sl, ctr = aval;
-			 len += sl + ztrlen(*ctr), *++ctr;);
+			 len += sl + MB_METASTRLEN2(*ctr, multi_width),
+			     *++ctr;);
 	    }
 	    else
 		for (ctr = aval;
@@ -2268,7 +3198,7 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 		     len += wordcount(*ctr, spsep, getlen > 3), ctr++);
 	} else {
 	    if (getlen < 3)
-		len = ztrlen(val);
+		len = MB_METASTRLEN2(val, multi_width);
 	    else
 		len = wordcount(val, spsep, getlen > 3);
 	}
@@ -2277,46 +3207,35 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 	val = dupstring(buf);
 	isarr = 0;
     }
-    /*
-     * I think this mult_isarr stuff here is used to pass back
-     * the setting of whether we are an array to multsub, and
-     * thence to the top-level paramsubst().  The way the
-     * setting is passed back is completely obscure, however.
-     * It's presumably at this point because we try to remember
-     * whether the value was `really' an array before massaging
-     * some special cases.
-     *
-     * TODO: YUK.  This is not the right place to turn arrays into
-     * scalars; we should pass back as an array, and let the calling
-     * code decide how to deal with it.  This is almost certainly
-     * a lot harder than it sounds.  Do we really need to handle
-     * one-element arrays as scalars at this point?  Couldn't
-     * we just test for it later rather than having a multiple-valued
-     * wave-function for isarr?
-     */
-    mult_isarr = isarr;
+    /* At this point we make sure that our arrayness has affected the
+     * arrayness of the linked list.  Then, we can turn our value into
+     * a scalar for convenience sake without affecting the arrayness
+     * of the resulting value.  ## This is the YUK chunk. ## */
+    if (isarr)
+	l->list.flags |= LF_ARRAY;
+    else
+	l->list.flags &= ~LF_ARRAY;
     if (isarr > 0 && !plan9 && (!aval || !aval[0])) {
 	val = dupstring("");
 	isarr = 0;
     } else if (isarr && aval && aval[0] && !aval[1]) {
 	/* treat a one-element array as a scalar for purposes of   *
 	 * concatenation with surrounding text (some${param}thing) *
-	 * and rc_expand_param handling.  Note: mult_isarr (above) *
+	 * and rc_expand_param handling.  Note: LF_ARRAY (above)   *
 	 * propagates the true array type from nested expansions.  */
 	val = aval[0];
 	isarr = 0;
     }
-    /* ssub is true when we are called from singsub (via prefork).
-     * It means that we must join arrays and should not split words. */
-    /*
-     * TODO: this is what is screwing up the use of SH_WORD_SPLIT
-     * after `:-' etc.  If we fix multsub(), we might get away
-     * with simply unsetting the appropriate flags when they
-     * get handled.
+    /* This is where we may join arrays together, e.g. (j:,:) sets "sep", and
+     * (afterward) may split the joined value (e.g. (s:-:) sets "spsep").  One
+     * exception is that ${name:-word} and ${name:+word} will have already
+     * done any requested splitting of the word value with quoting preserved.
      */
-    if (ssub || spbreak || spsep || sep) {
-	if (isarr)
-	    val = sepjoin(aval, sep, 1), isarr = 0;
+    if (ssub || (spbreak && isarr >= 0) || spsep || sep) {
+	if (isarr) {
+	    val = sepjoin(aval, sep, 1);
+	    isarr = 0;
+	}
 	if (!ssub && (spbreak || spsep)) {
 	    aval = sepsplit(val, spsep, 0, 1);
 	    if (!aval || !aval[0])
@@ -2324,40 +3243,51 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 	    else if (!aval[1])
 		val = aval[0];
 	    else
-		isarr = 2;
+		isarr = nojoin ? 1 : 2;
 	}
-	mult_isarr = isarr;
+	if (isarr)
+	    l->list.flags |= LF_ARRAY;
+	else
+	    l->list.flags &= ~LF_ARRAY;
     }
     /*
      * Perform case modififications.
      */
-    if (casmod) {
+    if (casmod != CASMOD_NONE) {
+	copied = 1;		/* string is always modified by copy */
 	if (isarr) {
-	    char **ap;
+	    char **ap, **ap2;
 
-	    if (!copied)
-		aval = arrdup(aval), copied = 1;
 	    ap = aval;
+	    ap2 = aval = (char **) zhalloc(sizeof(char *) * (arrlen(aval)+1));
 
-	    if (casmod == 1)
-		for (; *ap; ap++)
-		    makeuppercase(ap);
-	    else if (casmod == 2)
-		for (; *ap; ap++)
-		    makelowercase(ap);
-	    else
-		for (; *ap; ap++)
-		    makecapitals(ap);
-
+	    while (*ap)
+		*ap2++ = casemodify(*ap++, casmod);
+	    *ap2++ = NULL;
 	} else {
-	    if (!copied)
-		val = dupstring(val), copied = 1;
-	    if (casmod == 1)
-		makeuppercase(&val);
-	    else if (casmod == 2)
-		makelowercase(&val);
-	    else
-		makecapitals(&val);
+	    val = casemodify(val, casmod);
+	}
+    }
+    /*
+     * Process echo- and print-style escape sequences.
+     */
+    if (getkeys >= 0) {
+	int len;
+
+	copied = 1;		/* string is always copied */
+	if (isarr) {
+	    char **ap, **ap2;
+
+	    ap = aval;
+	    aval = (char **) zhalloc(sizeof(char *) * (arrlen(aval)+1));
+	    for (ap2 = aval; *ap; ap++, ap2++) {
+		*ap2 = getkeystring(*ap, &len, getkeys, NULL);
+		*ap2 = metafy(*ap2, len, META_USEHEAP);
+	    }
+	    *ap2++ = NULL;
+	} else {
+	    val = getkeystring(val, &len, getkeys, NULL);
+	    val = metafy(val, len, META_USEHEAP);
 	}
     }
     /*
@@ -2365,7 +3295,7 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
      */
     if (presc) {
 	int ops = opts[PROMPTSUBST], opb = opts[PROMPTBANG];
-	int opp = opts[PROMPTPERCENT], len;
+	int opp = opts[PROMPTPERCENT];
 
 	if (presc < 2) {
 	    opts[PROMPTPERCENT] = 1;
@@ -2387,10 +3317,8 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 	    ap = aval;
 	    for (; *ap; ap++) {
 		char *tmps;
-		unmetafy(*ap, &len);
 		untokenize(*ap);
-		tmps = unmetafy(promptexpand(metafy(*ap, len, META_NOALLOC),
-					     0, NULL, NULL), &len);
+		tmps = promptexpand(*ap, 0, NULL, NULL, NULL);
 		*ap = dupstring(tmps);
 		free(tmps);
 	    }
@@ -2398,10 +3326,8 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 	    char *tmps;
 	    if (!copied)
 		val = dupstring(val), copied = 1;
-	    unmetafy(val, &len);
 	    untokenize(val);
-	    tmps = unmetafy(promptexpand(metafy(val, len, META_NOALLOC),
-					0, NULL, NULL), &len);
+	    tmps = promptexpand(val, 0, NULL, NULL, NULL);
 	    val = dupstring(tmps);
 	    free(tmps);
 	}
@@ -2414,8 +3340,26 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
      * the repetitions of the (q) flag.
      */
     if (quotemod) {
-	if (--quotetype > 3)
-	    quotetype = 3;
+	int pre = 0, post = 0;
+
+	if (quotemod > 0 && quotetype > QT_BACKSLASH) {
+	    switch (quotetype)
+	    {
+	    case QT_DOLLARS:
+		/* space for "$" */
+		pre = 2;
+		post = 1;
+		break;
+
+	    case QT_SINGLE_OPTIONAL:
+		/* quotes will be added for us */
+		break;
+
+	    default:
+		pre = post = 1;
+		break;
+	    }
+	}
 	if (isarr) {
 	    char **ap;
 
@@ -2424,24 +3368,25 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 	    ap = aval;
 
 	    if (quotemod > 0) {
-		if (quotetype) {
+		if (quotetype > QT_BACKSLASH) {
 		    int sl;
 		    char *tmp;
 
 		    for (; *ap; ap++) {
-			int pre = quotetype != 3 ? 1 : 2;
-			tmp = bslashquote(*ap, NULL, quotetype);
+			tmp = quotestring(*ap, NULL, quotetype);
 			sl = strlen(tmp);
-			*ap = (char *) zhalloc(pre + sl + 2);
+			*ap = (char *) zhalloc(pre + sl + post + 1);
 			strcpy((*ap) + pre, tmp);
-			ap[0][pre - 1] = ap[0][pre + sl] = (quotetype != 2 ? '\'' : '"');
+			if (pre)
+			    ap[0][pre - 1] = ap[0][pre + sl] =
+				(quotetype != QT_DOUBLE ? '\'' : '"');
 			ap[0][pre + sl + 1] = '\0';
-			if (quotetype == 3)
+			if (quotetype == QT_DOLLARS)
 			  ap[0][0] = '$';
 		    }
 		} else
 		    for (; *ap; ap++)
-			*ap = bslashquote(*ap, NULL, 0);
+			*ap = quotestring(*ap, NULL, QT_BACKSLASH_SHOWNULL);
 	    } else {
 		int one = noerrs, oef = errflag, haserr = 0;
 
@@ -2456,7 +3401,7 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 		if (!quoteerr)
 		    errflag = oef;
 		else if (haserr || errflag) {
-		    zerr("parse error in parameter value", NULL, 0);
+		    zerr("parse error in parameter value");
 		    return NULL;
 		}
 	    }
@@ -2464,20 +3409,21 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 	    if (!copied)
 		val = dupstring(val), copied = 1;
 	    if (quotemod > 0) {
-		if (quotetype) {
-		    int pre = quotetype != 3 ? 1 : 2;
+		if (quotetype > QT_BACKSLASH) {
 		    int sl;
 		    char *tmp;
-		    tmp = bslashquote(val, NULL, quotetype);
+		    tmp = quotestring(val, NULL, quotetype);
 		    sl = strlen(tmp);
 		    val = (char *) zhalloc(pre + sl + 2);
 		    strcpy(val + pre, tmp);
-		    val[pre - 1] = val[pre + sl] = (quotetype != 2 ? '\'' : '"');
+		    if (pre)
+			val[pre - 1] = val[pre + sl] =
+			    (quotetype != QT_DOUBLE ? '\'' : '"');
 		    val[pre + sl + 1] = '\0';
-		    if (quotetype == 3)
+		    if (quotetype == QT_DOLLARS)
 		      val[0] = '$';
 		} else
-		    val = bslashquote(val, NULL, 0);
+		    val = quotestring(val, NULL, QT_BACKSLASH_SHOWNULL);
 	    } else {
 		int one = noerrs, oef = errflag, haserr;
 
@@ -2488,7 +3434,7 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 		if (!quoteerr)
 		    errflag = oef;
 		else if (haserr || errflag) {
-		    zerr("parse error in parameter value", NULL, 0);
+		    zerr("parse error in parameter value");
 		    return NULL;
 		}
 		remnulargs(val);
@@ -2498,19 +3444,26 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
     }
     /*
      * Transform special characters in the string to make them
-     * printable.
+     * printable, or to show directories, or possibly even both.
      */
-    if (visiblemod) {
+    if (mods) {
 	if (isarr) {
 	    char **ap;
 	    if (!copied)
 		aval = arrdup(aval), copied = 1;
-	    for (ap = aval; *ap; ap++)
-		*ap = nicedupstring(*ap);
+	    for (ap = aval; *ap; ap++) {
+		if (mods & 1)
+		    *ap = substnamedir(*ap);
+		if (mods & 2)
+		    *ap = nicedupstring(*ap);
+	    }
 	} else {
 	    if (!copied)
 		val = dupstring(val), copied = 1;
-	    val = nicedupstring(val);
+	    if (mods & 1)
+		val = substnamedir(val);
+	    if (mods & 2)
+		val = nicedupstring(val);
 	}
     }
     /*
@@ -2524,33 +3477,26 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 	if (isarr) {
 	    char **ap;
 	    for (ap = aval; *ap; ap++)
-		list = bufferwords(list, *ap, NULL);
+		list = bufferwords(list, *ap, NULL, shsplit);
 	    isarr = 0;
 	} else
-	    list = bufferwords(NULL, val, NULL);
+	    list = bufferwords(NULL, val, NULL, shsplit);
 
 	if (!list || !firstnode(list))
 	    val = dupstring("");
 	else if (!nextnode(firstnode(list)))
 	    val = getdata(firstnode(list));
 	else {
-	    char **ap;
-	    LinkNode node;
-
-	    aval = ap = (char **) zhalloc((countlinknodes(list) + 1) *
-					  sizeof(char *));
-	    for (node = firstnode(list); node; incnode(node))
-		*ap++ = (char *) getdata(node);
-	    *ap = NULL;
-	    mult_isarr = isarr = 2;
+	    aval = hlinklist2array(list, 0);
+	    isarr = nojoin ? 1 : 2;
+	    l->list.flags |= LF_ARRAY;
 	}
 	copied = 1;
     }
     /*
      * TODO: hmm.  At this point we have to be on our toes about
      * whether we're putting stuff into a line or not, i.e.
-     * we don't want to do this from a recursive call; this is
-     * probably part of the point of the mult_isarr monkey business.
+     * we don't want to do this from a recursive call.
      * Rather than passing back flags in a non-trivial way, maybe
      * we could decide on the basis of flags passed down to us.
      *
@@ -2606,11 +3552,11 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 	    return n;
 	}
 	/* Handle (o) and (O) and their variants */
-	if (sortit) {
+	if (sortit != SORTIT_ANYOLDHOW) {
 	    if (!copied)
 		aval = arrdup(aval);
 	    if (indord) {
-		if (sortit & 2) {
+		if (sortit & SORTIT_BACKWARDS) {
 		    char *copy;
 		    char **end = aval + arrlen(aval) - 1, **start = aval;
 
@@ -2622,14 +3568,14 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 		    }
 		}
 	    } else {
-		static CompareFn sortfn[] = {
-		    strpcmp, invstrpcmp, cstrpcmp, invcstrpcmp,
-		    nstrpcmp, invnstrpcmp, instrpcmp, invinstrpcmp
-		};
-
-		i = arrlen(aval);
-		if (i && (*aval[i-1] || --i))
-		    qsort(aval, i, sizeof(char *), sortfn[sortit-1]);
+		/*
+		 * HERE: we tested if the last element of the array
+		 * was not a NULL string.  Why the last element?
+		 * Why didn't we expect NULL strings to work?
+		 * Was it just a clumsy way of testing whether there
+		 * was enough in the array to sort?
+		 */
+		strmetasort(aval, sortit, NULL);
 	    }
 	}
 	if (plan9) {
@@ -2646,7 +3592,11 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 	    while ((x = *aval++)) {
 		if (prenum || postnum)
 		    x = dopadding(x, prenum, postnum, preone, postone,
-				  premul, postmul);
+				  premul, postmul
+#ifdef MULTIBYTE_SUPPORT
+				  , multi_width
+#endif
+			);
 		if (eval && subst_parse_str(&x, (qt && !nojoin), quoteerr))
 		    return NULL;
 		xlen = strlen(x);
@@ -2690,7 +3640,11 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 	    x = aval[0];
 	    if (prenum || postnum)
 		x = dopadding(x, prenum, postnum, preone, postone,
-			      premul, postmul);
+			      premul, postmul
+#ifdef MULTIBYTE_SUPPORT
+			      , multi_width
+#endif
+		    );
 	    if (eval && subst_parse_str(&x, (qt && !nojoin), quoteerr))
 		return NULL;
 	    xlen = strlen(x);
@@ -2705,7 +3659,11 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 		x = aval[i++];
 		if (prenum || postnum)
 		    x = dopadding(x, prenum, postnum, preone, postone,
-				  premul, postmul);
+				  premul, postmul
+#ifdef MULTIBYTE_SUPPORT
+				  , multi_width
+#endif
+			);
 		if (eval && subst_parse_str(&x, (qt && !nojoin), quoteerr))
 		    return NULL;
 		if (qt && !*x && isarr != 2)
@@ -2721,7 +3679,11 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 	    x = aval[i];
 	    if (prenum || postnum)
 		x = dopadding(x, prenum, postnum, preone, postone,
-			      premul, postmul);
+			      premul, postmul
+#ifdef MULTIBYTE_SUPPORT
+			      , multi_width
+#endif
+		    );
 	    if (eval && subst_parse_str(&x, (qt && !nojoin), quoteerr))
 		return NULL;
 	    xlen = strlen(x);
@@ -2745,7 +3707,11 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 	x = val;
 	if (prenum || postnum)
 	    x = dopadding(x, prenum, postnum, preone, postone,
-			  premul, postmul);
+			  premul, postmul
+#ifdef MULTIBYTE_SUPPORT
+			  , multi_width
+#endif
+		);
 	if (eval && subst_parse_str(&x, (qt && !nojoin), quoteerr))
 	    return NULL;
 	xlen = strlen(x);
@@ -2799,9 +3765,10 @@ arithsubst(char *a, char **bptr, char *rest)
 void
 modify(char **str, char **ptr)
 {
-    char *ptr1, *ptr2, *ptr3, del, *lptr, c, *test, *sep, *t, *tt, tc, *e;
-    char *copy, *all, *tmp, sav;
-    int gbal, wall, rec, al, nl;
+    char *ptr1, *ptr2, *ptr3, *lptr, c, *test, *sep, *t, *tt, tc, *e;
+    char *copy, *all, *tmp, sav, sav1, *ptr1end;
+    int gbal, wall, rec, al, nl, charlen, dellen;
+    convchar_t del;
 
     test = NULL;
 
@@ -2818,6 +3785,9 @@ modify(char **str, char **ptr)
 
 	for (; !c && **ptr;) {
 	    switch (**ptr) {
+            case 'a':
+            case 'A':
+	    case 'c':
 	    case 'h':
 	    case 'r':
 	    case 'e':
@@ -2833,36 +3803,94 @@ modify(char **str, char **ptr)
 		c = **ptr;
 		(*ptr)++;
 		ptr1 = *ptr;
-		del = *ptr1++;
-		for (ptr2 = ptr1; *ptr2 != del && *ptr2; ptr2++);
+		MB_METACHARINIT();
+		charlen = MB_METACHARLENCONV(ptr1, &del);
+#ifdef MULTIBYTE_SUPPORT
+		if (del == WEOF)
+		    del = (wint_t)((*ptr1 == Meta) ? ptr1[1] ^ 32 : *ptr1);
+#endif
+		ptr1 += charlen;
+		for (ptr2 = ptr1, charlen = 0; *ptr2; ptr2 += charlen) {
+		    convchar_t del2;
+		    if ((*ptr2 == Bnull || *ptr2 == '\\') && ptr2[1]) {
+			/* in double quotes, the backslash isn't tokenized */
+			if (*ptr2 == '\\')
+			    *ptr2 = Bnull;
+			charlen = 2;
+			continue;
+		    }
+		    charlen = MB_METACHARLENCONV(ptr2, &del2);
+#ifdef MULTIBYTE_SUPPORT
+		    if (del2 == WEOF)
+			del2 = (wint_t)((*ptr2 == Meta) ?
+					ptr2[1] ^ 32 : *ptr2);
+#endif
+		    if (del2 == del)
+			break;
+		}
 		if (!*ptr2) {
-		    zerr("bad substitution", NULL, 0);
+		    zerr("bad substitution");
 		    return;
 		}
-		*ptr2++ = '\0';
-		for (ptr3 = ptr2; *ptr3 != del && *ptr3; ptr3++);
-		if ((sav = *ptr3))
-		    *ptr3++ = '\0';
+		ptr1end = ptr2;
+		ptr2 += charlen;
+		sav1 = *ptr1end;
+		*ptr1end = '\0';
+		for (ptr3 = ptr2, charlen = 0; *ptr3; ptr3 += charlen) {
+		    convchar_t del3;
+		    if ((*ptr3 == Bnull || *ptr3 == '\\') && ptr3[1]) {
+			/* in double quotes, the backslash isn't tokenized */
+			if (*ptr3 == '\\')
+			    *ptr3 = Bnull;
+			charlen = 2;
+			continue;
+		    }
+		    charlen = MB_METACHARLENCONV(ptr3, &del3);
+#ifdef MULTIBYTE_SUPPORT
+		    if (del3 == WEOF)
+			del3 = (wint_t)((*ptr3 == Meta) ?
+					ptr3[1] ^ 32 : *ptr3);
+#endif
+		    if (del3 == del)
+			break;
+		}
+		sav = *ptr3;
+		*ptr3 = '\0';
 		if (*ptr1) {
 		    zsfree(hsubl);
 		    hsubl = ztrdup(ptr1);
  		}
 		if (!hsubl) {
-		    zerr("no previous substitution", NULL, 0);
+		    zerr("no previous substitution");
 		    return;
 		}
 		zsfree(hsubr);
 		for (tt = hsubl; *tt; tt++)
-		    if (INULL(*tt) && *tt != Bnullkeep)
+		    if (inull(*tt) && *tt != Bnullkeep)
 			chuck(tt--);
-		untokenize(hsubl);
-		for (tt = hsubr = ztrdup(ptr2); *tt; tt++)
-		    if (INULL(*tt) && *tt != Bnullkeep)
-			chuck(tt--);
-		ptr2[-1] = del;
-		if (sav)
-		    ptr3[-1] = sav;
+		if (!isset(HISTSUBSTPATTERN))
+		    untokenize(hsubl);
+		for (tt = hsubr = ztrdup(ptr2); *tt; tt++) {
+		    if (inull(*tt) && *tt != Bnullkeep) {
+			if (*tt == Bnull && (tt[1] == '&' || tt[1] == '\\')) {
+			    /*
+			     * The substitution will treat \& and \\
+			     * specially.  We need to leave real \'s
+			     * as the first character for this to work.
+			     */
+			    *tt = '\\';
+			} else {
+			    chuck(tt--);
+			}
+		    }
+		}
+		*ptr1end = sav1;
+		*ptr3 = sav;
 		*ptr = ptr3 - 1;
+		if (*ptr3) {
+		    /* Final terminator is optional. */
+		    *ptr += charlen;
+		}
 		break;
 
 	    case '&':
@@ -2881,13 +3909,13 @@ modify(char **str, char **ptr)
 	    case 'W':
 		wall = 1;
 		(*ptr)++;
-		ptr1 = get_strarg(ptr2 = *ptr);
+		ptr1 = get_strarg(ptr2 = *ptr, &charlen);
 		if ((sav = *ptr1))
 		    *ptr1 = '\0';
-		sep = dupstring(ptr2 + 1);
+		sep = dupstring(ptr2 + charlen);
 		if (sav)
 		    *ptr1 = sav;
-		*ptr = ptr1 + 1;
+		*ptr = ptr1 + charlen;
 		c = '\0';
 		break;
 
@@ -2896,8 +3924,8 @@ modify(char **str, char **ptr)
 		(*ptr)++;
 		break;
 	    case 'F':
-		rec = get_intarg(ptr);
 		(*ptr)++;
+		rec = get_intarg(ptr, &dellen);
 		break;
 	    default:
 		*ptr = lptr;
@@ -2919,9 +3947,23 @@ modify(char **str, char **ptr)
 		for (t = e = *str; (tt = findword(&e, sep));) {
 		    tc = *e;
 		    *e = '\0';
-		    copy = dupstring(tt);
+		    if (c != 'l' && c != 'u')
+			copy = dupstring(tt);
 		    *e = tc;
 		    switch (c) {
+                    case 'a':
+			chabspath(&copy);
+			break;
+		    case 'A':
+			chrealpath(&copy);
+			break;
+		    case 'c':
+		    {
+			char *copy2 = equalsubstr(copy, 0, 0);
+			if (copy2)
+			    copy = copy2;
+			break;
+		    }
 		    case 'h':
 			remtpath(&copy);
 			break;
@@ -2935,17 +3977,17 @@ modify(char **str, char **ptr)
 			remlpaths(&copy);
 			break;
 		    case 'l':
-			downcase(&copy);
+			copy = casemodify(tt, CASMOD_LOWER);
 			break;
 		    case 'u':
-			upcase(&copy);
+			copy = casemodify(tt, CASMOD_UPPER);
 			break;
 		    case 's':
 			if (hsubl && hsubr)
 			    subst(&copy, hsubl, hsubr, gbal);
 			break;
 		    case 'q':
-			copy = bslashquote(copy, NULL, 0);
+			copy = quotestring(copy, NULL, QT_BACKSLASH_SHOWNULL);
 			break;
 		    case 'Q':
 			{
@@ -2981,6 +4023,19 @@ modify(char **str, char **ptr)
 
 	    } else {
 		switch (c) {
+		case 'a':
+		    chabspath(str);
+		    break;
+		case 'A':
+		    chrealpath(str);
+		    break;
+		case 'c':
+		{
+		    char *copy2 = equalsubstr(*str, 0, 0);
+		    if (copy2)
+			*str = copy2;
+		    break;
+		}
 		case 'h':
 		    remtpath(str);
 		    break;
@@ -2994,24 +4049,17 @@ modify(char **str, char **ptr)
 		    remlpaths(str);
 		    break;
 		case 'l':
-		    downcase(str);
+		    *str = casemodify(*str, CASMOD_LOWER);
 		    break;
 		case 'u':
-		    upcase(str);
+		    *str = casemodify(*str, CASMOD_UPPER);
 		    break;
 		case 's':
-		    if (hsubl && hsubr) {
-			char *oldstr = *str;
-
+		    if (hsubl && hsubr)
 			subst(str, hsubl, hsubr, gbal);
-			if (*str != oldstr) {
-			    *str = dupstring(oldstr = *str);
-			    zsfree(oldstr);
-			}
-		    }
 		    break;
 		case 'q':
-		    *str = bslashquote(*str, NULL, 0);
+		    *str = quotestring(*str, NULL, QT_BACKSLASH);
 		    break;
 		case 'Q':
 		    {
@@ -3057,7 +4105,7 @@ dstackent(char ch, int val)
 	if (backwards && !val)
 	    return pwd;
 	if (isset(NOMATCH))
-	    zerr("not enough directory stack entries.", NULL, 0);
+	    zerr("not enough directory stack entries.");
 	return NULL;
     }
     return (char *)getdata(n);

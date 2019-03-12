@@ -1,4 +1,4 @@
-.TH "ZSHPARAM" "1" "December 17, 2007" "zsh 4\&.2\&.7"
+.TH "ZSHPARAM" "1" "July 21, 2012" "zsh 5\&.0\&.0"
 .SH "NAME"
 zshparam \- zsh parameters
 .\" Yodl file: Zsh/params.yo
@@ -117,6 +117,13 @@ Subscripts may be used inside braces used to delimit a parameter name, thus
 option is set, the braced form is the only one that works, as bracketed
 expressions otherwise are not treated as subscripts\&.
 .PP
+If the \fBKSH_ARRAYS\fP option is not set, then by default accesses to
+an array element with a subscript that evaluates to zero return an
+empty string, while an attempt to write such an element is treated as
+an error\&.  For backward compatibility the \fBKSH_ZERO_SUBSCRIPT\fP
+option can be set to cause subscript values 0 and 1 to be equivalent; see
+the description of the option in \fIzshoptions\fP(1)\&.
+.PP
 The same subscripting syntax is used for associative arrays, except that
 no arithmetic expansion is applied to \fIexp\fP\&.  However, the parsing
 rules for arithmetic expressions still apply, which affects the way that
@@ -215,7 +222,8 @@ The flags currently understood are:
 \fBw\fP
 If the parameter subscripted is a scalar then this flag makes
 subscripting work on words instead of characters\&.  The default word
-separator is whitespace\&.
+separator is whitespace\&.  This flag may not be used with the \fBi\fP or
+\fBI\fP flag\&.
 .TP
 \fBs:\fP\fIstring\fP\fB:\fP
 This gives the \fIstring\fP that separates words (for use with the
@@ -260,17 +268,25 @@ If \fBKSH_ARRAYS\fP is in effect, the \fB\-le\fP should be replaced by \fB\-lt\f
 \fBR\fP
 Like `\fBr\fP\&', but gives the last match\&.  For associative arrays, gives
 all possible matches\&. May be used for assigning to ordinary array
-elements, but not for assigning to associative arrays\&.
+elements, but not for assigning to associative arrays\&.  On failure, for
+normal arrays this has the effect of returning the element corresponding to
+subscript 0; this is empty unless one of the options \fBKSH_ARRAYS\fP or
+\fBKSH_ZERO_SUBSCRIPT\fP is in effect\&.
 .RS
 .PP
-Note that this flag can give odd results on failure\&.  For an ordinary array
-the item substituted is that corresponding to subscript 0\&.  If the option
-\fBKSH_ARRAYS\fP is not in effect, this is the same as the element
-corresponding to subscript 1, although the form \fB${array[(I)pattern]}\fP
-will evaluate to 0 for a failed match\&.  If the option \fBKSH_ARRAYS\fP is in
-effect, the subscript is still 0 for a failed match; this cannot be
-distinguished from a successful match without testing \fB${array[0]}\fP
-against the pattern\&.
+Note that in subscripts with both `\fBr\fP\&' and `\fBR\fP' pattern characters
+are active even if they were substituted for a parameter (regardless of the
+setting of \fBGLOB_SUBST\fP which controls this feature in normal pattern
+matching)\&.  The flag `\fBe\fP\&' can be added to inhibit pattern matching\&.  As
+this flag does not inhibit other forms of substitution, care is still
+required; using a parameter to hold the key has the desired effect:
+.PP
+.RS
+.nf
+\fBkey2=\&'original key'
+print ${array[(Re)$key2]}\fP
+.fi
+.RE
 .RE
 .TP
 \fBi\fP
@@ -278,26 +294,23 @@ Like `\fBr\fP\&', but gives the index of the match instead; this may not be
 combined with a second argument\&.  On the left side of an assignment,
 behaves like `\fBr\fP\&'\&.  For associative arrays, the key part of each pair
 is compared to the pattern, and the first matching key found is the
-result\&.
-.RS
-.PP
-See `\fBr\fP\&' for discussion of subscripts of failed matches\&.
-.RE
+result\&.  On failure substitutes the length of the array plus one, as
+discussed under the description of `\fBr\fP\&', or the empty string for an
+associative array\&.
 .TP
 \fBI\fP
 Like `\fBi\fP\&', but gives the index of the last match, or all possible
-matching keys in an associative array\&.
-.RS
-.PP
-See `\fBR\fP\&' for discussion of subscripts of failed matches\&.
-.RE
+matching keys in an associative array\&.  On failure substitutes 0, or
+the empty string for an associative array\&.  This flag is best when
+testing for values or keys that do not exist\&.
 .TP
 \fBk\fP
 If used in a subscript on an associative array, this flag causes the keys
 to be interpreted as patterns, and returns the value for the first key
-found where \fIexp\fP is matched by the key\&.  This flag does not work on
-the left side of an assignment to an associative array element\&.  If used
-on another type of parameter, this behaves like `\fBr\fP\&'\&.
+found where \fIexp\fP is matched by the key\&.  Note this could be any
+such key as no ordering of associative arrays is defined\&.
+This flag does not work on the left side of an assignment to an associative
+array element\&.  If used on another type of parameter, this behaves like `\fBr\fP\&'\&.
 .TP
 \fBK\fP
 On an associative array this is like `\fBk\fP\&' but returns all values where
@@ -317,11 +330,18 @@ evaluates to \fIn\fP)\&.  This flag is ignored when the array is associative\&.
 The delimiter character \fB:\fP is arbitrary; see above\&.
 .TP
 \fBe\fP
-This flag has no effect and for ordinary arrays is retained for backward
-compatibility only\&.  For associative arrays, this flag can be used to
-force \fB*\fP or \fB@\fP to be interpreted as a single key rather than as a
-reference to all values\&.  This flag may be used on the left side of an
-assignment\&.
+This flag causes any pattern matching that would be performed on the
+subscript to use plain string matching instead\&.  Hence
+`\fB${array[(re)*]}\fP\&' matches only the array element whose value is \fB*\fP\&.
+Note that other forms of substitution such as parameter substitution are
+not inhibited\&.
+.RS
+.PP
+This flag can also be used to force \fB*\fP or \fB@\fP to be interpreted as
+a single key rather than as a reference to all values\&.  It may be used
+for either purpose on the left side of an assignment\&.
+.RE
+.RE
 .PP
 See \fIParameter Expansion Flags\fP (\fIzshexpn\fP(1)) for additional ways to manipulate the results of array subscripting\&.
 .PP
@@ -368,8 +388,8 @@ The same rule applies to parentheses (`\fB(\fP\&' and `\fB)\fP') and
 braces (`\fB{\fP\&' and `\fB}\fP'): they must appear either in balanced pairs or
 preceded by a backslash, and backslashes that protect parentheses or
 braces are removed during parsing\&.  This is because parameter expansions
-may be surrounded balanced braces, and subscript flags are introduced by
-balanced parenthesis\&.
+may be surrounded by balanced braces, and subscript flags are introduced by
+balanced parentheses\&.
 .PP
 The second difference is that a double\-quote (`\fB"\fP\&') may appear as part
 of a subscript expression without being preceded by a backslash, and
@@ -713,12 +733,125 @@ by `\fB(USERNAME=\fP\fIusername\fP\fB; command)\fP\&'
 \fBVENDOR\fP
 The vendor, as determined at compile time\&.
 .TP
+\fBzsh_eval_context\fP <S> <Z> (\fBZSH_EVAL_CONTEXT\fP <S>)
+An array (colon\-separated list) indicating the context of shell
+code that is being run\&.  Each time a piece of shell code that
+is stored within the shell is executed a string is temporarily appended to
+the array to indicate the type of operation that is being performed\&.
+Read in order the array gives an indication of the stack of
+operations being performed with the most immediate context last\&.
+.RS
+.PP
+Note that the variable does not give information on syntactic context such
+as pipelines or subshells\&.  Use \fB$ZSH_SUBSHELL\fP to detect subshells\&.
+.PP
+The context is one of the following:
+.PD 0
+.TP
+.PD
+\fBcmdarg\fP
+Code specified by the \fB\-c\fP option to the command line that invoked
+the shell\&.
+.TP
+\fBcmdsubst\fP
+Command substitution using the \fB`\fP\fI\&.\&.\&.\fP\fB`\fP or
+\fB$(\fP\fI\&.\&.\&.\fP\fB)\fP construct\&.
+.TP
+\fBequalsubst\fP
+File substitution using the \fB=(\fP\fI\&.\&.\&.\fP\fB)\fP construct\&.
+.TP
+\fBeval\fP
+Code executed by the \fBeval\fP builtin\&.
+.TP
+\fBevalautofunc\fP
+Code executed with the \fBKSH_AUTOLOAD\fP mechanism in order to define
+an autoloaded function\&.
+.TP
+\fBfc\fP
+Code from the shell history executed by the \fB\-e\fP option to the \fBfc\fP
+builtin\&.
+.TP
+\fBfile\fP
+Lines of code being read directly from a file, for example by
+the \fBsource\fP builtin\&.
+.TP
+\fBfilecode\fP
+Lines of code being read from a \fB\&.zwc\fP file instead of directly
+from the source file\&.
+.TP
+\fBglobqual\fP
+Code executed by the \fBe\fP or \fB+\fP glob qualifier\&.
+.TP
+\fBglobsort\fP
+Code executed to order files by the \fBo\fP glob qualifier\&.
+.TP
+\fBinsubst\fP
+File substitution using the \fB<(\fP\fI\&.\&.\&.\fP\fB)\fP construct\&.
+.TP
+\fBloadautofunc\fP
+Code read directly from a file to define an autoloaded function\&.
+.TP
+\fBoutsubst\fP
+File substitution using the \fB>(\fP\fI\&.\&.\&.\fP\fB)\fP construct\&.
+.TP
+\fBsched\fP
+Code executed by the \fBsched\fP builtin\&.
+.TP
+\fBshfunc\fP
+A shell function\&.
+.TP
+\fBstty\fP
+Code passed to \fBstty\fP by the \fBSTTY\fP environment variable\&.
+Normally this is passed directly to the system\&'s \fBstty\fP command,
+so this value is unlikely to be seen in practice\&.
+.TP
+\fBstyle\fP
+Code executed as part of a style retrieved by the \fBzstyle\fP builtin
+from the \fBzsh/zutil\fP module\&.
+.TP
+\fBtoplevel\fP
+The highest execution level of a script or interactive shell\&.
+.TP
+\fBtrap\fP
+Code executed as a trap defined by the \fBtrap\fP builtin\&.  Traps
+defined as functions have the context \fBshfunc\fP\&.  As traps are
+asynchronous they may have a different hierarchy from other
+code\&.
+.TP
+\fBzpty\fP
+Code executed by the \fBzpty\fP builtin from the \fBzsh/zpty\fP module\&.
+.TP
+\fBzregexparse\-guard\fP
+Code executed as a guard by the \fBzregexparse\fP command from the
+\fBzsh/zutil\fP module\&.
+.TP
+\fBzregexparse\-action\fP
+Code executed as an action by the \fBzregexparse\fP command from the
+\fBzsh/zutil\fP module\&.
+.RE
+.TP
 \fBZSH_NAME\fP
 Expands to the basename of the command used to invoke this instance
 of zsh\&.
 .TP
+\fBZSH_PATCHLEVEL\fP
+The revision string for the version number of the ChangeLog file
+in the zsh distribution\&.  This is most useful in order to keep
+track of versions of the shell during development between releases;
+hence most users should not use it and should instead rely on
+\fB$ZSH_VERSION\fP\&.
+.TP
+\fBzsh_scheduled_events\fP
+See the section `The zsh/sched Module\&' in \fIzshmodules\fP(1)\&.
+.TP
+\fBZSH_SUBSHELL\fP
+Readonly integer\&.  Initially zero, incremented each time the shell forks
+to create a subshell for executing code\&.  Hence `\fB(print $ZSH_SUBSHELL)\fP\&'
+and `\fBprint $(print $ZSH_SUBSHELL)\fP\&' output 1, while
+`\fB( (print $ZSH_SUBSHELL) )\fP\&' outputs 2\&.
+.TP
 \fBZSH_VERSION\fP
-The version number of this zsh\&.
+The version number of the release of zsh\&.
 .SH "PARAMETERS USED BY THE SHELL"
 The following parameters are used by the shell\&.
 .PP
@@ -740,17 +873,18 @@ If exported, its value is used as the \fBargv[0]\fP of external commands\&.
 Usually used in constructs like `\fBARGV0=emacs nethack\fP\&'\&.
 .TP
 \fBBAUD\fP
-The baud rate of the current connection\&.  Used by the line editor
-update mechanism to compensate for a slow terminal by delaying
-updates until necessary\&.  This may be profitably set to a lower value
-in some circumstances, e\&.g\&.
-for slow modems dialing into a communications server which is connected
-to a host via a fast link; in this case, this variable
-would be set by default to the speed of the fast link, and not
-the modem\&.
-This parameter should be set to the baud
-rate of the slowest part of the link for best performance\&. The compensation
-mechanism can be turned off by setting the variable to zero\&.
+The rate in bits per second at which data reaches the terminal\&.
+The line editor will use this value in order to compensate for a slow
+terminal by delaying updates to the display until necessary\&.  If the
+parameter is unset or the value is zero the compensation mechanism is
+turned off\&.  The parameter is not set by default\&.
+.RS
+.PP
+This parameter may be profitably set in some circumstances, e\&.g\&.
+for slow modems dialing into a communications server, or on a slow wide
+area network\&.  It should be set to the baud
+rate of the slowest part of the link for best performance\&.
+.RE
 .TP
 \fBcdpath\fP <S> <Z> (\fBCDPATH\fP <S>)
 An array (colon\-separated list)
@@ -760,8 +894,18 @@ of directories specifying the search path for the \fBcd\fP command\&.
 The number of columns for this terminal session\&.
 Used for printing select lists and for the line editor\&.
 .TP
+\fBCORRECT_IGNORE\fP
+If set, is treated as a pattern during spelling correction\&.  Any
+potential correction that matches the pattern is ignored\&.  For example,
+if the value is `\fB_*\fP\&' then completion functions (which, by
+convention, have names beginning with `\fB_\fP\&') will never be offered
+as spelling corrections\&.  The pattern does not apply to the correction
+of file names, as applied by the \fBCORRECT_ALL\fP option (so with the
+example just given files beginning with `\fB_\fP\&' in the current
+directory would still be completed)\&.
+.TP
 \fBDIRSTACKSIZE\fP
-The maximum size of the directory stack\&.  If the
+The maximum size of the directory stack, by default there is no limit\&.  If the
 stack gets larger than this, it will be truncated automatically\&.
 This is useful with the \fBAUTO_PUSHD\fP option\&.
 .TP
@@ -773,7 +917,9 @@ arithmetic expansion before being interpreted as a pathname\&.  Note that
 \fBENV\fP is \fInot\fP used unless zsh is emulating \fBsh\fP or \fBksh\fP\&.
 .TP
 \fBFCEDIT\fP
-The default editor for the \fBfc\fP builtin\&.
+The default editor for the \fBfc\fP builtin\&.  If \fBFCEDIT\fP is not set,
+the parameter \fBEDITOR\fP is used; if that is not set either, a builtin
+default, usually \fBvi\fP, is used\&.
 .TP
 \fBfignore\fP <S> <Z> (\fBFIGNORE\fP <S>)
 An array (colon separated list)
@@ -794,6 +940,12 @@ mechanism\&.  The first character signals the start of a history
 expansion (default `\fB!\fP\&')\&.  The second character signals the
 start of a quick history substitution (default `\fB^\fP\&')\&.  The third
 character is the comment character (default `\fB#\fP\&')\&.
+.RS
+.PP
+The characters must be in the ASCII character set; any attempt to set
+\fBhistchars\fP to characters with a locale\-dependent meaning will be
+rejected with an error message\&.
+.RE
 .TP
 \fBHISTCHARS\fP <S> <Z>
 Same as \fBhistchars\fP\&.  (Deprecated\&.)
@@ -809,7 +961,10 @@ larger than the \fBSAVEHIST\fP size will give you the difference as a
 cushion for saving duplicated history events\&.
 .TP
 \fBHOME\fP <S>
-The default argument for the \fBcd\fP command\&.
+The default argument for the \fBcd\fP command\&.  This is not set automatically
+by the shell in \fBsh\fP, \fBksh\fP or \fBcsh\fP emulation, but it is typically
+present in the environment anyway, and if it becomes set it has its usual
+special behaviour\&.
 .TP
 \fBIFS\fP <S>
 Internal field separators (by default space, tab, newline and NUL), that
@@ -822,6 +977,26 @@ character together with any adjacent IFS white space character delimit
 a field\&.  If an IFS white space character appears twice consecutively
 in the IFS, this character is treated as if it were not an IFS white
 space character\&.
+.RS
+.PP
+If the parameter is unset, the default is used\&.  Note this has
+a different effect from setting the parameter to an empty string\&.
+.RE
+.TP
+\fBKEYBOARD_HACK\fP
+This variable defines a character to be removed from the end of the
+command line before interpreting it (interactive shells only)\&. It is
+intended to fix the problem with keys placed annoyingly close to return
+and replaces the \fBSUNKEYBOARDHACK\fP option which did this for
+backquotes only\&.  Should the chosen character be one of singlequote,
+doublequote or backquote, there must also be an odd number of them
+on the command line for the last one to be removed\&.
+.RS
+.PP
+For backward compabitility, if the \fBSUNKEYBOARDHACK\fP option is
+explicitly set, the value of \fBKEYBOARD_HACK\fP reverts to backquote\&.
+If the option is explicitly unset, this variable is set to empty\&.
+.RE
 .TP
 \fBKEYTIMEOUT\fP
 The time the shell waits, in hundredths of seconds, for another key to
@@ -841,7 +1016,12 @@ information within ranges in glob brackets and for sorting\&.
 .TP
 \fBLC_CTYPE\fP <S>
 This variable determines the locale category for character handling
-functions\&.
+functions\&.  If the \fBMULTIBYTE\fP option is in effect this variable or
+\fBLANG\fP should contain a value that reflects the character set in
+use, even if it is a single\-byte character set, unless only the
+7\-bit subset (ASCII) is used\&.  For example, if the character set
+is ISO\-8859\-1, a suitable value might be \fBen_US\&.iso88591\fP (certain
+Linux distributions) or \fBen_US\&.ISO8859\-1\fP (MacOS)\&.
 .TP
 \fBLC_MESSAGES\fP <S>
 This variable determines the language in which messages should be
@@ -896,6 +1076,30 @@ whose value is not used by the shell\&.  The \fBmanpath\fP
 array can be useful, however, since setting it also sets
 \fBMANPATH\fP, and vice versa\&.
 .TP
+.PD 0
+\fBmatch\fP
+.TP
+.PD 0
+\fBmbegin\fP
+.TP
+.PD
+\fBmend\fP
+Arrays set by the shell when the \fBb\fP globbing flag is used in pattern
+matches\&.  See the subsection \fIGlobbing flags\fP in
+the documentation for \fIFilename Generation\fP in \fIzshexpn\fP(1)\&.
+.TP
+.PD 0
+\fBMATCH\fP
+.TP
+.PD 0
+\fBMBEGIN\fP
+.TP
+.PD
+\fBMEND\fP
+Set by the shell when the \fBm\fP globbing flag is used in pattern
+matches\&.  See the subsection \fIGlobbing flags\fP in
+the documentation for \fIFilename Generation\fP in \fIzshexpn\fP(1)\&.
+.TP
 \fBmodule_path\fP <S> <Z> (\fBMODULE_PATH\fP <S>)
 An array (colon\-separated list)
 of directories that \fBzmodload\fP
@@ -945,10 +1149,18 @@ respectively\&.
 \fBprompt\fP <S> <Z>
 Same as \fBPS1\fP\&.
 .TP
+\fBPROMPT_EOL_MARK\fP
+When the \fBPROMPT_CR\fP and \fBPROMPT_SP\fP options are set, the
+\fBPROMPT_EOL_MARK\fP parameter can be used to customize how the end of
+partial lines are shown\&.  This parameter undergoes prompt expansion, with
+the \fBPROMPT_PERCENT\fP option set\&.  If not set, the default behavior is
+equivalent to the value `\fB%B%S%#%s%b\fP\&'\&.
+.TP
 \fBPS1\fP <S>
 The primary prompt string, printed before a command is read\&.
-the default is `\fB%m%# \fP\&'\&.  It undergoes a special form of expansion
-before being displayed; see the section `Prompt Expansion\&'\&.
+It undergoes a special form of expansion
+before being displayed; see
+EXPANSION OF PROMPT SEQUENCES in \fIzshmisc\fP(1)\&.  The default is `\fB%m%# \fP\&'\&.
 .TP
 \fBPS2\fP <S>
 The secondary prompt, printed when the shell needs more information
@@ -999,7 +1211,7 @@ As \fBREPLY\fP, but for array values rather than strings\&.
 \fBRPS1\fP <S>
 This prompt is displayed on the right\-hand side of the screen
 when the primary prompt is being displayed on the left\&.
-This does not work if the \fBSINGLELINEZLE\fP option is set\&.
+This does not work if the \fBSINGLE_LINE_ZLE\fP option is set\&.
 It is expanded in the same way as \fBPS1\fP\&.
 .TP
 .PD 0
@@ -1009,7 +1221,7 @@ It is expanded in the same way as \fBPS1\fP\&.
 \fBRPS2\fP <S>
 This prompt is displayed on the right\-hand side of the screen
 when the secondary prompt is being displayed on the left\&.
-This does not work if the \fBSINGLELINEZLE\fP option is set\&.
+This does not work if the \fBSINGLE_LINE_ZLE\fP option is set\&.
 It is expanded in the same way as \fBPS2\fP\&.
 .TP
 \fBSAVEHIST\fP
@@ -1043,9 +1255,15 @@ is necessary to make such an assignment upon any change to the terminal
 definition database or terminal type in order for the new settings to
 take effect\&.
 .TP
+\fBTERMINFO\fP <S>
+A reference to a compiled description of the terminal, used by the
+`terminfo\&' library when the system has it; see \fIterminfo\fP(5)\&.
+If set, this causes the shell to reinitialise the terminal, making
+the workaround `\fBTERM=$TERM\fP\&' unnecessary\&.
+.TP
 \fBTIMEFMT\fP
 The format of process time reports with the \fBtime\fP keyword\&.
-The default is `\fB%E real  %U user  %S system  %P %J\fP\&'\&.
+The default is `\fB%J  %U user %S system %P cpu %*E total\fP\&'\&.
 Recognizes the following escape sequences, although not all
 may be available on all systems, and some that are available
 may not be useful:
@@ -1073,18 +1291,18 @@ The CPU percentage, computed as
 Number of times the process was swapped\&.
 .TP
 \fB%X\fP
-The average amount in (shared) text space used in Kbytes\&.
+The average amount in (shared) text space used in kilobytes\&.
 .TP
 \fB%D\fP
 The average amount in (unshared) data/stack space used in
-Kbytes\&.
+kilobytes\&.
 .TP
 \fB%K\fP
-The total space used (%X+%D) in Kbytes\&.
+The total space used (%X+%D) in kilobytes\&.
 .TP
 \fB%M\fP
 The  maximum memory the process had in use at any time in
-Kbytes\&.
+megabytes\&.
 .TP
 \fB%F\fP
 The number of major page faults (page needed to be brought
@@ -1258,3 +1476,63 @@ precedence over the \fBNOBEEP\fP option\&.
 \fBZDOTDIR\fP
 The directory to search for shell startup files (\&.zshrc, etc),
 if not \fB$HOME\fP\&.
+.TP
+\fBZLE_LINE_ABORTED\fP
+This parameter is set by the line editor when an error occurs\&.  It
+contains the line that was being edited at the point of the error\&.
+`\fBprint \-zr \-\- $ZLE_LINE_ABORTED\fP\&' can be used to recover the line\&.
+Only the most recent line of this kind is remembered\&.
+.TP
+.PD 0
+\fBZLE_REMOVE_SUFFIX_CHARS\fP
+.TP
+.PD
+\fBZLE_SPACE_SUFFIX_CHARS\fP
+These parameters are used by the line editor\&.  In certain circumstances
+suffixes (typically space or slash) added by the completion system
+will be removed automatically, either because the next editing command
+was not an insertable character, or because the character was marked
+as requiring the suffix to be removed\&.
+.RS
+.PP
+These variables can contain the sets of characters that will cause the
+suffix to be removed\&.  If \fBZLE_REMOVE_SUFFIX_CHARS\fP is set, those
+characters will cause the suffix to be removed; if
+\fBZLE_SPACE_SUFFIX_CHARS\fP is set, those characters will cause the
+suffix to be removed and replaced by a space\&.
+.PP
+If \fBZLE_REMOVE_SUFFIX_CHARS\fP is not set, the default behaviour is
+equivalent to:
+.PP
+.RS
+.nf
+\fBZLE_REMOVE_SUFFIX_CHARS=$\&' \et\en;&|'\fP
+.fi
+.RE
+.PP
+If \fBZLE_REMOVE_SUFFIX_CHARS\fP is set but is empty, no characters have this
+behaviour\&.  \fBZLE_SPACE_SUFFIX_CHARS\fP takes precedence, so that the
+following:
+.PP
+.RS
+.nf
+\fBZLE_SPACE_SUFFIX_CHARS=$\&'&|'\fP
+.fi
+.RE
+.PP
+causes the characters `\fB&\fP\&' and `\fB|\fP' to remove the suffix but to
+replace it with a space\&.
+.PP
+To illustrate the difference, suppose that the option \fBAUTO_REMOVE_SLASH\fP
+is in effect and the directory \fBDIR\fP has just been completed, with an
+appended \fB/\fP, following which the user types `\fB&\fP\&'\&.  The default result
+is `\fBDIR&\fP\&'\&.  With \fBZLE_REMOVE_SUFFIX_CHARS\fP set but without including
+`\fB&\fP\&' the result is `\fBDIR/&\fP'\&.  With \fBZLE_SPACE_SUFFIX_CHARS\fP set to
+include `\fB&\fP\&' the result is `\fBDIR &\fP'\&.
+.PP
+Note that certain completions may provide their own suffix removal
+or replacement behaviour which overrides the values described here\&.
+See the completion system documentation in
+\fIzshcompsys\fP(1)\&.
+.RE
+.RE

@@ -42,13 +42,13 @@ handle_digits(char *nam, char *argptr, fd_set *fdset, int *fdmax)
     int fd;
     char *endptr;
 
-    if (!isdigit(STOUC(*argptr))) {
-	zwarnnam(nam, "expecting file descriptor: %s", argptr, 0);
+    if (!idigit(*argptr)) {
+	zwarnnam(nam, "expecting file descriptor: %s", argptr);
 	return 1;
     }
     fd = (int)zstrtol(argptr, &endptr, 10);
     if (*endptr) {
-	zwarnnam(nam, "garbage after file descriptor: %s", endptr, 0);
+	zwarnnam(nam, "garbage after file descriptor: %s", endptr);
 	return 1;
     }
 
@@ -95,12 +95,11 @@ bin_zselect(char *nam, char **args, UNUSED(Options ops), UNUSED(int func))
 		    else if (args[1]) {
 			argptr = *++args;
 		    } else {
-			zwarnnam(nam, "argument expected after -%c", NULL,
-				 *argptr);
+			zwarnnam(nam, "argument expected after -%c", *argptr);
 			return 1;
 		    }
 		    if (idigit(*argptr) || !isident(argptr)) {
-			zwarnnam(nam, "invalid array name: %s", argptr, 0);
+			zwarnnam(nam, "invalid array name: %s", argptr);
 			return 1;
 		    }
 		    if (i == 'a')
@@ -138,18 +137,17 @@ bin_zselect(char *nam, char **args, UNUSED(Options ops), UNUSED(int func))
 		    else if (args[1]) {
 			argptr = *++args;
 		    } else {
-			zwarnnam(nam, "argument expected after -%c", NULL, 
-				 *argptr);
+			zwarnnam(nam, "argument expected after -%c", *argptr);
 			return 1;
 		    }
 		    if (!idigit(*argptr)) {
-			zwarnnam(nam, "number expected after -t", NULL, 0);
+			zwarnnam(nam, "number expected after -t");
 			return 1;
 		    }
 		    tempnum = zstrtol(argptr, &endptr, 10);
 		    if (*endptr) {
 			zwarnnam(nam, "garbage after -t argument: %s",
-				 endptr, 0);
+				 endptr);
 			return 1;
 		    }
 		    /* timevalue now active */
@@ -180,7 +178,7 @@ bin_zselect(char *nam, char **args, UNUSED(Options ops), UNUSED(int func))
 
     if (i <= 0) {
 	if (i < 0)
-	    zwarnnam(nam, "error on select: %e", NULL, errno);
+	    zwarnnam(nam, "error on select: %e", errno);
 	/* else no fd's set.  Presumably a timeout. */
 	return 1;
     }
@@ -264,15 +262,24 @@ bin_zselect(char *nam, char **args, UNUSED(Options ops), UNUSED(int func))
     return 0;
 #else
     /* TODO: use poll */
-    zerrnam(nam, "your system does not implement the select system call.",
-	    NULL, 0);
+    zerrnam(nam, "your system does not implement the select system call.");
     return 2;
 #endif
 }
 
+
 static struct builtin bintab[] = {
     BUILTIN("zselect", 0, bin_zselect, 0, -1, 0, NULL, NULL),
 };
+
+static struct features module_features = {
+    bintab, sizeof(bintab)/sizeof(*bintab),
+    NULL, 0,
+    NULL, 0,
+    NULL, 0,
+    0
+};
+
 
 /* The load/unload routines required by the zsh library interface */
 
@@ -285,18 +292,32 @@ setup_(UNUSED(Module m))
 
 /**/
 int
+features_(Module m, char ***features)
+{
+    *features = featuresarray(m, &module_features);
+    return 0;
+}
+
+/**/
+int
+enables_(Module m, int **enables)
+{
+    return handlefeatures(m, &module_features, enables);
+}
+
+/**/
+int
 boot_(Module m)
 {
-    return !addbuiltins(m->nam, bintab, sizeof(bintab)/sizeof(*bintab));
+    return 0;
 }
 
 
 /**/
 int
-cleanup_(UNUSED(Module m))
+cleanup_(Module m)
 {
-    deletebuiltins("zselect", bintab, sizeof(bintab)/sizeof(*bintab));
-    return 0;
+    return setfeatureenables(m, &module_features, NULL);
 }
 
 /**/

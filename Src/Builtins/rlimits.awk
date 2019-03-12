@@ -51,6 +51,9 @@ BEGIN {limidx = 0}
 	    if (limnam == "VMEM")    { msg[limnum] = "Mvmemorysize" }
 	    if (limnam == "SIGPENDING") { msg[limnum] = "Nsigpending" }
 	    if (limnam == "MSGQUEUE") { msg[limnum] = "Nmsgqueue" }
+	    if (limnam == "NICE") { msg[limnum] = "Nnice" }
+	    if (limnam == "RTPRIO") { msg[limnum] = "Nrt_priority" }
+	    if (limnam == "RTTIME") { msg[limnum] = "Urt_time" }
         }
     }
 }
@@ -97,6 +100,7 @@ END {
 	    if(limtype == "M") { limtype = "MEMORY" }
 	    if(limtype == "N") { limtype = "NUMBER" }
 	    if(limtype == "T") { limtype = "TIME" }
+	    if(limtype == "U") { limtype = "MICROSECONDS" }
 	}
 	printf("\tZLIMTYPE_%s,\n", limtype)
     }

@@ -3,6 +3,7 @@ name=zsh/datetime
 link=either
 load=no
 
-autobins="strftime"
+functions='Functions/Calendar/*'
+autofeatures="b:strftime p:EPOCHSECONDS p:EPOCHREALTIME p:epochtime"
 
 objects="datetime.o"

@@ -50,6 +50,7 @@ struct zftp_session;
 typedef struct zftp_session *Zftp_session;
 
 #include "tcp.h"
+#include "tcp.mdh"
 #include "zftp.mdh"
 #include "zftp.pro"
 
@@ -436,7 +437,8 @@ zfunalarm(void)
     } else
 	alarm(0);
     if (sigtrapped[SIGALRM] || interact) {
-	if (sigfuncs[SIGALRM] || !sigtrapped[SIGALRM])
+	if (siglists[SIGALRM] || !sigtrapped[SIGALRM] ||
+	    (sigtrapped[SIGALRM] & ZSIG_FUNC))
 	    install_handler(SIGALRM);
 	else
 	    signal_ignore(SIGALRM);
@@ -452,7 +454,7 @@ static void
 zfunpipe()
 {
     if (sigtrapped[SIGPIPE]) {
-	if (sigfuncs[SIGPIPE])
+	if (siglists[SIGPIPE] || (sigtrapped[SIGPIPE] & ZSIG_FUNC))
 	    install_handler(SIGPIPE);
 	else
 	    signal_ignore(SIGPIPE);
@@ -496,17 +498,17 @@ zfsetparam(char *name, void *val, int flags)
     int type = (flags & ZFPM_INTEGER) ? PM_INTEGER : PM_SCALAR;
 
     if (!(pm = (Param) paramtab->getnode(paramtab, name))
-	|| (pm->flags & PM_UNSET)) {
+	|| (pm->node.flags & PM_UNSET)) {
 	/*
 	 * just make it readonly when creating, in case user
 	 * *really* knows what they're doing
 	 */
 	if ((pm = createparam(name, type)) && (flags & ZFPM_READONLY))
-	    pm->flags |= PM_READONLY;
+	    pm->node.flags |= PM_READONLY;
     } else if (flags & ZFPM_IFUNSET) {
 	pm = NULL;
     }
-    if (!pm || PM_TYPE(pm->flags) != type) {
+    if (!pm || PM_TYPE(pm->node.flags) != type) {
 	/* parameters are funny, you just never know */
 	if (type == PM_SCALAR)
 	    zsfree((char *)val);
@@ -530,7 +532,7 @@ zfunsetparam(char *name)
     Param pm;
 
     if ((pm = (Param) paramtab->getnode(paramtab, name))) {
-	pm->flags &= ~PM_READONLY;
+	pm->node.flags &= ~PM_READONLY;
 	unsetparam_pm(pm, 0, 1);
     }
 }
@@ -581,7 +583,7 @@ zfgetline(char *ln, int lnsize, int tmout)
 
     if (setjmp(zfalrmbuf)) {
 	alarm(0);
-	zwarnnam("zftp", "timeout getting response", NULL, 0);
+	zwarnnam("zftp", "timeout getting response");
 	return 6;
     }
     zfalarm(tmout);
@@ -643,7 +645,7 @@ zfgetline(char *ln, int lnsize, int tmout)
 		cmdbuf[0] = (char)IAC;
 		cmdbuf[1] = (char)DONT;
 		cmdbuf[2] = ch;
-		write(zfsess->control->fd, cmdbuf, 3);
+		write_loop(zfsess->control->fd, cmdbuf, 3);
 		continue;
 
 	    case DO:
@@ -653,7 +655,7 @@ zfgetline(char *ln, int lnsize, int tmout)
 		cmdbuf[0] = (char)IAC;
 		cmdbuf[1] = (char)WONT;
 		cmdbuf[2] = ch;
-		write(zfsess->control->fd, cmdbuf, 3);
+		write_loop(zfsess->control->fd, cmdbuf, 3);
 		continue;
 
 	    case EOF:
@@ -791,7 +793,7 @@ zfgetmsg(void)
 	zcfinish = 2;		/* don't need to tell server */
 	zfclose(0);
 	/* unexpected, so tell user */
-	zwarnnam("zftp", "remote server has closed connection", NULL, 0);
+	zwarnnam("zftp", "remote server has closed connection");
 	return 6;
     }
     if (lastcode == 530) {
@@ -804,7 +806,7 @@ zfgetmsg(void)
      * It means we just hang around waiting for another reply.
      */
     if (lastcode == 120) {
-	zwarnnam("zftp", "delay expected, waiting: %s", lastmsg, 0);
+	zwarnnam("zftp", "delay expected, waiting: %s", lastmsg);
 	return zfgetmsg();
     }
 
@@ -835,7 +837,7 @@ zfsendcmd(char *cmd)
     tmout = getiparam("ZFTP_TMOUT");
     if (setjmp(zfalrmbuf)) {
 	alarm(0);
-	zwarnnam("zftp", "timeout sending message", NULL, 0);
+	zwarnnam("zftp", "timeout sending message");
 	return 6;
     }
     zfalarm(tmout);
@@ -843,8 +845,7 @@ zfsendcmd(char *cmd)
     alarm(0);
 
     if (ret <= 0) {
-	zwarnnam("zftp send", "failure sending control message: %e",
-		 NULL, errno);
+	zwarnnam("zftp send", "failure sending control message: %e", errno);
 	return 6;
     }
 
@@ -859,12 +860,12 @@ static int
 zfopendata(char *name, union tcp_sockaddr *zdsockp, int *is_passivep)
 {
     if (!(zfprefs & (ZFPF_SNDP|ZFPF_PASV))) {
-	zwarnnam(name, "Must set preference S or P to transfer data", NULL, 0);
+	zwarnnam(name, "Must set preference S or P to transfer data");
 	return 1;
     }
     zfsess->dfd = socket(zfsess->control->peer.a.sa_family, SOCK_STREAM, 0);
     if (zfsess->dfd < 0) {
-	zwarnnam(name, "can't get data socket: %e", NULL, errno);
+	zwarnnam(name, "can't get data socket: %e", errno);
 	return 1;
     }
 
@@ -899,7 +900,7 @@ zfopendata(char *name, union tcp_sockaddr *zdsockp, int *is_passivep)
 	    ptr = strchr(lastmsg, '(');
 	    if(!ptr) {
 	    bad_epsv:
-		zwarnnam(name, "bad response to EPSV: %s", lastmsg, 0);
+		zwarnnam(name, "bad response to EPSV: %s", lastmsg);
 		zfclosedata();
 		return 1;
 	    }
@@ -939,7 +940,7 @@ zfopendata(char *name, union tcp_sockaddr *zdsockp, int *is_passivep)
 		    break;
 	    if (sscanf(ptr, "%d,%d,%d,%d,%d,%d",
 		       nums, nums+1, nums+2, nums+3, nums+4, nums+5) != 6) {
-		zwarnnam(name, "bad response to PASV: %s", lastmsg, 0);
+		zwarnnam(name, "bad response to PASV: %s", lastmsg);
 		zfclosedata();
 		return 1;
 	    }
@@ -959,7 +960,7 @@ zfopendata(char *name, union tcp_sockaddr *zdsockp, int *is_passivep)
 	} while (err && errno == EINTR && !errflag);
 
 	if (err) {
-	    zwarnnam(name, "connect failed: %e", NULL, errno);
+	    zwarnnam(name, "connect failed: %e", errno);
 	    zfclosedata();
 	    return 1;
 	}
@@ -975,7 +976,7 @@ zfopendata(char *name, union tcp_sockaddr *zdsockp, int *is_passivep)
 	int ret;
 
 	if (!(zfprefs & ZFPF_SNDP)) {
-	    zwarnnam(name, "only sendport mode available for data", NULL, 0);
+	    zwarnnam(name, "only sendport mode available for data");
 	    return 1;
 	}
 
@@ -1026,7 +1027,7 @@ zfopendata(char *name, union tcp_sockaddr *zdsockp, int *is_passivep)
 		    addr[0],addr[1],addr[2],addr[3],port[0],port[1]);
 	}
 	if (zfsendcmd(portcmd) >= 5) {
-	    zwarnnam(name, "port command failed", NULL, 0);
+	    zwarnnam(name, "port command failed");
 	    zfclosedata();
 	    return 1;
 	}
@@ -1128,7 +1129,7 @@ zfgetdata(char *name, char *rest, char *cmd, int getsize)
 	newfd = zfmovefd(accept(zfsess->dfd, (struct sockaddr *)&zdsock, 
 				&len));
 	if (newfd < 0)
-	    zwarnnam(name, "unable to accept data: %e", NULL, errno);
+	    zwarnnam(name, "unable to accept data: %e", errno);
 	zfclosedata();
 	if (newfd < 0)
 	    return 1;
@@ -1319,7 +1320,7 @@ zfread(int fd, char *bf, off_t sz, int tmout)
 
     if (setjmp(zfalrmbuf)) {
 	alarm(0);
-	zwarnnam("zftp", "timeout on network read", NULL, 0);
+	zwarnnam("zftp", "timeout on network read");
 	return -1;
     }
     zfalarm(tmout);
@@ -1344,7 +1345,7 @@ zfwrite(int fd, char *bf, off_t sz, int tmout)
 
     if (setjmp(zfalrmbuf)) {
 	alarm(0);
-	zwarnnam("zftp", "timeout on network write", NULL, 0);
+	zwarnnam("zftp", "timeout on network write");
 	return -1;
     }
     zfalarm(tmout);
@@ -1374,7 +1375,7 @@ zfread_block(int fd, char *bf, off_t sz, int tmout)
 	    n = zfread(fd, (char *)&hdr, sizeof(hdr), tmout);
 	} while (n < 0 && errno == EINTR);
 	if (n != 3 && !zfdrrrring) {
-	    zwarnnam("zftp", "failure reading FTP block header", NULL, 0);
+	    zwarnnam("zftp", "failure reading FTP block header");
 	    return n;
 	}
 	/* size is stored in network byte order */
@@ -1385,7 +1386,7 @@ zfread_block(int fd, char *bf, off_t sz, int tmout)
 	    /*
 	     * See comments in file headers
 	     */
-	    zwarnnam("zftp", "block too large to handle", NULL, 0);
+	    zwarnnam("zftp", "block too large to handle");
 	    errno = EIO;
 	    return -1;
 	}
@@ -1402,7 +1403,7 @@ zfread_block(int fd, char *bf, off_t sz, int tmout)
 		break;
 	}
 	if (cnt) {
-	    zwarnnam("zftp", "short data block", NULL, 0);
+	    zwarnnam("zftp", "short data block");
 	    errno = EIO;
 	    return -1;
 	}
@@ -1428,7 +1429,7 @@ zfwrite_block(int fd, char *bf, off_t sz, int tmout)
 	n = zfwrite(fd, (char *)&hdr, sizeof(hdr), tmout);
     } while (n < 0 && errno == EINTR);
     if (n != 3 && !zfdrrrring) {
-	zwarnnam("zftp", "failure writing FTP block header", NULL, 0);
+	zwarnnam("zftp", "failure writing FTP block header");
 	return n;
     }
     bfptr = bf;
@@ -1469,9 +1470,9 @@ zfsenddata(char *name, int recv, int progress, off_t startat)
     char lsbuf[ZF_BUFSIZE], *ascbuf = NULL, *optr;
     off_t sofar = 0, last_sofar = 0;
     readwrite_t read_ptr = zfread, write_ptr = zfwrite;
-    Eprog prog;
+    Shfunc shfunc;
 
-    if (progress && (prog = getshfunc("zftp_progress")) != &dummy_eprog) {
+    if (progress && (shfunc = getshfunc("zftp_progress"))) {
 	/*
 	 * progress to set up:  ZFTP_COUNT is zero.
 	 * We do this here in case we needed to wait for a RETR
@@ -1480,7 +1481,7 @@ zfsenddata(char *name, int recv, int progress, off_t startat)
 	int osc = sfcontext;
 
 	sfcontext = SFC_HOOK;
-	doshfunc("zftp_progress", prog, NULL, 0, 1);
+	doshfunc(shfunc, NULL, 1);
 	sfcontext = osc;
 	/* Now add in the bit of the file we've got/sent already */
 	sofar = last_sofar = startat;
@@ -1585,7 +1586,7 @@ zfsenddata(char *name, int recv, int progress, off_t startat)
 			if (!zfdrrrring &&
 			    (!interact || (!errflag && errno != EPIPE))) {
 			    ret = recv ? 2 : 1;
-			    zwarnnam(name, "write failed: %e", NULL, errno);
+			    zwarnnam(name, "write failed: %e", errno);
 			} else
 			    ret = recv ? 3 : 1;
 			break;
@@ -1600,7 +1601,7 @@ zfsenddata(char *name, int recv, int progress, off_t startat)
 		if (!zfdrrrring &&
 		    (!interact || (!errflag && errno != EPIPE))) {
 		    ret = recv ? 1 : 2;
-		    zwarnnam(name, "read failed: %e", NULL, errno);
+		    zwarnnam(name, "read failed: %e", errno);
 		} else
 		    ret = recv ? 1 : 3;
 		break;
@@ -1608,12 +1609,12 @@ zfsenddata(char *name, int recv, int progress, off_t startat)
 	} else
 	    break;
 	if (!ret && sofar != last_sofar && progress &&
-	    (prog = getshfunc("zftp_progress")) != &dummy_eprog) {
+	    (shfunc = getshfunc("zftp_progress"))) {
 	    int osc = sfcontext;
 
 	    zfsetparam("ZFTP_COUNT", &sofar, ZFPM_READONLY|ZFPM_INTEGER);
 	    sfcontext = SFC_HOOK;
-	    doshfunc("zftp_progress", prog, NULL, 0, 1);
+	    doshfunc(shfunc, NULL, 1);
 	    sfcontext = osc;
 	    last_sofar = sofar;
 	}
@@ -1648,7 +1649,7 @@ zfsenddata(char *name, int recv, int progress, off_t startat)
 	unsigned char msg[4] = { IAC, IP, IAC, SYNCH };
 
 	if (ret == 2)
-	    zwarnnam(name, "aborting data transfer...", NULL, 0);
+	    zwarnnam(name, "aborting data transfer...");
 
 	holdintr();
 
@@ -1697,7 +1698,7 @@ zftp_open(char *name, char **args, int flags)
 {
     struct protoent *zprotop;
     struct servent *zservp;
-    struct hostent *zhostp = NULL;
+    struct hostent *zhostp;
     char **addrp, *fname, *tmpptr, *portnam = "ftp";
     char *hostnam, *hostsuffix;
     int err, tmout, port = -1;
@@ -1708,7 +1709,7 @@ zftp_open(char *name, char **args, int flags)
 	if (zfsess->userparams)
 	    args = zfsess->userparams;
 	else {
-	    zwarnnam(name, "no host specified", NULL, 0);
+	    zwarnnam(name, "no host specified");
 	    return 1;
 	}
     }
@@ -1730,7 +1731,7 @@ zftp_open(char *name, char **args, int flags)
 	hostnam++;
 	hostsuffix = strchr(hostnam, ']');
 	if (!hostsuffix || (hostsuffix[1] && hostsuffix[1] != ':')) {
-	    zwarnnam(name, "Invalid host format: %s", hostnam, 0);
+	    zwarnnam(name, "Invalid host format: %s", hostnam);
 	    return 1;
 	}
 	*hostsuffix++ = '\0';
@@ -1760,8 +1761,7 @@ zftp_open(char *name, char **args, int flags)
     /* this is going to give 0.  why bother? */
     zprotop = getprotobyname("tcp");
     if (!zprotop) {
-	zwarnnam(name, "Can't find protocol TCP (is your network functional)?",
-		 NULL, 0);
+	zwarnnam(name, "Can't find protocol TCP (is your network functional)?");
 	return 1;
     }
     if (port < 0)
@@ -1770,7 +1770,7 @@ zftp_open(char *name, char **args, int flags)
 	zservp = getservbyport(port, "tcp");
 
     if (!zprotop || !zservp) {
-	zwarnnam(name, "Can't find port for service `%s'", portnam, 0);
+	zwarnnam(name, "Can't find port for service `%s'", portnam);
 	return 1;
     }
 
@@ -1787,9 +1787,9 @@ zftp_open(char *name, char **args, int flags)
 	alarm(0);
 	queue_signals();
 	if ((hname = getsparam("ZFTP_HOST")) && *hname) 
-	    zwarnnam(name, "timeout connecting to %s", hname, 0);
+	    zwarnnam(name, "timeout connecting to %s", hname);
 	else
-	    zwarnnam(name, "timeout on host name lookup", NULL, 0);
+	    zwarnnam(name, "timeout on host name lookup");
 	unqueue_signals();
 	zfclose(0);
 	return 1;
@@ -1817,7 +1817,7 @@ zftp_open(char *name, char **args, int flags)
 	     * on the other hand, herror() is obsolete
 	     */
 	    FAILED();
-	    zwarnnam(name, "host not found: %s", hostnam, 0);
+	    zwarnnam(name, "host not found: %s", hostnam);
 	    alarm(0);
 	    return 1;
 	}
@@ -1850,7 +1850,7 @@ zftp_open(char *name, char **args, int flags)
 	    zfunsetparam("ZFTP_HOST");
 	    zfunsetparam("ZFTP_PORT");
 	    FAILED();
-	    zwarnnam(name, "socket failed: %e", NULL, errno);
+	    zwarnnam(name, "socket failed: %e", errno);
 	    alarm(0);
 	    return 1;
 	}
@@ -1867,9 +1867,10 @@ zftp_open(char *name, char **args, int flags)
 	/* try all possible IP's */
 	for (addrp = zhostp->h_addr_list; err && *addrp; addrp++) {
 	    if(hlen != zhostp->h_length)
-		zwarnnam(name, "address length mismatch", NULL, 0);
+		zwarnnam(name, "address length mismatch");
 	    do {
-		err = tcp_connect(zfsess->control, *addrp, zhostp, zservp->s_port);	    } while (err && errno == EINTR && !errflag);
+		err = tcp_connect(zfsess->control, *addrp, zhostp, zservp->s_port);
+	    } while (err && errno == EINTR && !errflag);
 	    /* you can check whether it's worth retrying here */
 	}
 
@@ -1877,7 +1878,7 @@ zftp_open(char *name, char **args, int flags)
 	    freehostent(zhostp);
 	    zfclose(0);
 	    FAILED();
-	    zwarnnam(name, "connect failed: %e", NULL, errno);
+	    zwarnnam(name, "connect failed: %e", errno);
 	    alarm(0);
 	    return 1;
 	}
@@ -1912,7 +1913,7 @@ zftp_open(char *name, char **args, int flags)
 
     len = sizeof(zfsess->control->sock);
     if (getsockname(zfsess->control->fd, (struct sockaddr *)&zfsess->control->sock, &len) < 0) {
-	zwarnnam(name, "getsockname failed: %e", NULL, errno);
+	zwarnnam(name, "getsockname failed: %e", errno);
 	zfclose(0);
 	return 1;
     }
@@ -1939,7 +1940,7 @@ zftp_open(char *name, char **args, int flags)
     zfsess->cin = fdopen(zfsess->control->fd, "r");
 
     if (!zfsess->cin) {
-	zwarnnam(name, "file handling error", NULL, 0);
+	zwarnnam(name, "file handling error");
 	zfclose(0);
 	return 1;
     }
@@ -2043,8 +2044,9 @@ zfgetinfo(char *prompt, int noecho)
 	fflush(stderr);
     }
 
-    fgets(instr, 256, stdin);
-    if (instr[len = strlen(instr)-1] == '\n')
+    if (fgets(instr, 256, stdin) == NULL)
+	instr[len = 0] = '\0';
+    else if (instr[len = strlen(instr)-1] == '\n')
 	instr[len] = '\0';
 
     strret = dupstring(instr);
@@ -2188,7 +2190,7 @@ zftp_login(char *name, char **args, UNUSED(int flags))
     if (!zfsess->control)
 	return 1;
     if (stopit == 2 || (lastcode != 230 && lastcode != 202)) {
-	zwarnnam(name, "login failed", NULL, 0);
+	zwarnnam(name, "login failed");
 	return 1;
     }
 
@@ -2196,7 +2198,7 @@ zftp_login(char *name, char **args, UNUSED(int flags))
 	int cnt;
 	for (cnt = 0; *args; args++)
 	    cnt++;
-	zwarnnam(name, "warning: %d comand arguments not used\n", NULL, cnt);
+	zwarnnam(name, "warning: %d command arguments not used\n", cnt);
     }
     zfstatusp[zfsessno] |= ZFST_LOGI;
     zfsetparam("ZFTP_USER", ztrdup(user), ZFPM_READONLY);
@@ -2297,7 +2299,7 @@ zftp_test(UNUSED(char *name), UNUSED(char **args), UNUSED(int flags))
     /* if we have no zfsess->control, then we've just been dumped out. */
     return zfsess->control ? 0 : 2;
 #else
-    zfwarnnam(name, "not supported on this system.", NULL, 0);
+    zfwarnnam(name, "not supported on this system.");
     return 3;
 #endif /* defined(HAVE_POLL) || defined(HAVE_SELECT) */
 }
@@ -2364,7 +2366,7 @@ zfgetcwd(void)
 {
     char *ptr, *eptr;
     int endc;
-    Eprog prog;
+    Shfunc shfunc;
 
     if (zfprefs & ZFPF_DUMB)
 	return 1;
@@ -2391,11 +2393,11 @@ zfgetcwd(void)
      * front end.  By putting it here, and in close when ZFTP_PWD is unset,
      * we at least cover the bases.
      */
-    if ((prog = getshfunc("zftp_chpwd")) != &dummy_eprog) {
+    if ((shfunc = getshfunc("zftp_chpwd"))) {
 	int osc = sfcontext;
 
 	sfcontext = SFC_HOOK;
-	doshfunc("zftp_chpwd", prog, NULL, 0, 1);
+	doshfunc(shfunc, NULL, 1);
 	sfcontext = osc;
     }
     return 0;
@@ -2449,7 +2451,7 @@ zftp_type(char *name, char **args, int flags)
 	 * ones we know what to do with.
 	 */
 	if (str[1] || (nt != 'A' && nt != 'B' && nt != 'I')) {
-	    zwarnnam(name, "transfer type %s not recognised", str, 0);
+	    zwarnnam(name, "transfer type %s not recognised", str);
 	    return 1;
 	}
 	
@@ -2479,7 +2481,7 @@ zftp_mode(char *name, char **args, UNUSED(int flags))
     }
     nt = str[0] = toupper(STOUC(*str));
     if (str[1] || (nt != 'S' && nt != 'B')) {
-	zwarnnam(name, "transfer mode %s not recognised", str, 0);
+	zwarnnam(name, "transfer mode %s not recognised", str);
 	return 1;
     }
     cmd[5] = (char) nt;
@@ -2518,7 +2520,7 @@ zftp_local(UNUSED(char *name), char **args, int flags)
 	printf("%s %s\n", output64(sz), mt);
 #else
 	DPUTS(sizeof(sz) > 4, "Shell compiled with wrong off_t size");
-	printf("%ld %s\n", sz, mt);
+	printf("%ld %s\n", (long)sz, mt);
 #endif
 	zsfree(mt);
 	if (dofd)
@@ -2549,7 +2551,7 @@ zftp_getput(char *name, char **args, int flags)
 {
     int ret = 0, recv = (flags & ZFTP_RECV), getsize = 0, progress = 1;
     char *cmd = recv ? "RETR " : (flags & ZFTP_APPE) ? "APPE " : "STOR ";
-    Eprog prog;
+    Shfunc shfunc;
 
     /*
      * At this point I'd like to set progress to 0 if we're
@@ -2567,8 +2569,8 @@ zftp_getput(char *name, char **args, int flags)
     for (; *args; args++) {
 	char *ln, *rest = NULL;
 	off_t startat = 0;
-	if (progress && (prog = getshfunc("zftp_progress")) != &dummy_eprog) {
-	    off_t sz;
+	if (progress && (shfunc = getshfunc("zftp_progress"))) {
+	    off_t sz = -1;
 	    /*
 	     * This calls the SIZE command to get the size for remote
 	     * files.  Some servers send the size with the reply to
@@ -2608,14 +2610,14 @@ zftp_getput(char *name, char **args, int flags)
 	 * if and only if we called zfsenddata();
 	 */
 	if (progress && ret != 2 &&
-	    (prog = getshfunc("zftp_progress")) != &dummy_eprog) {
+	    (shfunc = getshfunc("zftp_progress"))) {
 	    /* progress to finish: ZFTP_TRANSFER set to GF or PF */
 	    int osc = sfcontext;
 
 	    zfsetparam("ZFTP_TRANSFER", ztrdup(recv ? "GF" : "PF"),
 		       ZFPM_READONLY);
 	    sfcontext = SFC_HOOK;
-	    doshfunc("zftp_progress", prog, NULL, 0, 1);
+	    doshfunc(shfunc, NULL, 1);
 	    sfcontext = osc;
 	}
 	if (rest) {
@@ -2715,7 +2717,7 @@ static void
 zfclose(int leaveparams)
 {
     char **aptr;
-    Eprog prog;
+    Shfunc shfunc;
 
     if (!zfsess->control)
 	return;
@@ -2753,7 +2755,7 @@ zfclose(int leaveparams)
 	if (!zfnopen) {
 	    /* Write the final status in case this is a subshell */
 	    lseek(zfstatfd, zfsessno*sizeof(int), 0);
-	    write(zfstatfd, (char *)zfstatusp+zfsessno, sizeof(int));
+	    write_loop(zfstatfd, (char *)zfstatusp+zfsessno, sizeof(int));
 
 	    close(zfstatfd);
 	    zfstatfd = -1;
@@ -2766,11 +2768,11 @@ zfclose(int leaveparams)
 	    zfunsetparam(*aptr);
 
 	/* Now ZFTP_PWD is unset.  It's up to zftp_chpwd to notice. */
-	if ((prog = getshfunc("zftp_chpwd")) != &dummy_eprog) {
+	if ((shfunc = getshfunc("zftp_chpwd"))) {
 	    int osc = sfcontext;
 
 	    sfcontext = SFC_HOOK;
-	    doshfunc("zftp_chpwd", prog, NULL, 0, 1);
+	    doshfunc(shfunc, NULL, 1);
 	    sfcontext = osc;
 	}
     }
@@ -3015,7 +3017,7 @@ bin_zftp(char *name, char **args, UNUSED(Options ops), UNUSED(int func))
 	    break;
 
     if (!zptr->nam) {
-	zwarnnam(name, "no such subcommand: %s", cnam, 0);
+	zwarnnam(name, "no such subcommand: %s", cnam);
 	return 1;
     }
 
@@ -3023,7 +3025,7 @@ bin_zftp(char *name, char **args, UNUSED(Options ops), UNUSED(int func))
     for (n = 0; args[n]; n++)
 	;
     if (n < zptr->min || (zptr->max != -1 && n > zptr->max)) {
-	zwarnnam(name, "wrong no. of arguments for %s", cnam, 0);
+	zwarnnam(name, "wrong no. of arguments for %s", cnam);
 	return 1;
     }
 
@@ -3032,7 +3034,7 @@ bin_zftp(char *name, char **args, UNUSED(Options ops), UNUSED(int func))
 	/* Get the status in case it was set by a forked process */
 	int oldstatus = zfstatusp[zfsessno];
 	lseek(zfstatfd, 0, 0);
-	read(zfstatfd, (char *)zfstatusp, sizeof(int)*zfsesscnt);
+	read_loop(zfstatfd, (char *)zfstatusp, sizeof(int)*zfsesscnt);
 	if (zfsess->control && (zfstatusp[zfsessno] & ZFST_CLOS)) {
 	    /* got closed in subshell without us knowing */
 	    zcfinish = 2;
@@ -3070,7 +3072,7 @@ bin_zftp(char *name, char **args, UNUSED(Options ops), UNUSED(int func))
 	     * with ret == 2, we just got dumped out in the test,
 	     * so enough messages already.
 	     */	       
-	    zwarnnam(fullname, "not connected.", NULL, 0);
+	    zwarnnam(fullname, "not connected.");
 	}
 	return 1;
     }
@@ -3101,7 +3103,7 @@ bin_zftp(char *name, char **args, UNUSED(Options ops), UNUSED(int func))
 		break;
 
 	    default:
-		zwarnnam(name, "preference %c not recognized", NULL, *ptr);
+		zwarnnam(name, "preference %c not recognized", *ptr);
 		break;
 	    }
 	}
@@ -3123,7 +3125,7 @@ bin_zftp(char *name, char **args, UNUSED(Options ops), UNUSED(int func))
 	 * but only for the active session.
 	 */
 	lseek(zfstatfd, zfsessno*sizeof(int), 0);
-	write(zfstatfd, (char *)zfstatusp+zfsessno, sizeof(int));
+	write_loop(zfstatfd, (char *)zfstatusp+zfsessno, sizeof(int));
     }
     return ret;
 }
@@ -3151,7 +3153,6 @@ zftp_cleanup(void)
     zfunsetparam("ZFTP_SESSION");
     freelinklist(zfsessions, (FreeFunc) freesession);
     zfree(zfstatusp, sizeof(int)*zfsesscnt);
-    deletebuiltins("zftp", bintab, sizeof(bintab)/sizeof(*bintab));
 }
 
 static int
@@ -3161,47 +3162,68 @@ zftpexithook(UNUSED(Hookdef d), UNUSED(void *dummy))
     return 0;
 }
 
+static struct features module_features = {
+    bintab, sizeof(bintab)/sizeof(*bintab),
+    NULL, 0,
+    NULL, 0,
+    NULL, 0,
+    0
+};
+
 /* The load/unload routines required by the zsh library interface */
 
 /**/
 int
 setup_(UNUSED(Module m))
 {
-    /* setup_ returns 0 for success. require_module returns 1 for success. */
-    return !require_module("", "zsh/net/tcp", 0, 0);
+    return (require_module("zsh/net/tcp", NULL) == 1);
+}
+
+/**/
+int
+features_(Module m, char ***features)
+{
+    *features = featuresarray(m, &module_features);
+    return 0;
+}
+
+/**/
+int
+enables_(Module m, int **enables)
+{
+    return handlefeatures(m, &module_features, enables);
 }
 
 /**/
 int
 boot_(UNUSED(Module m))
 {
-    int ret;
-    if ((ret = addbuiltins("zftp", bintab,
-			   sizeof(bintab)/sizeof(*bintab))) == 1) {
-	/* if successful, set some default parameters */
-	off_t tmout_def = 60;
-	zfsetparam("ZFTP_VERBOSE", ztrdup("450"), ZFPM_IFUNSET);
-	zfsetparam("ZFTP_TMOUT", &tmout_def, ZFPM_IFUNSET|ZFPM_INTEGER);
-	zfsetparam("ZFTP_PREFS", ztrdup("PS"), ZFPM_IFUNSET);
-	/* default preferences if user deletes variable */
-	zfprefs = ZFPF_SNDP|ZFPF_PASV;
+    /*
+     * Set some default parameters.
+     * These aren't special, so aren't associated with features.
+     */
+    off_t tmout_def = 60;
+    zfsetparam("ZFTP_VERBOSE", ztrdup("450"), ZFPM_IFUNSET);
+    zfsetparam("ZFTP_TMOUT", &tmout_def, ZFPM_IFUNSET|ZFPM_INTEGER);
+    zfsetparam("ZFTP_PREFS", ztrdup("PS"), ZFPM_IFUNSET);
+    /* default preferences if user deletes variable */
+    zfprefs = ZFPF_SNDP|ZFPF_PASV;
     
-	zfsessions = znewlinklist();
-	newsession("default");
+    zfsessions = znewlinklist();
+    newsession("default");
 
-	addhookfunc("exit", zftpexithook);
-    }
+    addhookfunc("exit", zftpexithook);
 
-    return !ret;
+    return 0;
 }
 
 /**/
 int
-cleanup_(UNUSED(Module m))
+cleanup_(Module m)
 {
     deletehookfunc("exit", zftpexithook);
     zftp_cleanup();
-    return 0;
+    return setfeatureenables(m, &module_features, NULL);
 }
 
 /**/

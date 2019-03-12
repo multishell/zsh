@@ -1,8 +1,8 @@
-#! /bin/zsh -f
+#!/bin/zsh -f
 
 [[ -o interactive ]] && {
-    local -i ARGC
-    (ARGC=0) 2>/dev/null || {
+    local -hi ARGC		# local is a no-op outside of a function
+    (ARGC=0) 2>/dev/null || {	# so ARGC remains read-only for "source"
         print -u2 ${0}: must be run as a function or shell script, not sourced
         return 1
     }
@@ -14,11 +14,10 @@ local zkbd term key seq
 zkbd=${ZDOTDIR:-$HOME}/.zkbd
 [[ -d $zkbd ]] || mkdir $zkbd || return 1
 
-print 'typeset -g -A key\n' > $zkbd/$TERM.tmp || return 1
-trap "unfunction getkey getseq; command rm -f $zkbd/$TERM.tmp" 0
+trap 'unfunction getmbkey getseq; command rm -f $zkbd/$TERM.tmp' 0
 trap "return 1" 1 2 15
 
-getkey () {
+getmbkey () {
     local k='' i
     for ((i=10; i>0; --i))
     do
@@ -27,7 +26,13 @@ getkey () {
     done
     [[ -n $k ]] || return 1
     [[ $k = $'\012' || $k = $'\015' || $k = ' ' ]] && return 0
-    print -Rn $k
+    # We might not be done yet, thanks to multibyte characters
+    local mbk=$k
+    while read -t -k 1 k
+    do
+       mbk=$mbk$k 
+    done
+    print -Rn $mbk
 }
 
 getseq () {
@@ -51,6 +56,7 @@ getseq () {
 
 read term"?Enter current terminal type: [$TERM] "
 [[ -n $term ]] && TERM=$term
+print 'typeset -g -A key\n' > $zkbd/$TERM.tmp || return 1
 
 cat <<\EOF
 
@@ -65,7 +71,7 @@ EOF
 local ctrl alt meta
 
 print -n "Hold down Ctrl and press X: "
-ctrl=$(getkey) || return 1
+ctrl=$(getmbkey) || return 1
 print
 
 if [[ $ctrl != $'\030' ]]
@@ -79,7 +85,7 @@ fi
 
 print "Your Meta key may have a Microsoft Windows logo on the cap."
 print -n "Hold down Meta and press X: "
-meta=$(getkey) || return 1
+meta=$(getmbkey) || return 1
 print
 
 if [[ $meta == x ]]
@@ -95,7 +101,7 @@ fi
 print
 
 print -n "Hold down Alt and press X: "
-alt=$(getkey) || return 1
+alt=$(getmbkey) || return 1
 print
 
 if [[ $alt == x ]]
@@ -112,21 +118,33 @@ else
     unset alt
 fi
 
-(( $+alt + $+meta == 0 )) && cat <<EOF
+if (( $+alt + $+meta == 0 ))
+then
+    print $'\n---------\n'
+    if [[ -o multibyte ]]
+    then cat <<EOF
+You are using zsh in MULTIBYTE mode to support modern character sets (for
+languages other than English).  To use the Meta or Alt keys, you probably
+need to revert to single-byte mode with a command such as
 
----------
-
+    unsetopt MULTIBYTE
+EOF
+    else cat <<EOF
 Your current terminal and keyboard configuration does not appear to use
 high-order characters.  You may be able to enable the Meta or Alt keys
 with a command such as
 
     stty pass8
+EOF
+    fi
+    cat <<EOF
 
 If you want to use these extra keys with zsh, try adding the above command
 to your ${ZDOTDIR:-$HOME}/.zshrc file.
 
 See also "man stty" or the documentation for your terminal or emulator.
 EOF
+fi
 
 (( $+alt || $+meta )) && cat <<EOF
 
@@ -139,7 +157,11 @@ by adding
     bindkey -m
 
 to your ${ZDOTDIR:-$HOME}/.zshrc file.
+
 EOF
+
+read -k 1 key"?Press a key to proceed: "
+[[ $key != $'\n' ]] && print
 
 cat <<\EOF
 
@@ -159,7 +181,7 @@ use of that key.  Press Space to skip to the next key.
 
 EOF
 
-read -k 1 key"?Press any key when ready to begin: "
+read -k 1 key"?Press a key when ready to begin: "
 [[ $key != $'\n' ]] && print
 
 cat <<\EOF
@@ -229,20 +251,22 @@ else
     fi
 fi
 
-command mv $zkbd/$TERM.tmp $zkbd/$TERM-$VENDOR-$OSTYPE
+local termID=${${DISPLAY:t}:-$VENDOR-$OSTYPE} termFile=$zkbd/$TERM.tmp
+command mv $termFile $zkbd/$TERM-$termID && termFile=$zkbd/$TERM-$termID
 
 cat <<EOF
 
 Parameter assignments for the keys you typed have been written to the file:
-$zkbd/$TERM-$VENDOR-$OSTYPE
+$termFile
 
 You may read this file into ${ZDOTDIR:-$HOME}/.zshrc or another startup
 file with the "source" or "." commands, then reference the \$key parameter
-in bindkey commands, like this:
+in bindkey commands, for example like this:
 
-    source ${zkbd/$HOME/~}/\$TERM-\$VENDOR-\$OSTYPE
+    source ${(D)zkbd}/\$TERM-\${\${DISPLAY:t}:-\$VENDOR-\$OSTYPE}
     [[ -n \${key[Left]} ]] && bindkey "\${key[Left]}" backward-char
     [[ -n \${key[Right]} ]] && bindkey "\${key[Right]}" forward-char
     # etc.
 
+Adjust the name of the file being sourced, as necessary.
 EOF

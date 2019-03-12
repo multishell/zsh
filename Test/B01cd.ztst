@@ -53,9 +53,17 @@
 # stderr.
 #
 # The rules for '<', '>' and '?' lines are the same: only the first
-# character is stripped, with subsequent whitespace being significant;
-# lines are not subject to any substitution unless the `q' flag (see
-# below) is set.
+# character is stripped (with the excpetion for '*' noted below), with
+# subsequent whitespace being significant; lines are not subject to any
+# substitution unless the `q' flag (see below) is set.
+#
+# The first line (only) of a '>' and '?' chunk may be preceded by a '*',
+# so the line starts '*>' or '*?'.  This signifies that all lines in the
+# chunk (not just the one with the '*' in front) in the actual output
+# are pattern matched against the corresponding lines in the test
+# output.  Each line following '>' or '?' must be a valid pattern, so
+# characters special to patterns such as parentheses must be quoted
+# with a backslash.  The EXTENDED_GLOB option is used for all such patterns.
 #
 # Each chunk of indented code is to be evaluated in one go and is to
 # be followed by a line starting (in the first column) with
@@ -108,6 +116,14 @@ F:something is broken.  But you already knew that.
 0q:Resolving symbolic links with chaselinks set
 >$mydir/cdtst.tmp/real
 >$mydir/cdtst.tmp/real
+
+ ln -s nonexistent link_to_nonexistent
+ pwd1=$(pwd -P)
+ cd -s link_to_nonexistent
+ pwd2=$(pwd -P)
+ [[ $pwd1 = $pwd2 ]] || print "Ooops, changed to directory '$pwd2'"
+0:
+?(eval):cd:3: not a directory: link_to_nonexistent
 
 %clean
 # This optional section cleans up after the test, if necessary,

@@ -78,7 +78,7 @@ bin_mkdir(char *nam, char **args, Options ops, UNUSED(int func))
 
 	mode = zstrtol(str, &ptr, 8);
 	if(!*str || *ptr) {
-	    zwarnnam(nam, "invalid mode `%s'", str, 0);
+	    zwarnnam(nam, "invalid mode `%s'", str);
 	    return 1;
 	}
     }
@@ -166,55 +166,98 @@ bin_rmdir(char *nam, char **args, UNUSED(Options ops), UNUSED(int func))
 #define BIN_LN 0
 #define BIN_MV 1
 
-#define MV_NODIRS (1<<0)
-#define MV_FORCE  (1<<1)
-#define MV_INTER  (1<<2)
-#define MV_ASKNW  (1<<3)
-#define MV_ATOMIC (1<<4)
+#define MV_NODIRS		(1<<0)
+#define MV_FORCE		(1<<1)
+#define MV_INTERACTIVE		(1<<2)
+#define MV_ASKNW		(1<<3)
+#define MV_ATOMIC		(1<<4)
+#define MV_NOCHASETARGET	(1<<5)
 
-/* bin_ln actually does three related jobs: hard linking, symbolic *
- * linking, and renaming.  If called as mv it renames, otherwise   *
- * it looks at the -s option.  If hard linking, it will refuse to  *
- * attempt linking to a directory unless the -d option is given.   */
+/*
+ * bin_ln actually does three related jobs: hard linking, symbolic
+ * linking, and renaming.  If called as mv it renames, otherwise
+ * it looks at the -s option.  If hard linking, it will refuse to
+ * attempt linking to a directory unless the -d option is given.
+ */
+
+/*
+ * Option compatibility: BSD systems settled on using mostly-standardised
+ * options across multiple commands to deal with symlinks; see, eg,
+ * symlink(7) on a *BSD system for details.  Per this, to work on a link
+ * directly we use "-h" and "ln -hsf" will not follow the target if it
+ * points to a directory.  GNU settled on using -n for ln(1), so we
+ * have "ln -nsf".  We handle them both.
+ *
+ * Logic compared against that of FreeBSD's ln.c, compatible license.
+ */
 
 /**/
 static int
 bin_ln(char *nam, char **args, Options ops, int func)
 {
-    MoveFunc move;
-    int flags, err = 0;
+    MoveFunc movefn;
+    int flags, have_dir, err = 0;
     char **a, *ptr, *rp, *buf;
     struct stat st;
     size_t blen;
 
 
     if(func == BIN_MV) {
-	move = (MoveFunc) rename;
+	movefn = (MoveFunc) rename;
 	flags = OPT_ISSET(ops,'f') ? 0 : MV_ASKNW;
 	flags |= MV_ATOMIC;
     } else {
 	flags = OPT_ISSET(ops,'f') ? MV_FORCE : 0;
 #ifdef HAVE_LSTAT
+	if(OPT_ISSET(ops,'h') || OPT_ISSET(ops,'n'))
+	    flags |= MV_NOCHASETARGET;
 	if(OPT_ISSET(ops,'s'))
-	    move = (MoveFunc) symlink;
+	    movefn = (MoveFunc) symlink;
 	else
 #endif
 	{
-	    move = (MoveFunc) link;
+	    movefn = (MoveFunc) link;
 	    if(!OPT_ISSET(ops,'d'))
 		flags |= MV_NODIRS;
 	}
     }
     if(OPT_ISSET(ops,'i') && !OPT_ISSET(ops,'f'))
-	flags |= MV_INTER;
+	flags |= MV_INTERACTIVE;
     for(a = args; a[1]; a++) ;
     if(a != args) {
 	rp = unmeta(*a);
-	if(rp && !stat(rp, &st) && S_ISDIR(st.st_mode))
-	    goto havedir;
+	if(rp && !stat(rp, &st) && S_ISDIR(st.st_mode)) {
+	    have_dir = 1;
+	    if((flags & MV_NOCHASETARGET)
+	      && !lstat(rp, &st) && S_ISLNK(st.st_mode)) {
+		/*
+		 * So we have "ln -h" with the target being a symlink pointing
+		 * to a directory; if there are multiple sources but the target
+		 * is a symlink, then it's an error as we're not following
+		 * symlinks; if OTOH there's just one source, then we need to
+		 * either fail EEXIST or if "-f" given then remove the target.
+		 */
+		if(a > args+1) {
+		    errno = ENOTDIR;
+		    zwarnnam(nam, "%s: %e", *a, errno);
+		    return 1;
+		}
+		if(flags & MV_FORCE) {
+		    unlink(rp);
+		    have_dir = 0;
+		} else {
+		    errno = EEXIST;
+		    zwarnnam(nam, "%s: %e", *a, errno);
+		    return 1;
+		}
+	    }
+	    /* Normal case, target is a directory, chase into it */
+	    if (have_dir)
+		goto havedir;
+	}
     }
     if(a > args+1) {
-	zwarnnam(nam, "last of many arguments must be a directory", NULL, 0);
+	zwarnnam(nam, "last of many arguments must be a directory");
 	return 1;
     }
     if(!args[1]) {
@@ -224,7 +267,7 @@ bin_ln(char *nam, char **args, Options ops, int func)
 	else
 	    args[1] = args[0];
     }
-    return domove(nam, move, args[0], args[1], flags);
+    return domove(nam, movefn, args[0], args[1], flags);
  havedir:
     buf = ztrdup(*a);
     *a = NULL;
@@ -240,7 +283,7 @@ bin_ln(char *nam, char **args, Options ops, int func)
 
 	buf[blen] = 0;
 	buf = appstr(buf, ptr);
-	err |= domove(nam, move, *args, buf, flags);
+	err |= domove(nam, movefn, *args, buf, flags);
     }
     zsfree(buf);
     return err;
@@ -248,7 +291,7 @@ bin_ln(char *nam, char **args, Options ops, int func)
 
 /**/
 static int
-domove(char *nam, MoveFunc move, char *p, char *q, int flags)
+domove(char *nam, MoveFunc movefn, char *p, char *q, int flags)
 {
     struct stat st;
     char *pbuf, *qbuf;
@@ -266,10 +309,10 @@ domove(char *nam, MoveFunc move, char *p, char *q, int flags)
     if(!lstat(qbuf, &st)) {
 	int doit = flags & MV_FORCE;
 	if(S_ISDIR(st.st_mode)) {
-	    zwarnnam(nam, "%s: cannot overwrite directory", q, 0);
+	    zwarnnam(nam, "%s: cannot overwrite directory", q);
 	    zsfree(pbuf);
 	    return 1;
-	} else if(flags & MV_INTER) {
+	} else if(flags & MV_INTERACTIVE) {
 	    nicezputs(nam, stderr);
 	    fputs(": replace `", stderr);
 	    nicezputs(q, stderr);
@@ -298,7 +341,7 @@ domove(char *nam, MoveFunc move, char *p, char *q, int flags)
 	if(doit && !(flags & MV_ATOMIC))
 	    unlink(qbuf);
     }
-    if(move(pbuf, qbuf)) {
+    if(movefn(pbuf, qbuf)) {
 	zwarnnam(nam, "%s: %e", p, errno);
 	zsfree(pbuf);
 	return 1;
@@ -339,9 +382,7 @@ recursivecmd(char *nam, int opt_noerr, int opt_recurse, int opt_safe,
     reccmd.dirpost_func = dirpost_func;
     reccmd.leaf_func = leaf_func;
     reccmd.magic = magic;
-    ds.ino = ds.dev = 0;
-    ds.dirname = NULL;
-    ds.dirfd = ds.level = -1;
+    init_dirsav(&ds);
     if (opt_recurse || opt_safe) {
 	if ((ds.dirfd = open(".", O_RDONLY|O_NOCTTY)) < 0 &&
 	    zgetdir(&ds) && *ds.dirname != '/')
@@ -385,7 +426,8 @@ recursivecmd(char *nam, int opt_noerr, int opt_recurse, int opt_safe,
     if ((err & 2) && ds.dirfd >= 0 && restoredir(&ds) && zchdir(pwd)) {
 	zsfree(pwd);
 	pwd = ztrdup("/");
-	chdir(pwd);
+	if (chdir(pwd) < 0)
+	    zwarn("failed to chdir(%s): %e", pwd, errno);
     }
     if (ds.dirfd >= 0)
 	close(ds.dirfd);
@@ -432,9 +474,7 @@ recursivecmd_dorec(struct recursivecmd const *reccmd,
     }
     err = err1;
 
-    dsav.ino = dsav.dev = 0;
-    dsav.dirname = NULL;
-    dsav.dirfd = dsav.level = -1;
+    init_dirsav(&dsav);
     d = opendir(".");
     if(!d) {
 	if(!reccmd->opt_noerr)
@@ -469,7 +509,7 @@ recursivecmd_dorec(struct recursivecmd const *reccmd,
     if (restoredir(ds)) {
 	if(!reccmd->opt_noerr)
 	    zwarnnam(reccmd->nam, "failed to return to previous directory: %e",
-		     NULL, errno);
+		     errno);
 	return 2;
     }
     return err | reccmd->dirpost_func(arg, rp, sp, reccmd->magic);
@@ -619,7 +659,7 @@ static unsigned long getnumeric(char *p, int *errp)
 {
     unsigned long ret;
 
-    if(*p < '0' || *p > '9') {
+    if (!idigit(*p)) {
 	*errp = 1;
 	return 0;
     }
@@ -661,7 +701,7 @@ bin_chown(char *nam, char **args, Options ops, int func)
 	    int err;
 	    chm.uid = getnumeric(p, &err);
 	    if(err) {
-		zwarnnam(nam, "%s: no such user", p, 0);
+		zwarnnam(nam, "%s: no such user", p);
 		free(uspec);
 		return 1;
 	    }
@@ -670,7 +710,7 @@ bin_chown(char *nam, char **args, Options ops, int func)
 	    p = end+1;
 	    if(!*p) {
 		if(!pwd && !(pwd = getpwuid(chm.uid))) {
-		    zwarnnam(nam, "%s: no such user", uspec, 0);
+		    zwarnnam(nam, "%s: no such user", uspec);
 		    free(uspec);
 		    return 1;
 		}
@@ -687,7 +727,7 @@ bin_chown(char *nam, char **args, Options ops, int func)
 		    int err;
 		    chm.gid = getnumeric(p, &err);
 		    if(err) {
-			zwarnnam(nam, "%s: no such group", p, 0);
+			zwarnnam(nam, "%s: no such group", p);
 			free(uspec);
 			return 1;
 		    }
@@ -705,12 +745,14 @@ bin_chown(char *nam, char **args, Options ops, int func)
 /* module paraphernalia */
 
 #ifdef HAVE_LSTAT
-# define LN_OPTS "dfis"
+# define LN_OPTS "dfhins"
 #else
 # define LN_OPTS "dfi"
 #endif
 
 static struct builtin bintab[] = {
+    /* The names which overlap commands without necessarily being
+     * fully compatible. */
     BUILTIN("chgrp", 0, bin_chown, 2, -1, BIN_CHGRP, "hRs",    NULL),
     BUILTIN("chown", 0, bin_chown, 2, -1, BIN_CHOWN, "hRs",    NULL),
     BUILTIN("ln",    0, bin_ln,    1, -1, BIN_LN,    LN_OPTS, NULL),
@@ -719,6 +761,24 @@ static struct builtin bintab[] = {
     BUILTIN("rm",    0, bin_rm,    1, -1, 0,         "dfirs", NULL),
     BUILTIN("rmdir", 0, bin_rmdir, 1, -1, 0,         NULL,    NULL),
     BUILTIN("sync",  0, bin_sync,  0,  0, 0,         NULL,    NULL),
+    /* The "safe" zsh-only names */
+    BUILTIN("zf_chgrp", 0, bin_chown, 2, -1, BIN_CHGRP, "hRs",    NULL),
+    BUILTIN("zf_chown", 0, bin_chown, 2, -1, BIN_CHOWN, "hRs",    NULL),
+    BUILTIN("zf_ln",    0, bin_ln,    1, -1, BIN_LN,    LN_OPTS, NULL),
+    BUILTIN("zf_mkdir", 0, bin_mkdir, 1, -1, 0,         "pm:",   NULL),
+    BUILTIN("zf_mv",    0, bin_ln,    2, -1, BIN_MV,    "fi",    NULL),
+    BUILTIN("zf_rm",    0, bin_rm,    1, -1, 0,         "dfirs", NULL),
+    BUILTIN("zf_rmdir", 0, bin_rmdir, 1, -1, 0,         NULL,    NULL),
+    BUILTIN("zf_sync",  0, bin_sync,  0,  0, 0,         NULL,    NULL),
+
+};
+
+static struct features module_features = {
+    bintab, sizeof(bintab)/sizeof(*bintab),
+    NULL, 0,
+    NULL, 0,
+    NULL, 0,
+    0
 };
 
 /**/
@@ -730,17 +790,31 @@ setup_(UNUSED(Module m))
 
 /**/
 int
+features_(Module m, char ***features)
+{
+    *features = featuresarray(m, &module_features);
+    return 0;
+}
+
+/**/
+int
+enables_(Module m, int **enables)
+{
+    return handlefeatures(m, &module_features, enables);
+}
+
+/**/
+int
 boot_(Module m)
 {
-    return !addbuiltins(m->nam, bintab, sizeof(bintab)/sizeof(*bintab));
+    return 0;
 }
 
 /**/
 int
 cleanup_(Module m)
 {
-    deletebuiltins(m->nam, bintab, sizeof(bintab)/sizeof(*bintab));
-    return 0;
+    return setfeatureenables(m, &module_features, NULL);
 }
 
 /**/

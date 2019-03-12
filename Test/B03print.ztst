@@ -34,7 +34,12 @@
 >baz
 >bar
 
- print -io a B c
+# some locales force case-insensitive sorting
+ (LC_ALL=C; print -o a B c)
+0:case-sensitive argument sorting
+>B a c
+
+ (LC_ALL=C; print -io a B c)
 0:case-insensitive argument sorting
 >a B c
 
@@ -100,10 +105,9 @@
 0:numeric value of high numbered character
 >f0
 
-# code will probably be changed to print the literal `%s' in this case
  printf '\x25s\n' arg
-0:using \x25 to introduce a format specifier
->arg
+0:using \x25 to print a literal % in format
+>%s
 
  printf '%3c\n' c
 0:width specified in format specifier
@@ -259,3 +263,24 @@
  printf $'%\0'
 1:explicit null after % in format specifier
 ?(eval):printf:1: %: invalid directive
+
+ printf '%b\n' '\0123'
+0:printf handles \0... octal escapes in replacement text
+>S
+
+ print -lO $'a' $'a\0' $'a\0b' $'a\0b\0' $'a\0b\0a' $'a\0b\0b' $'a\0c' |
+ while read -r line; do
+    for (( i = 1; i <= ${#line}; i++ )); do
+      foo=$line[i]
+      printf "%02x" $(( #foo ))
+    done
+    print
+ done
+0:sorting with embedded nulls
+>610063
+>6100620062
+>6100620061
+>61006200
+>610062
+>6100
+>61

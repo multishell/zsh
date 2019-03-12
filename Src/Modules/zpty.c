@@ -128,7 +128,7 @@ ptysettyinfo(int fd, struct ttyinfo *ti)
 	ioctl(fd, TCSETS, &ti->tio);
     /* if (ioctl(SHTTY, TCSETS, &ti->tio) == -1) */
 # endif
-	/*	zerr("settyinfo: %e",NULL,errno)*/ ;
+	/*	zerr("settyinfo: %e",errno)*/ ;
 #else
 # ifdef HAVE_TERMIO_H
 	ioctl(fd, TCSETA, &ti->tio);
@@ -260,6 +260,9 @@ get_pty(int master, int *retfd)
 
     if (master) {
 	strcpy(name, "/dev/ptyxx");
+#if defined(__BEOS__) || defined(__HAIKU__)
+	name[7] = '/';
+#endif
 
 	for (p1 = char1; *p1; p1++) {
 	    name[8] = *p1;
@@ -290,22 +293,34 @@ static int
 newptycmd(char *nam, char *pname, char **args, int echo, int nblock)
 {
     Ptycmd p;
-    int master, slave, pid;
+    int master, slave, pid, oineval = ineval;
+    char *oscriptname = scriptname;
     Eprog prog;
 
-    prog = parse_string(zjoin(args, ' ', 1));
+    /* code borrowed from bin_eval() */
+    ineval = !isset(EVALLINENO);
+    if (!ineval)
+	scriptname = "(zpty)";
+
+    prog = parse_string(zjoin(args, ' ', 1), 0);
     if (!prog) {
 	errflag = 0;
+	scriptname = oscriptname;
+	ineval = oineval;
 	return 1;
     }
 
     if (get_pty(1, &master)) {
-	zwarnnam(nam, "can't open pseudo terminal: %e", NULL, errno);
+	zwarnnam(nam, "can't open pseudo terminal: %e", errno);
+	scriptname = oscriptname;
+	ineval = oineval;
 	return 1;
     }
     if ((pid = fork()) == -1) {
 	zwarnnam(nam, "can't create pty command %s: %e", pname, errno);
 	close(master);
+	scriptname = oscriptname;
+	ineval = oineval;
 	return 1;
     } else if (!pid) {
 	/* This code copied from the clone module, except for getting *
@@ -316,11 +331,11 @@ newptycmd(char *nam, char *pname, char **args, int echo, int nblock)
 	mypid = getpid();
 #ifdef HAVE_SETSID
 	if (setsid() != mypid) {
-	    zwarnnam(nam, "failed to create new session: %e", NULL, errno);
+	    zwarnnam(nam, "failed to create new session: %e", errno);
 #endif
 #ifdef TIOCNOTTY
 	    if (ioctl(SHTTY, TIOCNOTTY, 0))
-		zwarnnam(nam, "%e", NULL, errno);
+		zwarnnam(nam, "%e", errno);
 	    setpgrp(0L, mypid);
 #endif
 #ifdef HAVE_SETSID
@@ -336,8 +351,8 @@ newptycmd(char *nam, char *pname, char **args, int echo, int nblock)
 	    struct ttyinfo info;
 
 	    if (ioctl(slave, TIOCGWINSZ, (char *) &info.winsize) == 0) {
-		info.winsize.ws_row = lines;
-		info.winsize.ws_col = columns;
+		info.winsize.ws_row = zterm_lines;
+		info.winsize.ws_col = zterm_columns;
 		ioctl(slave, TIOCSWINSZ, (char *) &info.winsize);
 	    }
 	}
@@ -381,11 +396,17 @@ newptycmd(char *nam, char *pname, char **args, int echo, int nblock)
 	setsparam("TTY", ztrdup(ttystrname));
 
 	opts[INTERACTIVE] = 0;
-	execode(prog, 1, 0);
+	execode(prog, 1, 0, "zpty");
 	stopmsg = 2;
 	zexit(lastval, 0);
     }
     master = movefd(master);
+    if (master == -1) {
+	zerrnam(nam, "cannot duplicate fd %d: %e", master, errno);
+	scriptname = oscriptname;
+	ineval = oineval;
+	return 1;
+    }
 
     p = (Ptycmd) zalloc(sizeof(*p));
 
@@ -405,6 +426,9 @@ newptycmd(char *nam, char *pname, char **args, int echo, int nblock)
 
     if (nblock)
 	ptynonblock(master);
+
+    scriptname = oscriptname;
+    ineval = oineval;
 
     return 0;
 }
@@ -468,9 +492,9 @@ checkptycmd(Ptycmd cmd)
 }
 
 static int
-ptyread(char *nam, Ptycmd cmd, char **args)
+ptyread(char *nam, Ptycmd cmd, char **args, int noblock, int mustmatch)
 {
-    int blen, used, seen = 0, ret = 0;
+    int blen, used, seen = 0, ret = 0, matchok = 0;
     char *buf;
     Patprog prog = NULL;
 
@@ -478,14 +502,14 @@ ptyread(char *nam, Ptycmd cmd, char **args)
 	char *p;
 
 	if (args[2]) {
-	    zwarnnam(nam, "too many arguments", NULL, 0);
+	    zwarnnam(nam, "too many arguments");
 	    return 1;
 	}
 	p = dupstring(args[1]);
 	tokenize(p);
 	remnulargs(p);
 	if (!(prog = patcompile(p, PAT_STATIC, NULL))) {
-	    zwarnnam(nam, "bad pattern: %s", args[1], 0);
+	    zwarnnam(nam, "bad pattern: %s", args[1]);
 	    return 1;
 	}
     } else
@@ -509,6 +533,45 @@ ptyread(char *nam, Ptycmd cmd, char **args)
 	cmd->read = -1;
     }
     do {
+	if (noblock && cmd->read == -1) {
+	    int pollret;
+	    /*
+	     * Check there is data available.  Borrowed from
+	     * poll_read() in utils.c and simplified.
+	     */
+#ifdef HAVE_SELECT
+	    fd_set foofd;
+	    struct timeval expire_tv;
+	    expire_tv.tv_sec = 0;
+	    expire_tv.tv_usec = 0;
+	    FD_ZERO(&foofd);
+	    FD_SET(cmd->fd, &foofd);
+	    pollret = select(cmd->fd+1,
+			 (SELECT_ARG_2_T) &foofd, NULL, NULL, &expire_tv);
+#else
+#ifdef FIONREAD
+	    if (ioctl(cmd->fd, FIONREAD, (char *) &val) == 0)
+		pollret = (val > 0);
+#endif
+#endif
+
+	    if (pollret < 0) {
+		/*
+		 * See read_poll() for this.
+		 * Last despairing effort to poll: attempt to
+		 * set nonblocking I/O and actually read the
+		 * character.  cmd->read stores the character read.
+		 */
+		long mode;
+
+		if (setblock_fd(0, cmd->fd, &mode))
+		    pollret = read(cmd->fd, &cmd->read, 1);
+		if (mode != -1)
+		    fcntl(cmd->fd, F_SETFL, mode);
+	    }
+	    if (pollret == 0)
+		break;
+	}
 	if (!ret) {
 	    checkptycmd(cmd);
 	    if (cmd->fin)
@@ -523,7 +586,7 @@ ptyread(char *nam, Ptycmd cmd, char **args)
 	    seen = 1;
 	    if (++used == blen) {
 		if (!*args) {
-		    write(1, buf, used);
+		    write_loop(1, buf, used);
 		    used = 0;
 		} else {
 		    buf = hrealloc(buf, blen, blen << 1);
@@ -533,10 +596,24 @@ ptyread(char *nam, Ptycmd cmd, char **args)
 	}
 	buf[used] = '\0';
 
-	if (!prog && (ret <= 0 || (*args && buf[used - 1] == '\n')))
-	    break;
+	if (!prog) {
+	    if (ret <= 0 || (*args && buf[used - 1] == '\n'))
+		break;
+	} else {
+	    if (ret < 0
+#ifdef EWOULDBLOCK
+		&& errno != EWOULDBLOCK
+#else
+#ifdef EAGAIN
+		&& errno != EAGAIN
+#endif
+#endif
+		)
+		break;
+	}
     } while (!(errflag || breaks || retflag || contflag) &&
-	     used < READ_MAX && !(prog && ret && pattry(prog, buf)));
+	     used < READ_MAX &&
+	     !(prog && ret && (matchok = pattry(prog, buf))));
 
     if (prog && ret < 0 &&
 #ifdef EWOULDBLOCK
@@ -555,9 +632,11 @@ ptyread(char *nam, Ptycmd cmd, char **args)
     if (*args)
 	setsparam(*args, ztrdup(metafy(buf, used, META_HREALLOC)));
     else if (used)
-	write(1, buf, used);
+	write_loop(1, buf, used);
 
-    return (seen ? 0 : cmd->fin + 1);
+    if (seen && (!prog || matchok || !mustmatch))
+	return 0;
+    return cmd->fin + 1;
 }
 
 static int
@@ -623,37 +702,38 @@ static int
 bin_zpty(char *nam, char **args, Options ops, UNUSED(int func))
 {
     if ((OPT_ISSET(ops,'r') && OPT_ISSET(ops,'w')) ||
-	((OPT_ISSET(ops,'r') || OPT_ISSET(ops,'w')) && 
+	((OPT_ISSET(ops,'r') || OPT_ISSET(ops,'w')) &&
 	 (OPT_ISSET(ops,'d') || OPT_ISSET(ops,'e') ||
 	  OPT_ISSET(ops,'b') || OPT_ISSET(ops,'L'))) ||
-	(OPT_ISSET(ops,'w') && OPT_ISSET(ops,'t')) ||
+	(OPT_ISSET(ops,'w') && (OPT_ISSET(ops,'t') || OPT_ISSET(ops,'m'))) ||
 	(OPT_ISSET(ops,'n') && (OPT_ISSET(ops,'b') || OPT_ISSET(ops,'e') ||
 				OPT_ISSET(ops,'r') || OPT_ISSET(ops,'t') ||
-				OPT_ISSET(ops,'d') || OPT_ISSET(ops,'L'))) ||
+				OPT_ISSET(ops,'d') || OPT_ISSET(ops,'L') ||
+				OPT_ISSET(ops,'m'))) ||
 	(OPT_ISSET(ops,'d') && (OPT_ISSET(ops,'b') || OPT_ISSET(ops,'e') ||
-				OPT_ISSET(ops,'L') || OPT_ISSET(ops,'t'))) ||
-	(OPT_ISSET(ops,'L') && (OPT_ISSET(ops,'b') || OPT_ISSET(ops,'e')))) {
-	zwarnnam(nam, "illegal option combination", NULL, 0);
+				OPT_ISSET(ops,'L') || OPT_ISSET(ops,'t') ||
+				OPT_ISSET(ops,'m'))) ||
+	(OPT_ISSET(ops,'L') && (OPT_ISSET(ops,'b') || OPT_ISSET(ops,'e') ||
+				OPT_ISSET(ops,'m')))) {
+	zwarnnam(nam, "illegal option combination");
 	return 1;
     }
     if (OPT_ISSET(ops,'r') || OPT_ISSET(ops,'w')) {
 	Ptycmd p;
 
 	if (!*args) {
-	    zwarnnam(nam, "missing pty command name", NULL, 0);
+	    zwarnnam(nam, "missing pty command name");
 	    return 1;
 	} else if (!(p = getptycmd(*args))) {
-	    zwarnnam(nam, "no such pty command: %s", *args, 0);
+	    zwarnnam(nam, "no such pty command: %s", *args);
 	    return 1;
 	}
 	if (p->fin)
 	    return 2;
-	if (OPT_ISSET(ops,'t') && p->read == -1 &&
-	    !read_poll(p->fd, &p->read, 0, 0))
-	    return 1;
 
 	return (OPT_ISSET(ops,'r') ?
-		ptyread(nam, p, args + 1) :
+		ptyread(nam, p, args + 1, OPT_ISSET(ops,'t'),
+			OPT_ISSET(ops, 'm')) :
 		ptywrite(p, args + 1, OPT_ISSET(ops,'n')));
     } else if (OPT_ISSET(ops,'d')) {
 	Ptycmd p;
@@ -664,7 +744,7 @@ bin_zpty(char *nam, char **args, Options ops, UNUSED(int func))
 		if ((p = getptycmd(*args++)))
 		    deleteptycmd(p);
 		else {
-		    zwarnnam(nam, "no such pty command: %s", args[-1], 0);
+		    zwarnnam(nam, "no such pty command: %s", args[-1]);
 		    ret = 1;
 		}
 	} else
@@ -675,21 +755,21 @@ bin_zpty(char *nam, char **args, Options ops, UNUSED(int func))
 	Ptycmd p;
 
 	if (!*args) {
-	    zwarnnam(nam, "missing pty command name", NULL, 0);
+	    zwarnnam(nam, "missing pty command name");
 	    return 1;
 	} else if (!(p = getptycmd(*args))) {
-	    zwarnnam(nam, "no such pty command: %s", *args, 0);
+	    zwarnnam(nam, "no such pty command: %s", *args);
 	    return 1;
 	}
 	checkptycmd(p);
 	return p->fin;
     } else if (*args) {
 	if (!args[1]) {
-	    zwarnnam(nam, "missing command", NULL, 0);
+	    zwarnnam(nam, "missing command");
 	    return 1;
 	}
 	if (getptycmd(*args)) {
-	    zwarnnam(nam, "pty command name already used: %s", *args, 0);
+	    zwarnnam(nam, "pty command name already used: %s", *args);
 	    return 1;
 	}
 	return newptycmd(nam, *args, args + 1, OPT_ISSET(ops,'e'), 
@@ -725,9 +805,19 @@ ptyhook(UNUSED(Hookdef d), UNUSED(void *dummy))
     return 0;
 }
 
+
 static struct builtin bintab[] = {
-    BUILTIN("zpty", 0, bin_zpty, 0, -1, 0, "ebdrwLnt", NULL),
+    BUILTIN("zpty", 0, bin_zpty, 0, -1, 0, "ebdmrwLnt", NULL),
 };
+
+static struct features module_features = {
+    bintab, sizeof(bintab)/sizeof(*bintab),
+    NULL, 0,
+    NULL, 0,
+    NULL, 0,
+    0
+};
+
 
 /**/
 int
@@ -738,12 +828,27 @@ setup_(UNUSED(Module m))
 
 /**/
 int
+features_(Module m, char ***features)
+{
+    *features = featuresarray(m, &module_features);
+    return 0;
+}
+
+/**/
+int
+enables_(Module m, int **enables)
+{
+    return handlefeatures(m, &module_features, enables);
+}
+
+/**/
+int
 boot_(Module m)
 {
     ptycmds = NULL;
 
     addhookfunc("exit", ptyhook);
-    return !addbuiltins(m->nam, bintab, sizeof(bintab)/sizeof(*bintab));
+    return 0;
 }
 
 /**/
@@ -752,8 +857,7 @@ cleanup_(Module m)
 {
     deletehookfunc("exit", ptyhook);
     deleteallptycmds();
-    deletebuiltins(m->nam, bintab, sizeof(bintab)/sizeof(*bintab));
-    return 0;
+    return setfeatureenables(m, &module_features, NULL);
 }
 
 /**/

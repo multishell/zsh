@@ -54,6 +54,8 @@ static const struct gsu_scalar keymap_gsu =
 { get_keymap, nullstrsetfn, zleunsetfn };
 static const struct gsu_scalar keys_gsu =
 { get_keys, nullstrsetfn, zleunsetfn };
+static const struct gsu_scalar lastabortedsearch_gsu =
+{ get_lasearch, nullstrsetfn, zleunsetfn };
 static const struct gsu_scalar lastsearch_gsu =
 { get_lsearch, nullstrsetfn, zleunsetfn };
 static const struct gsu_scalar lastwidget_gsu =
@@ -74,6 +76,8 @@ static const struct gsu_scalar widgetfunc_gsu =
 { get_widgetfunc, nullstrsetfn, zleunsetfn };
 static const struct gsu_scalar widgetstyle_gsu =
 { get_widgetstyle, nullstrsetfn, zleunsetfn };
+static const struct gsu_scalar zle_state_gsu =
+{ get_zle_state, nullstrsetfn, zleunsetfn };
 
 static const struct gsu_integer bufferlines_gsu =
 { get_bufferlines, NULL, zleunsetfn };
@@ -87,9 +91,16 @@ static const struct gsu_integer numeric_gsu =
 { get_numeric, set_numeric, unset_numeric };
 static const struct gsu_integer pending_gsu =
 { get_pending, NULL, zleunsetfn };
+static const struct gsu_integer region_active_gsu =
+{ get_region_active, set_region_active, zleunsetfn };
+static const struct gsu_integer undo_change_no_gsu =
+{ get_undo_current_change, NULL, zleunsetfn };
 
 static const struct gsu_array killring_gsu =
 { get_killring, set_killring, unset_killring };
+/* implementation is in zle_refresh.c */
+static const struct gsu_array region_highlight_gsu =
+{ get_region_highlight, set_region_highlight, unset_region_highlight };
 
 #define GSU(X) ( (GsuScalar)(void*)(&(X)) )
 static struct zleparam {
@@ -110,6 +121,8 @@ static struct zleparam {
     { "KEYMAP", PM_SCALAR | PM_READONLY, GSU(keymap_gsu), NULL },
     { "KEYS", PM_SCALAR | PM_READONLY, GSU(keys_gsu), NULL },
     { "killring", PM_ARRAY, GSU(killring_gsu), NULL },
+    { "LASTABORTEDSEARCH", PM_SCALAR | PM_READONLY, GSU(lastabortedsearch_gsu),
+      NULL },
     { "LASTSEARCH", PM_SCALAR | PM_READONLY, GSU(lastsearch_gsu), NULL },
     { "LASTWIDGET", PM_SCALAR | PM_READONLY, GSU(lastwidget_gsu), NULL },
     { "LBUFFER", PM_SCALAR,  GSU(lbuffer_gsu), NULL },
@@ -120,11 +133,18 @@ static struct zleparam {
     { "PREBUFFER",  PM_SCALAR | PM_READONLY,  GSU(prebuffer_gsu), NULL },
     { "PREDISPLAY", PM_SCALAR, GSU(predisplay_gsu), NULL },
     { "RBUFFER", PM_SCALAR,  GSU(rbuffer_gsu), NULL },
+    { "REGION_ACTIVE", PM_INTEGER, GSU(region_active_gsu), NULL},
+    { "region_highlight", PM_ARRAY, GSU(region_highlight_gsu), NULL },
+    { "UNDO_CHANGE_NO", PM_INTEGER | PM_READONLY, GSU(undo_change_no_gsu),
+      NULL },
     { "WIDGET", PM_SCALAR | PM_READONLY, GSU(widget_gsu), NULL },
     { "WIDGETFUNC", PM_SCALAR | PM_READONLY, GSU(widgetfunc_gsu), NULL },
     { "WIDGETSTYLE", PM_SCALAR | PM_READONLY, GSU(widgetstyle_gsu), NULL },
+    { "ZLE_STATE", PM_SCALAR | PM_READONLY, GSU(zle_state_gsu), NULL },
     { NULL, 0, NULL, NULL }
 };
+
+/* ro means parameters are readonly, used from completion */
 
 /**/
 mod_export void
@@ -154,7 +174,7 @@ makezleparams(int ro)
 		break;
 	}
 	if ((zp->type & PM_UNSET) && (zmod.flags & MOD_MULT))
-	    pm->flags &= ~PM_UNSET;
+	    pm->node.flags &= ~PM_UNSET;
     }
 }
 
@@ -175,14 +195,10 @@ static void
 set_buffer(UNUSED(Param pm), char *x)
 {
     if(x) {
-	unmetafy(x, &ll);
-	sizeline(ll);
-	strcpy((char *)line, x);
+	setline(x, 0);
 	zsfree(x);
-	if(cs > ll)
-	    cs = ll;
     } else
-	cs = ll = 0;
+	zlecs = zlell = 0;
     fixsuffix();
     menucmp = 0;
 }
@@ -191,7 +207,9 @@ set_buffer(UNUSED(Param pm), char *x)
 static char *
 get_buffer(UNUSED(Param pm))
 {
-    return metafy((char *)line, ll, META_HEAPDUP);
+    if (zlemetaline != 0)
+	return dupstring(zlemetaline);
+    return zlelineasstring(zleline, zlell, 0, NULL, NULL, 1);
 }
 
 /**/
@@ -199,11 +217,11 @@ static void
 set_cursor(UNUSED(Param pm), zlong x)
 {
     if(x < 0)
-	cs = 0;
-    else if(x > ll)
-	cs = ll;
+	zlecs = 0;
+    else if(x > zlell)
+	zlecs = zlell;
     else
-	cs = x;
+	zlecs = x;
     fixsuffix();
     menucmp = 0;
 }
@@ -212,7 +230,18 @@ set_cursor(UNUSED(Param pm), zlong x)
 static zlong
 get_cursor(UNUSED(Param pm))
 {
-    return cs;
+    if (zlemetaline != NULL) {
+	/* A lot of work for one number, but still... */
+	ZLE_STRING_T tmpline;
+	int tmpcs, tmpll, tmpsz;
+	char *tmpmetaline = ztrdup(zlemetaline);
+	tmpline = stringaszleline(tmpmetaline, zlemetacs,
+				  &tmpll, &tmpsz, &tmpcs);
+	free(tmpmetaline);
+	free(tmpline);
+	return tmpcs;
+    }
+    return zlecs;
 }
 
 /**/
@@ -221,8 +250,8 @@ set_mark(UNUSED(Param pm), zlong x)
 {
     if (x < 0)
 	mark = 0;
-    else if (x > ll)
-	mark = ll;
+    else if (x > zlell)
+	mark = zlell;
     else
 	mark = x;
 }
@@ -236,21 +265,37 @@ get_mark(UNUSED(Param pm))
 
 /**/
 static void
+set_region_active(UNUSED(Param pm), zlong x)
+{
+    region_active = (int)!!x;
+}
+
+/**/
+static zlong
+get_region_active(UNUSED(Param pm))
+{
+    return region_active;
+}
+
+/**/
+static void
 set_lbuffer(UNUSED(Param pm), char *x)
 {
-    char *y;
+    ZLE_STRING_T y;
     int len;
 
-    if(x)
-	unmetafy(y = x, &len);
+    if (x && *x != ZWC('\0'))
+	y = stringaszleline(x, 0, &len, NULL, NULL);
     else
-	y = "", len = 0;
-    sizeline(ll - cs + len);
-    memmove(line + len, line + cs, ll - cs);
-    memcpy(line, y, len);
-    ll = ll - cs + len;
-    cs = len;
+	y = ZWS(""), len = 0;
+    sizeline(zlell - zlecs + len);
+    ZS_memmove(zleline + len, zleline + zlecs, zlell - zlecs);
+    ZS_memcpy(zleline, y, len);
+    zlell = zlell - zlecs + len;
+    zlecs = len;
     zsfree(x);
+    if (len)
+	free(y);
     fixsuffix();
     menucmp = 0;
 }
@@ -259,23 +304,27 @@ set_lbuffer(UNUSED(Param pm), char *x)
 static char *
 get_lbuffer(UNUSED(Param pm))
 {
-    return metafy((char *)line, cs, META_HEAPDUP);
+    if (zlemetaline != NULL)
+	return dupstrpfx(zlemetaline, zlemetacs);
+    return zlelineasstring(zleline, zlecs, 0, NULL, NULL, 1);
 }
 
 /**/
 static void
 set_rbuffer(UNUSED(Param pm), char *x)
 {
-    char *y;
+    ZLE_STRING_T y;
     int len;
 
-    if(x)
-	unmetafy(y = x, &len);
+    if (x && *x != ZWC('\0'))
+	y = stringaszleline(x, 0, &len, NULL, NULL);
     else
-	y = "", len = 0;
-    sizeline(ll = cs + len);
-    memcpy(line + cs, y, len);
+	y = ZWS(""), len = 0;
+    sizeline(zlell = zlecs + len);
+    ZS_memcpy(zleline + zlecs, y, len);
     zsfree(x);
+    if (len)
+	free(y);
     fixsuffix();
     menucmp = 0;
 }
@@ -284,17 +333,30 @@ set_rbuffer(UNUSED(Param pm), char *x)
 static char *
 get_rbuffer(UNUSED(Param pm))
 {
-    return metafy((char *)line + cs, ll - cs, META_HEAPDUP);
+    if (zlemetaline != NULL)
+	return dupstrpfx((char *)zlemetaline + zlemetacs,
+			 zlemetall - zlemetacs);
+    return zlelineasstring(zleline + zlecs, zlell - zlecs, 0, NULL, NULL, 1);
 }
 
 /**/
 static char *
 get_prebuffer(UNUSED(Param pm))
 {
-    if (chline)
+    /*
+     * Use the editing current history line, not necessarily the
+     * history line that's currently in the history mechanism
+     * since our line may have been stacked.
+     */
+    if (zle_chline) {
+	/* zle_chline was NULL terminated when pushed onto the stack */
+	return dupstring(zle_chline);
+    }
+    if (chline) {
+	/* hptr is valid */
 	return dupstrpfx(chline, hptr - chline);
-    else
-	return dupstring("");
+    }
+    return dupstring("");
 }
 
 /**/
@@ -313,10 +375,9 @@ get_widgetfunc(UNUSED(Param pm))
 
     if (flags & WIDGET_INT)
 	return ".internal";	/* Don't see how this can ever be returned... */
-    else if (flags & WIDGET_NCOMP)
+    if (flags & WIDGET_NCOMP)
 	return widget->u.comp.func;
-    else
-	return widget->u.fnnam;
+    return widget->u.fnnam;
 }
 
 /**/
@@ -328,10 +389,9 @@ get_widgetstyle(UNUSED(Param pm))
 
     if (flags & WIDGET_INT)
 	return ".internal";	/* Don't see how this can ever be returned... */
-    else if (flags & WIDGET_NCOMP)
+    if (flags & WIDGET_NCOMP)
 	return widget->u.comp.wid;
-    else
-	return "";
+    return "";
 }
 
 /**/
@@ -418,9 +478,8 @@ static char *
 get_cutbuffer(UNUSED(Param pm))
 {
     if (cutbuf.buf)
-	return metafy(cutbuf.buf, cutbuf.len, META_HEAPDUP);
-    else
-	return "";
+	return zlelineasstring(cutbuf.buf, cutbuf.len, 0, NULL, NULL, 1);
+    return "";
 }
 
 
@@ -433,10 +492,8 @@ set_cutbuffer(UNUSED(Param pm), char *x)
     cutbuf.flags = 0;
     if (x) {
 	int n;
-	unmetafy(x, &n);
+	cutbuf.buf = stringaszleline(x, 0, &n, NULL, NULL);
 	cutbuf.len = n;
-	cutbuf.buf = zalloc(cutbuf.len);
-	memcpy((char *)cutbuf.buf, x, cutbuf.len);
 	free(x);
     } else {
 	cutbuf.buf = NULL;
@@ -469,7 +526,7 @@ set_killring(UNUSED(Param pm), char **x)
     if (kring) {
 	for (kptr = kring, kcnt = 0; kcnt < kringsize; kcnt++, kptr++)
 	    if (kptr->buf)
-		zfree(kptr->buf, kptr->len);
+		free(kptr->buf);
 	zfree(kring, kringsize * sizeof(struct cutbuffer));
 	kring = NULL;
 	kringsize = kringnum = 0;
@@ -488,14 +545,14 @@ set_killring(UNUSED(Param pm), char **x)
 	if (kringsize != 0) {
 	    kring = (Cutbuffer)zshcalloc(kringsize * sizeof(struct cutbuffer));
 	    for (p = x; *p; p++) {
-	        int n, len = strlen(*p);
-	        kptr = kring + kpos;
-	        unmetafy(*p, &n);
-	        kptr->len = n;
-	        kptr->buf = (char *)zalloc(kptr->len);
-	        memcpy(kptr->buf, *p, kptr->len);
-	        zfree(*p, len+1);
-	        kpos = (kpos + kringsize -1 ) % kringsize;
+		int n, len = strlen(*p);
+		kptr = kring + kpos;
+
+		kptr->buf = stringaszleline(*p, 0, &n, NULL, NULL);
+		kptr->len = n;
+
+		zfree(*p, len+1);
+		kpos = (kpos + kringsize -1 ) % kringsize;
 	    }
 	}
 	free(x);
@@ -526,11 +583,8 @@ get_killring(UNUSED(Param pm))
 	Cutbuffer kptr = kring + kpos;
 	if (kptr->buf)
 	{
-	    /*
-	     * Need to use HEAPDUP to make sure there's room for the
-	     * terminating NULL.
-	     */
-	    *p++ = metafy((char *)kptr->buf, kptr->len, META_HEAPDUP);
+	    /* Allocate on heap. */
+	    *p++ = zlelineasstring(kptr->buf, kptr->len, 0, NULL, NULL, 1);
 	}
 	else
 	    *p++ = dupstring("");
@@ -552,27 +606,23 @@ unset_killring(Param pm, int exp)
 }
 
 static void
-set_prepost(unsigned char **textvar, int *lenvar, char *x)
+set_prepost(ZLE_STRING_T *textvar, int *lenvar, char *x)
 {
     if (*lenvar) {
-	zfree(*textvar, *lenvar);
+	free(*textvar);
 	*textvar = NULL;
 	*lenvar = 0;
     }
     if (x) {
-	unmetafy(x, lenvar);
-	if (*lenvar) {
-	    *textvar = (unsigned char *)zalloc(*lenvar);
-	    memcpy((char *)*textvar, x, *lenvar);
-	}
+	*textvar = stringaszleline(x, 0, lenvar, NULL, NULL);
 	free(x);
     }
 }
 
 static char *
-get_prepost(unsigned char *text, int len)
+get_prepost(ZLE_STRING_T text, int len)
 {
-    return metafy((char *)text, len, META_HEAPDUP);
+    return zlelineasstring(text, len, 0, NULL, NULL, 1);
 }
 
 /**/
@@ -615,12 +665,20 @@ free_prepostdisplay(void)
 
 /**/
 static char *
+get_lasearch(UNUSED(Param pm))
+{
+    if (previous_aborted_search)
+	return previous_aborted_search;
+    return "";
+}
+
+/**/
+static char *
 get_lsearch(UNUSED(Param pm))
 {
-    if (previous_search_len)
-	return metafy(previous_search, previous_search_len, META_HEAPDUP);
-    else
-	return "";
+    if (previous_search)
+	return previous_search;
+    return "";
 }
 
 /**/
@@ -645,4 +703,69 @@ get_context(UNUSED(Param pm))
 	return "start";
 	break;
     }
+}
+
+/**/
+static char *
+get_zle_state(UNUSED(Param pm))
+{
+    char *zle_state = NULL, *ptr = NULL, **arr = NULL;
+    int itp, istate, len = 0;
+
+    /*
+     * Substrings are sorted at the end, so the user can
+     * easily match against this parameter:
+     * if [[ $ZLE_STATE == *bar*foo*zonk* ]]; then ...; fi
+     */
+    for (itp = 0; itp < 2; itp++) {
+	char *str;
+	for (istate = 0; istate < 2; istate++) {
+	    int slen;
+	    switch (istate) {
+	    case 0:
+		if (insmode) {
+		    str = "insert";
+		} else {
+		    str = "overwrite";
+		}
+		break;
+	    case 1:
+		if (hist_skip_flags & HIST_FOREIGN) {
+		    str = "localhistory";
+		} else {
+		    str = "globalhistory";
+		}
+		break;
+
+	    default:
+		str = "";
+	    }
+	    slen = strlen(str);
+	    if (itp == 0) {
+		/* Accumulating length */
+		if (istate)
+		    len++;	/* for space */
+		len += slen;
+	    } else {
+		/* Accumulating string */
+		if (istate)
+		    *ptr++ = ':';
+		memcpy(ptr, str, slen);
+		ptr += slen;
+	    }
+	}
+	if (itp == 0) {
+	    len++;		/* terminating NULL */
+	    ptr = zle_state = (char *)zhalloc(len);
+	} else {
+	    *ptr = '\0';
+	}
+    }
+
+    arr = colonsplit(zle_state, 0);
+    strmetasort(arr, SORTIT_ANYOLDHOW, NULL);
+    zle_state = zjoin(arr, ' ', 1);
+    freearray(arr);
+
+    return zle_state;
 }

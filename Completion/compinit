@@ -26,7 +26,7 @@
 #     expand-or-complete, expand-or-complete-prefix, list-choices,
 #     menu-complete, menu-expand-or-complete, or reverse-menu-complete).
 #     This creates a widget behaving like <style> so that the
-#     completions are chosen as given in the the rest of the file,
+#     completions are chosen as given in the rest of the file,
 #     rather than by the context.  The widget has the same name as
 #     the autoload file and can be bound using bindkey in the normal way.
 #
@@ -120,32 +120,39 @@ typeset -gA _lastcomp
 # Remember dumpfile.
 if [[ -n $_i_dumpfile ]]; then
   # Explicitly supplied dumpfile.
-  _comp_dumpfile="$_i_dumpfile"
+  typeset -g _comp_dumpfile="$_i_dumpfile"
 else
-  _comp_dumpfile="${ZDOTDIR:-$HOME}/.zcompdump"
+  typeset -g _comp_dumpfile="${ZDOTDIR:-$HOME}/.zcompdump"
 fi
 
 # The standard options set in completion functions.
 
+typeset -ga _comp_options
 _comp_options=(
-       glob
        bareglobqual
+       extendedglob
+       glob
+       multibyte
        nullglob
        rcexpandparam
-       extendedglob
        unset
-    NO_markdirs
+    NO_allexport
+    NO_aliases
+    NO_cshnullglob
+    NO_cshjunkiequotes
+    NO_errexit
     NO_globsubst
-    NO_shwordsplit
-    NO_shglob
+    NO_histsubstpattern
+    NO_ignorebraces
+    NO_ignoreclosebraces
     NO_kshglob
     NO_ksharrays
     NO_kshtypeset
-    NO_cshnullglob
-    NO_allexport
-    NO_aliases
-    NO_errexit
+    NO_markdirs
     NO_octalzeroes
+    NO_shwordsplit
+    NO_shglob
+    NO_warncreateglobal
 )
 
 # And this one should be `eval'ed at the beginning of every entry point
@@ -154,14 +161,19 @@ _comp_options=(
 # have a valid stdin descriptor (zle closes it before calling widgets)
 # and don't get confused by user's ZERR trap handlers.
 
-_comp_setup='setopt localoptions localtraps ${_comp_options[@]};
+typeset -g _comp_setup='local -A _comp_caller_options;
+             _comp_caller_options=(${(kv)options[@]});
+             setopt localoptions localtraps ${_comp_options[@]};
              local IFS=$'\'\ \\t\\r\\n\\0\''
              exec </dev/null;
-             trap - ZERR'
+             trap - ZERR
+             local -a reply
+             local REPLY'
 
 # These can hold names of functions that are to be called before/after all
 # matches have been generated.
 
+typeset -ga compprefuncs comppostfuncs
 compprefuncs=()
 comppostfuncs=()
 
@@ -220,7 +232,11 @@ comppostfuncs=()
 #   delete the definitions for the command names `bar' and `baz'
 
 compdef() {
-  local opt autol type func delete new i ret=0 cmd svc
+  local opt autol type func delete eval new i ret=0 cmd svc
+  local -a match mbegin mend
+
+  emulate -L zsh
+  setopt extendedglob
 
   # Get the options.
 
@@ -229,7 +245,7 @@ compdef() {
     return 1
   fi
 
-  while getopts "anpPkKd" opt; do
+  while getopts "anpPkKde" opt; do
     case "$opt" in
     a)    autol=yes;;
     n)    new=yes;;
@@ -250,6 +266,7 @@ compdef() {
 	  fi
 	  ;;
     d) delete=yes;;
+    e) eval=yes;;
     esac
   done
   shift OPTIND-1
@@ -263,7 +280,7 @@ compdef() {
     # If the first word contains an equal sign, all words must contain one
     # and we define which services to use for the commands.
 
-    if [[ "$1" = *\=* ]]; then
+    if [[ -z "$eval" ]] && [[ "$1" = *\=* ]]; then
       while (( $# )); do
         if [[ "$1" = *\=* ]]; then
 	  cmd="${1%%\=*}"
@@ -309,7 +326,7 @@ compdef() {
         [[ $2 = .menu-select ]] && zmodload -i zsh/complist
 	zle -C "$1" "$2" "$func"
 	if [[ -n $new ]]; then
-	  bindkey "$3" | read -A opt
+	  bindkey "$3" | IFS=$' \t' read -A opt
 	  [[ $opt[-1] = undefined-key ]] && bindkey "$3" "$1"
 	else
 	  bindkey "$3" "$1"
@@ -336,7 +353,7 @@ compdef() {
       # And bind the keys...
       for i; do
         if [[ -n $new ]]; then
-	   bindkey "$i" | read -A opt
+	   bindkey "$i" | IFS=$' \t' read -A opt
 	   [[ $opt[-1] = undefined-key ]] || continue
 	fi
         bindkey "$i" "$func"
@@ -355,10 +372,18 @@ compdef() {
         else
           case "$type" in
           pattern)
-            _patcomps[$1]="$func"
+	    if [[ $1 = (#b)(*)=(*) ]]; then
+	      _patcomps[$match[1]]="=$match[2]=$func"
+	    else
+	      _patcomps[$1]="$func"
+	    fi
             ;;
           postpattern)
-            _postpatcomps[$1]="$func"
+	    if [[ $1 = (#b)(*)=(*) ]]; then
+	      _postpatcomps[$match[1]]="=$match[2]=$func"
+	    else
+	      _postpatcomps[$1]="$func"
+	    fi
             ;;
           *)
             if [[ "$1" = *\=* ]]; then
@@ -414,8 +439,9 @@ if [[ -n "$_i_check" ]]; then
   if ! eval compaudit; then
     if [[ -n "$_i_q" ]]; then
       if [[ "$_i_fail" = ask ]]; then
-        if ! read -q "?Ignore insecure $_i_q and continue [ny]? "; then
-	  print -u2 "run compaudit to see list of insecure $_i_q"
+        if ! read -q \
+"?zsh compinit: insecure $_i_q, run compaudit for list.
+Ignore insecure $_i_q and continue [y] or abort compinit [n]? "; then
 	  print -u2 "$0: initialization aborted"
           unfunction compinit compdef
           unset _comp_dumpfile _comp_secure compprefuncs comppostfuncs \
@@ -430,7 +456,7 @@ if [[ -n "$_i_check" ]]; then
         (( $#_i_wdirs ))  && _i_files=( "${(@)_i_files:#(${(j:|:)_i_wdirs%.zwc})/*}" )
       fi
     fi
-    _comp_secure=yes
+    typeset -g _comp_secure=yes
   fi
 fi
 
@@ -443,7 +469,7 @@ _i_done=''
 
 if [[ -f "$_comp_dumpfile" ]]; then
   if [[ -n "$_i_check" ]]; then
-    read -rA _i_line < "$_comp_dumpfile"
+    IFS=$' \t' read -rA _i_line < "$_comp_dumpfile"
     if [[ _i_autodump -eq 1 && $_i_line[2] -eq $#_i_files &&
         $ZSH_VERSION = $_i_line[4] ]]
     then
@@ -465,7 +491,7 @@ if [[ -z "$_i_done" ]]; then
       _i_name="${_i_file:t}"
       (( $+_i_test[$_i_name] + $_i_wfiles[(I)$_i_file] )) && continue
       _i_test[$_i_name]=yes
-      read -rA _i_line < $_i_file
+      IFS=$' \t' read -rA _i_line < $_i_file
       _i_tag=$_i_line[1]
       shift _i_line
       case $_i_tag in
@@ -501,7 +527,7 @@ zle -la menu-select && zle -C menu-select .menu-select _main_complete
 
 # If the default completer set includes _expand, and tab is bound
 # to expand-or-complete, rebind it to complete-word instead.
-bindkey '^i' | read -A _i_line
+bindkey '^i' | IFS=$' \t' read -A _i_line
 if [[ ${_i_line[2]} = expand-or-complete ]] &&
   zstyle -a ':completion:' completer _i_line &&
   (( ${_i_line[(i)_expand]} <= ${#_i_line} )); then

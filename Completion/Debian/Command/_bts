@@ -25,7 +25,8 @@ if [[ CURRENT -eq 1 ]]; then
   _wanted cmd expl 'bts command' compadd show bugs close reopen retitle \
       reassign merge unmerge tag tags severity forwarded notforwarded help \
       clone submitter found notfound block unblock user usertag usertags \
-      package owner noowner reportspam cache cleancache
+      package owner noowner reportspam cache cleancache claim unclaim \
+      subscribe unsubscribe fixed notfixed affects
   return
 fi
 
@@ -84,16 +85,18 @@ case "$words[1]" in
       _wanted operator expl 'operator' compadd - '+' '-' '='
     elif [[ CURRENT -eq 4 ]]; then
       _wanted tag expl 'tag' \
-	 compadd patch wontfix moreinfo unreproducible fixed security \
-	 potato woody sid help pending upstream lfs sarge experimental \
-	 sarge-ignore d-i confirmed ipv6 fixed-in-experimental \
-	 fixed-upstream
+	 compadd patch wontfix moreinfo unreproducible help pending \
+	 fixed security upstream confirmed fixed-upstream \
+	 fixed-in-experimental d-i ipv6 lfs l10n potato woody sarge \
+	 sarge-ignore etch etch-ignore lenny lenny-ignore squeeze \
+	 squeeze-ignore wheezy wheezy-ignore sid experimental
     else
       _wanted tag expl 'tag' \
-	 compadd patch wontfix moreinfo unreproducible fixed security \
-	 potato woody sid help pending upstream lfs sarge experimental \
-	 sarge-ignore d-i confirmed ipv6 fixed-in-experimental \
-	 fixed-upstream
+	 compadd patch wontfix moreinfo unreproducible help pending \
+	 fixed security upstream confirmed fixed-upstream \
+	 fixed-in-experimental d-i ipv6 lfs l10n potato woody sarge \
+	 sarge-ignore etch etch-ignore lenny lenny-ignore squeeze \
+	 squeeze-ignore wheezy wheezy-ignore sid experimental
       _wanted sep expl 'separator' compadd -S ' ' , .
     fi
   ;;
@@ -125,7 +128,7 @@ case "$words[1]" in
      _wanted sep expl 'separator' compadd -S ' ' , .
     fi
   ;;
-  (submitter|owner)
+  (submitter)
     if [[ CURRENT -eq 2 ]]; then
       _message -e bugnum 'bug number'
     else
@@ -135,7 +138,18 @@ case "$words[1]" in
        'bang:bang:compadd \!'
     fi
   ;;
-  (found|notfound)
+  (owner|subscribe|unsubscribe)
+    if [[ CURRENT -eq 2 ]]; then
+      _message -e bugnum 'bug number'
+    elif [[ CURRENT -eq 3 ]]; then
+      _alternative \
+        'email:email address:_email_addresses -c' \
+        'bang:bang:compadd \!'
+    else
+      _wanted sep expl 'separator' compadd -S ' ' , .
+    fi
+  ;;
+  (found|notfound|fixed|notfixed)
     if [[ CURRENT -eq 2 ]]; then
       _message -e bugnum 'bug number'
     elif [[ CURRENT -eq 3 ]]; then
@@ -192,6 +206,26 @@ case "$words[1]" in
        'package:package:_deb_packages avail' \
        'email:email address:_email_addresses -c' \
        'all:all:compadd ALL'
+  ;;
+  (claim|unclaim)
+    if [[ CURRENT -eq 2 ]]; then
+      _message -e bugnum 'bug number'
+    elif [[ CURRENT -eq 3 ]]; then
+      _alternative \
+        'email:email address:_email_addresses -c' \
+	'separator:separator:compadd -S " " , .'
+    else
+      _wanted sep expl 'separator' compadd -S ' ' , .
+    fi
+  ;;
+  (affects)
+    if [[ CURRENT -eq 2 ]]; then
+      _message -e bugnum 'bug number'
+    elif [[ CURRENT -eq 3 ]]; then
+      _wanted operator expl 'operator' compadd - '+' '-' '='
+    else
+      _wanted package expl 'package' _deb_packages avail
+    fi
   ;;
   help)
   ;&

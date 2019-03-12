@@ -6,7 +6,9 @@
   mkdir glob.tmp/dir3/subdir
   : >glob.tmp/{,{dir1,dir2}/}{a,b,c}
 
-  globtest () { $ZTST_testdir/../Src/zsh -f $ZTST_srcdir/../Misc/$1 }
+  globtest () {
+    $ZTST_testdir/../Src/zsh -f $ZTST_srcdir/../Misc/$1
+  }
 
   regress_absolute_path_and_core_dump() {
     local absolute_dir=$(cd glob.tmp && pwd -P)
@@ -175,7 +177,31 @@
 >1:  [[ path/testy = *((#s)|/)test((#e)|/)* ]]
 >1:  [[ path/testy/ohyes = *((#s)|/)test((#e)|/)* ]]
 >1:  [[ path/atest/ohyes = *((#s)|/)test((#e)|/)* ]]
->0:  [[ björn = *[åäöÅÄÖ]* ]]
+>0:  [[ XabcdabcY = X(ab|c|d)(#c5)Y ]]
+>0:  [[ XabcdabcY = X(ab|c|d)(#c1,5)Y ]]
+>0:  [[ XabcdabcY = X(ab|c|d)(#c5,8)Y ]]
+>0:  [[ XabcdabcY = X(ab|c|d)(#c4,)Y ]]
+>1:  [[ XabcdabcY = X(ab|c|d)(#c6,)Y ]]
+>1:  [[ XabcdabcY = X(ab|c|d)(#c1,4)Y ]]
+>0:  [[ ZX = Z(|)(#c1)X ]]
+>0:  [[ froofroo = (fro(#c2))(#c2) ]]
+>1:  [[ froofroofroo = (fro(#c2))(#c2) ]]
+>1:  [[ froofro = (fro(#c2))(#c2) ]]
+>0:  [[ ax = ?(#c1,2)x ]]
+>0:  [[ ax = ?(#c1,)x ]]
+>0:  [[ ax = ?(#c0,1)x ]]
+>1:  [[ ax = ?(#c0,0)x ]]
+>1:  [[ ax = ?(#c2,)x ]]
+>0:  [[ aa = a(#c1,2)a ]]
+>0:  [[ aa = a(#c1,)a ]]
+>0:  [[ aa = a(#c0,1)a ]]
+>1:  [[ aa = a(#c0,0)a ]]
+>1:  [[ aa = a(#c2,)a ]]
+>0:  [[ test.zsh = *.?(#c1)sh ]]
+>0:  [[ test.bash = *.?(#c2)sh ]]
+>0:  [[ test.bash = *.?(#c1,2)sh ]]
+>0:  [[ test.bash = *.?(#c1,)sh ]]
+>0:  [[ test.zsh = *.?(#c1,)sh ]]
 >0 tests failed.
 
   globtest globtests.ksh
@@ -263,6 +289,10 @@
 >0:  [[ Modules = (#i)*m* ]]
 >0 tests failed.
 
+ (unsetopt multibyte
+ [[ björn = *[åäöÅÄÖ]* ]])
+0:single byte match with top bit set
+
   ( regress_absolute_path_and_core_dump )
 0:exclusions regression test
 >
@@ -313,6 +343,47 @@
 0:Exclusions with complicated path specifications
 >glob.tmp/dir1 glob.tmp/dir2 glob.tmp/dir4
 
+ print -l -- glob.tmp/*(P:-f:)
+0:Prepending words to each argument
+>-f
+>glob.tmp/a
+>-f
+>glob.tmp/b
+>-f
+>glob.tmp/c
+>-f
+>glob.tmp/dir1
+>-f
+>glob.tmp/dir2
+>-f
+>glob.tmp/dir3
+>-f
+>glob.tmp/dir4
+
+ print -l -- glob.tmp/*(P:one word:P:another word:)
+0:Prepending two words to each argument
+>one word
+>another word
+>glob.tmp/a
+>one word
+>another word
+>glob.tmp/b
+>one word
+>another word
+>glob.tmp/c
+>one word
+>another word
+>glob.tmp/dir1
+>one word
+>another word
+>glob.tmp/dir2
+>one word
+>another word
+>glob.tmp/dir3
+>one word
+>another word
+>glob.tmp/dir4
+
  [[ "" = "" ]] && echo OK
 0:Empty strings
 >OK
@@ -352,3 +423,13 @@
 >  [[:IFSSPACE:]] yes
 >/ [[:WORD:]] no
 >/ [[:WORD:]] yes
+
+ [[ foo = (#c0)foo ]]
+2:Misplaced (#c...) flag
+?(eval):1: bad pattern: (#c0)foo
+
+ mkdir glob.tmp/dir5
+ touch glob.tmp/dir5/N123
+ print glob.tmp/dir5/N<->(N)
+0:Numeric glob is not usurped by process substitution.
+>glob.tmp/dir5/N123

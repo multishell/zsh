@@ -122,13 +122,15 @@ freecpattern(Cpattern p)
 
     while (p) {
 	n = p->next;
+	if (p->tp <= CPAT_EQUIV)
+	    free(p->u.str);
 	zfree(p, sizeof(struct cpattern));
 
 	p = n;
     }
 }
 
-/* Copy a completion matcher list. */
+/* Copy a completion matcher list into permanent storage. */
 
 /**/
 mod_export Cmatcher
@@ -157,22 +159,51 @@ cpcmatcher(Cmatcher m)
     return r;
 }
 
+/*
+ * Copy a single entry in a matcher pattern.
+ * If useheap is 1, it comes from the heap.
+ */
+
+/**/
+mod_export Cpattern
+cp_cpattern_element(Cpattern o)
+{
+    Cpattern n = zalloc(sizeof(struct cpattern));
+
+    n->next = NULL;
+
+    n->tp = o->tp;
+    switch (o->tp)
+    {
+    case CPAT_CCLASS:
+    case CPAT_NCLASS:
+    case CPAT_EQUIV:
+	n->u.str = ztrdup(o->u.str);
+	break;
+
+    case CPAT_CHAR:
+	n->u.chr = o->u.chr;
+	break;
+
+    default:
+	/* just to keep compiler quiet */
+	break;
+    }
+
+    return n;
+}
+
 /* Copy a completion matcher pattern. */
 
 /**/
 static Cpattern
 cpcpattern(Cpattern o)
 {
-    Cpattern r = NULL, *p = &r, n;
+    Cpattern r = NULL, *p = &r;
 
     while (o) {
-	*p = n = (Cpattern) zalloc(sizeof(struct cpattern));
-
-	n->next = NULL;
-	memcpy(n->tab, o->tab, 256);
-	n->equiv = o->equiv;
-
-	p = &(n->next);
+	*p = cp_cpattern_element(o);
+	p = &((*p)->next);
 	o = o->next;
     }
     return r;
@@ -213,18 +244,18 @@ parse_cmatcher(char *name, char *s)
 	default:
 	    if (name)
 		zwarnnam(name, "unknown match specification character `%c'",
-			 NULL, *s);
+			 *s);
 	    return pcm_err;
 	}
 	if (s[1] != ':') {
 	    if (name)
-		zwarnnam(name, "missing `:'", NULL, 0);
+		zwarnnam(name, "missing `:'");
 	    return pcm_err;
 	}
 	s += 2;
 	if (!*s) {
 	    if (name)
-		zwarnnam(name, "missing patterns", NULL, 0);
+		zwarnnam(name, "missing patterns");
 	    return pcm_err;
 	}
 	if ((fl & CMF_LEFT) && !fl2) {
@@ -237,7 +268,7 @@ parse_cmatcher(char *name, char *s)
 
 	    if (!*s || !*++s) {
 		if (name)
-		    zwarnnam(name, "missing line pattern", NULL, 0);
+		    zwarnnam(name, "missing line pattern");
 		return pcm_err;
 	    }
 	} else
@@ -256,11 +287,11 @@ parse_cmatcher(char *name, char *s)
 	}
 	if ((fl & CMF_RIGHT) && !fl2 && (!*s || !*++s)) {
 	    if (name)
-		zwarnnam(name, "missing right anchor", NULL, 0);
+		zwarnnam(name, "missing right anchor");
 	} else if (!(fl & CMF_RIGHT) || fl2) {
 	    if (!*s) {
 		if (name)
-		    zwarnnam(name, "missing word pattern", NULL, 0);
+		    zwarnnam(name, "missing word pattern");
 		return pcm_err;
 	    }
 	    s++;
@@ -278,7 +309,7 @@ parse_cmatcher(char *name, char *s)
 		return pcm_err;
 	    if (!*s) {
 		if (name)
-		    zwarnnam(name, "missing word pattern", NULL, 0);
+		    zwarnnam(name, "missing word pattern");
 		return pcm_err;
 	    }
 	    s++;
@@ -288,7 +319,7 @@ parse_cmatcher(char *name, char *s)
 	if (*s == '*') {
 	    if (!(fl & (CMF_LEFT | CMF_RIGHT))) {
 		if (name)
-		    zwarnnam(name, "need anchor for `*'", NULL, 0);
+		    zwarnnam(name, "need anchor for `*'");
 		return pcm_err;
 	    }
 	    word = NULL;
@@ -302,8 +333,7 @@ parse_cmatcher(char *name, char *s)
 
 	    if (!word && !line) {
 		if (name)
-		    zwarnnam(name, "need non-empty word or line pattern",
-			     NULL, 0);
+		    zwarnnam(name, "need non-empty word or line pattern");
 		return pcm_err;
 	    }
 	}
@@ -332,50 +362,62 @@ parse_cmatcher(char *name, char *s)
     return ret;
 }
 
-/* Parse a pattern for matcher control. */
+/*
+ * Parse a pattern for matcher control. 
+ * name is the name of the builtin from which this is called, for errors.
+ * *sp is the input string and will be updated to the end of the parsed
+ *   pattern.
+ * *lp will be set to the number of characters (possibly multibyte)
+ *   that the pattern will match.  This must be deterministic, given
+ *   the syntax allowed here.
+ * e, if non-zero, is the ASCII end character to match; if zero,
+ *   stop on a blank.
+ * *err is set to 1 to indicate an error, else to 0.
+ */
 
 /**/
 static Cpattern
 parse_pattern(char *name, char **sp, int *lp, char e, int *err)
 {
     Cpattern ret = NULL, r = NULL, n;
-    unsigned char *s = (unsigned char *) *sp;
-    int l = 0;
+    char *s = *sp;
+    convchar_t inchar;
+    int l = 0, inlen;
 
     *err = 0;
 
+    MB_METACHARINIT();
     while (*s && (e ? (*s != e) : !inblank(*s))) {
 	n = (Cpattern) hcalloc(sizeof(*n));
 	n->next = NULL;
-	n->equiv = 0;
 
-	if (*s == '[') {
-	    s = parse_class(n, s + 1, ']');
+	if (*s == '[' || *s == '{') {
+	    s = parse_class(n, s);
 	    if (!*s) {
 		*err = 1;
-		zwarnnam(name, "unterminated character class", NULL, 0);
+		zwarnnam(name, "unterminated character class");
 		return NULL;
 	    }
-	} else if (*s == '{') {
-	    n->equiv = 1;
-	    s = parse_class(n, s + 1, '}');
-	    if (!*s) {
-		*err = 1;
-		zwarnnam(name, "unterminated character class", NULL, 0);
-		return NULL;
-	    }
+	    s++;
 	} else if (*s == '?') {
-	    memset(n->tab, 1, 256);
+	    n->tp = CPAT_ANY;
+	    s++;
 	} else if (*s == '*' || *s == '(' || *s == ')' || *s == '=') {
 	    *err = 1;
-	    zwarnnam(name, "invalid pattern character `%c'", NULL, *s);
+	    zwarnnam(name, "invalid pattern character `%c'", *s);
 	    return NULL;
 	} else {
 	    if (*s == '\\' && s[1])
 		s++;
 
-	    memset(n->tab, 0, 256);
-	    n->tab[*s] = 1;
+	    inlen = MB_METACHARLENCONV(s, &inchar);
+#ifdef MULTIBYTE_SUPPORT
+	    if (inchar == WEOF)
+		inchar = (convchar_t)(*s == Meta ? s[1] ^ 32 : *s);
+#endif
+	    s += inlen;
+	    n->tp = CPAT_CHAR;
+	    n->u.chr = inchar;
 	}
 	if (ret)
 	    r->next = n;
@@ -385,7 +427,6 @@ parse_pattern(char *name, char **sp, int *lp, char e, int *err)
 	r = n;
 
 	l++;
-	s++;
     }
     *sp = (char *) s;
     *lp = l;
@@ -395,28 +436,86 @@ parse_pattern(char *name, char **sp, int *lp, char e, int *err)
 /* Parse a character class for matcher control. */
 
 /**/
-static unsigned char *
-parse_class(Cpattern p, unsigned char *s, unsigned char e)
+static char *
+parse_class(Cpattern p, char *iptr)
 {
-    int n = 0, i = 1, j, eq = (e == '}'), k = 1;
+    int endchar, firsttime = 1;
+    char *optr, *nptr;
 
-    if (!eq && (*s == '!' || *s == '^') && s[1] != e) { n = 1; s++; }
-
-    memset(p->tab, n, 256);
-
-    n = !n;
-    while (*s && (k || *s != e)) {
-	if (s[1] == '-' && s[2] && s[2] != e) {
-	    /* a run of characters */
-	    for (j = (int) *s; j <= (int) s[2]; j++)
-		p->tab[j] = (eq ? i++ : n);
-
-	    s += 3;
+    if (*iptr++ == '[') {
+	endchar = ']';
+	/* TODO: surely [^]] is valid? */
+	if ((*iptr == '!' || *iptr == '^') && iptr[1] != ']') {
+	    p->tp = CPAT_NCLASS;
+	    iptr++;
 	} else
-	    p->tab[*s++] = (eq ? i++ : n);
-	k = 0;
+	    p->tp = CPAT_CCLASS;
+    } else {
+	endchar = '}';
+	p->tp = CPAT_EQUIV;
     }
-    return s;
+
+    /* find end of class.  End character can appear literally first. */
+    for (optr = iptr; optr == iptr || *optr != endchar; optr++)
+	if (!*optr)
+	    return optr;
+    /*
+     * We can always fit the parsed class within the same length
+     * because of the tokenization (including a null byte).
+     *
+     * As the input string is metafied, but shouldn't contain shell
+     * tokens, we can just add our own tokens willy nilly.
+     */
+    optr = p->u.str = zhalloc((optr-iptr) + 1);
+
+    while (firsttime || *iptr != endchar) {
+	int ch;
+
+	if (*iptr == '[' && iptr[1] == ':' &&
+	    (nptr = strchr((char *)iptr + 2, ':')) && nptr[1] == ']') {
+	    /* Range type */
+	    iptr += 2;
+	    ch = range_type((char *)iptr, nptr-iptr);
+	    iptr = nptr + 2;
+	    if (ch != PP_UNKWN)
+		*optr++ = STOUC(Meta) + ch;
+	} else {
+	    /* characters stay metafied */
+	    char *ptr1 = iptr;
+	    if (*iptr == Meta)
+		iptr++;
+	    iptr++;
+	    if (*iptr == '-' && iptr[1] && iptr[1] != endchar) {
+		/* a run of characters */
+		iptr++;
+		/* range token */
+		*optr++ = Meta + PP_RANGE;
+
+		/* start of range character */
+		if (*ptr1 == Meta) {
+		    *optr++ = Meta;
+		    *optr++ = ptr1[1] ^ 32;
+		} else
+		    *optr++ = *ptr1;
+
+		if (*iptr == Meta) {
+		    *optr++ = *iptr++;
+		    *optr++ = *iptr++;
+		} else
+		    *optr++ = *iptr++;
+	    } else {
+		if (*ptr1 == Meta) {
+		    *optr++ = Meta;
+		    *optr++ = ptr1[1] ^ 32;
+		} else
+		    *optr++ = *ptr1;
+	    }
+	}
+	firsttime = 0;
+    }
+
+    *optr = '\0';
+    return iptr;
 }
 
 /**/
@@ -429,7 +528,7 @@ bin_compadd(char *name, char **argv, UNUSED(Options ops), UNUSED(int func))
     Cmatcher match = NULL;
 
     if (incompfunc != 1) {
-	zwarnnam(name, "can only be called from completion function", NULL, 0);
+	zwarnnam(name, "can only be called from completion function");
 	return 1;
     }
     dat.ipre = dat.isuf = dat.ppre = dat.psuf = dat.prpre = dat.mesg =
@@ -569,6 +668,9 @@ bin_compadd(char *name, char **argv, UNUSED(Options ops), UNUSED(int func))
 	    case 'l':
 		dat.flags |= CMF_DISPLINE;
 		break;
+	    case 'o':
+		dat.flags |= CMF_MORDER;
+		break;
 	    case 'E':
                 if (p[1]) {
                     dat.dummies = atoi(p + 1);
@@ -578,11 +680,13 @@ bin_compadd(char *name, char **argv, UNUSED(Options ops), UNUSED(int func))
                     dat.dummies = atoi(*argv);
                     p = "" - 1;
                 } else {
-                    zwarnnam(name, "number expected after -%c", NULL, *p);
+                    zwarnnam(name, "number expected after -%c", *p);
+		    zsfree(mstr);
                     return 1;
                 }
                 if (dat.dummies < 0) {
-                    zwarnnam(name, "invalid number: %d", NULL, dat.dummies);
+                    zwarnnam(name, "invalid number: %d", dat.dummies);
+		    zsfree(mstr);
                     return 1;
                 }
 		break;
@@ -590,7 +694,8 @@ bin_compadd(char *name, char **argv, UNUSED(Options ops), UNUSED(int func))
 		argv++;
 		goto ca_args;
 	    default:
-		zwarnnam(name, "bad option: -%c", NULL, *p);
+		zwarnnam(name, "bad option: -%c", *p);
+		zsfree(mstr);
 		return 1;
 	    }
 	    if (sp) {
@@ -604,7 +709,8 @@ bin_compadd(char *name, char **argv, UNUSED(Options ops), UNUSED(int func))
 			*sp = *argv;
 		    p = "" - 1;
 		} else {
-		    zwarnnam(name, e, NULL, *p);
+		    zwarnnam(name, e, *p);
+		    zsfree(mstr);
 		    return 1;
 		}
 		if (dm) {
@@ -820,9 +926,9 @@ do_comp_vars(int test, int na, char *sa, int nb, char *sb, int mod)
 		    na = -na;
 		    add = -1;
 		} else {
-		    p = compprefix + 1;
-		    if (*p == Meta)
-			p++;
+		    p = compprefix + 1 + (*compprefix == Meta);
+		    if (p > compprefix + l)
+			p = compprefix + l;
 		    add = 1;
 		}
 		for (;;) {
@@ -835,10 +941,9 @@ do_comp_vars(int test, int na, char *sa, int nb, char *sb, int mod)
 		    if (add > 0) {
 			if (p == compprefix + l)
 			    return 0;
-			if (*p == Meta)
-			    p += 2;
-			else
-			    p++;
+			p = p + 1 + (*p == Meta);
+			if (p > compprefix + l)
+			    p = compprefix + l;
 		    } else {
 			if (p == compprefix)
 			    return 0;
@@ -902,11 +1007,11 @@ bin_compset(char *name, char **argv, UNUSED(Options ops), UNUSED(int func))
     char *sa = NULL, *sb = NULL;
 
     if (incompfunc != 1) {
-	zwarnnam(name, "can only be called from completion function", NULL, 0);
+	zwarnnam(name, "can only be called from completion function");
 	return 1;
     }
     if (argv[0][0] != '-') {
-	zwarnnam(name, "missing option", NULL, 0);
+	zwarnnam(name, "missing option");
 	return 1;
     }
     switch (argv[0][1]) {
@@ -918,7 +1023,7 @@ bin_compset(char *name, char **argv, UNUSED(Options ops), UNUSED(int func))
     case 'S': test = CVT_SUFPAT; break;
     case 'q': return set_comp_sep();
     default:
-	zwarnnam(name, "bad option -%c", NULL, argv[0][1]);
+	zwarnnam(name, "bad option -%c", argv[0][1]);
 	return 1;
     }
     if (argv[0][2]) {
@@ -927,7 +1032,7 @@ bin_compset(char *name, char **argv, UNUSED(Options ops), UNUSED(int func))
 	na = 2;
     } else {
 	if (!(sa = argv[1])) {
-	    zwarnnam(name, "missing string for option -%c", NULL, argv[0][1]);
+	    zwarnnam(name, "missing string for option -%c", argv[0][1]);
 	    return 1;
 	}
 	sb = argv[2];
@@ -935,7 +1040,7 @@ bin_compset(char *name, char **argv, UNUSED(Options ops), UNUSED(int func))
     }
     if (((test == CVT_PRENUM || test == CVT_SUFNUM) ? !!sb :
 	 (sb && argv[na]))) {
-	zwarnnam(name, "too many arguments", NULL, 0);
+	zwarnnam(name, "too many arguments");
 	return 1;
     }
     switch (test) {
@@ -991,6 +1096,8 @@ static const struct gsu_scalar unambig_pos_gsu =
 { get_unambig_pos, nullstrsetfn, compunsetfn };
 static const struct gsu_scalar insert_pos_gsu =
 { get_insert_pos, nullstrsetfn, compunsetfn };
+static const struct gsu_scalar compqstack_gsu =
+{ get_compqstack, nullstrsetfn, compunsetfn };
 
 static const struct gsu_integer compvarinteger_gsu =
 { intvargetfn, intvarsetfn, compunsetfn };
@@ -1046,7 +1153,7 @@ static struct compparam compkparams[] = {
     { "old_insert", PM_SCALAR, VAL(compoldins), NULL },
     { "vared", PM_SCALAR, VAL(compvared), NULL },
     { "list_lines", PM_INTEGER | PM_READONLY, NULL, GSU(listlines_gsu) },
-    { "all_quotes", PM_SCALAR | PM_READONLY, VAL(compqstack), NULL },
+    { "all_quotes", PM_SCALAR | PM_READONLY, NULL, GSU(compqstack_gsu) },
     { "ignored", PM_INTEGER | PM_READONLY, VAL(compignored), NULL },
     { NULL, 0, NULL, NULL }
 };
@@ -1136,7 +1243,7 @@ set_compstate(UNUSED(Param pm), HashTable ht)
 	    for (cp = compkparams,
 		 pp = compkpms; cp->name; cp++, pp++)
 		if (!strcmp(hn->nam, cp->name)) {
-		    v.isarr = v.inv = v.start = 0;
+		    v.isarr = v.flags = v.start = 0;
 		    v.end = -1;
 		    v.arr = NULL;
 		    v.pm = (Param) hn;
@@ -1146,7 +1253,7 @@ set_compstate(UNUSED(Param pm), HashTable ht)
 			zsfree(*((char **) cp->var));
 			*((char **) cp->var) = ztrdup(str);
 		    }
-		    (*pp)->flags &= ~PM_UNSET;
+		    (*pp)->node.flags &= ~PM_UNSET;
 
 		    break;
 		}
@@ -1222,23 +1329,43 @@ get_insert_pos(UNUSED(Param pm))
 }
 
 /**/
+static char *
+get_compqstack(UNUSED(Param pm))
+{
+    char *p, *ptr, *cqp;
+
+    if (!compqstack)		/* TODO: don't think this can happen... */
+	return "";
+
+    ptr = p = zhalloc(2*strlen(compqstack)+1);
+
+    for (cqp = compqstack; *cqp; cqp++) {
+	char *str = comp_quoting_string(*cqp);
+	*ptr++ = *str;
+    }
+    *ptr = '\0';
+
+    return p;
+}
+
+/**/
 static void
 compunsetfn(Param pm, int exp)
 {
     if (exp) {
 	if (pm->u.data) {
-	    if (PM_TYPE(pm->flags) == PM_SCALAR) {
+	    if (PM_TYPE(pm->node.flags) == PM_SCALAR) {
 		zsfree(*((char **) pm->u.data));
 		*((char **) pm->u.data) = ztrdup("");
-	    } else if (PM_TYPE(pm->flags) == PM_ARRAY) {
+	    } else if (PM_TYPE(pm->node.flags) == PM_ARRAY) {
 		freearray(*((char ***) pm->u.data));
 		*((char ***) pm->u.data) = zshcalloc(sizeof(char *));
-	    } else if (PM_TYPE(pm->flags) == PM_HASHED) {
+	    } else if (PM_TYPE(pm->node.flags) == PM_HASHED) {
 		deleteparamtable(pm->u.hash);
 		pm->u.hash = NULL;
 	    }
 	}
-    } else if (PM_TYPE(pm->flags) == PM_HASHED) {
+    } else if (PM_TYPE(pm->node.flags) == PM_HASHED) {
 	Param *p;
 	int i;
 
@@ -1270,9 +1397,9 @@ comp_setunset(int rset, int runset, int kset, int kunset)
 	for (p = comprpms; rset || runset; rset >>= 1, runset >>= 1, p++) {
 	    if (*p) {
 		if (rset & 1)
-		    (*p)->flags &= ~PM_UNSET;
+		    (*p)->node.flags &= ~PM_UNSET;
 		if (runset & 1)
-		    (*p)->flags |= PM_UNSET;
+		    (*p)->node.flags |= PM_UNSET;
 	    }
 	}
     }
@@ -1280,9 +1407,9 @@ comp_setunset(int rset, int runset, int kset, int kunset)
 	for (p = compkpms; kset || kunset; kset >>= 1, kunset >>= 1, p++) {
 	    if (*p) {
 		if (kset & 1)
-		    (*p)->flags &= ~PM_UNSET;
+		    (*p)->node.flags &= ~PM_UNSET;
 		if (kunset & 1)
-		    (*p)->flags |= PM_UNSET;
+		    (*p)->node.flags |= PM_UNSET;
 	    }
 	}
     }
@@ -1304,10 +1431,10 @@ comp_wrapper(Eprog prog, FuncWrap w, char *name)
 	m = CP_WORDS | CP_REDIRS | CP_CURRENT | CP_PREFIX | CP_SUFFIX | 
 	    CP_IPREFIX | CP_ISUFFIX | CP_QIPREFIX | CP_QISUFFIX;
 	for (pp = comprpms, sm = 1; m; pp++, m >>= 1, sm <<= 1) {
-	    if ((m & 1) && ((*pp)->flags & PM_UNSET))
+	    if ((m & 1) && ((*pp)->node.flags & PM_UNSET))
 		runset |= sm;
 	}
-	if (compkpms[CPN_RESTORE]->flags & PM_UNSET)
+	if (compkpms[CPN_RESTORE]->node.flags & PM_UNSET)
 	    kunset = CP_RESTORE;
 	orest = comprestore;
 	comprestore = ztrdup("auto");
@@ -1388,7 +1515,7 @@ static int
 comp_check(void)
 {
     if (incompfunc != 1) {
-	zerr("condition can only be used in completion function", NULL, 0);
+	zerr("condition can only be used in completion function");
 	return 0;
     }
     return 1;
@@ -1417,15 +1544,15 @@ cond_range(char **a, int id)
 }
 
 static struct builtin bintab[] = {
-    BUILTIN("compadd", 0, bin_compadd, 0, -1, 0, NULL, NULL),
+    BUILTIN("compadd", BINF_HANDLES_OPTS, bin_compadd, 0, -1, 0, NULL, NULL),
     BUILTIN("compset", 0, bin_compset, 1, 3, 0, NULL, NULL),
 };
 
 static struct conddef cotab[] = {
+    CONDDEF("after", 0, cond_range, 1, 1, 0),
+    CONDDEF("between", 0, cond_range, 2, 2, 1),
     CONDDEF("prefix", 0, cond_psfix, 1, 2, CVT_PREPAT),
     CONDDEF("suffix", 0, cond_psfix, 1, 2, CVT_SUFPAT),
-    CONDDEF("between", 0, cond_range, 2, 2, 1),
-    CONDDEF("after", 0, cond_range, 1, 1, 0),
 };
 
 static struct funcwrap wrapper[] = {
@@ -1442,6 +1569,14 @@ struct hookdef comphooks[] = {
     HOOKDEF("compctl_make", NULL, 0),
     HOOKDEF("compctl_cleanup", NULL, 0),
     HOOKDEF("comp_list_matches", ilistmatches, 0),
+};
+
+static struct features module_features = {
+    bintab, sizeof(bintab)/sizeof(*bintab),
+    cotab, sizeof(cotab)/sizeof(*cotab),
+    NULL, 0,
+    NULL, 0,
+    0
 };
 
 /**/
@@ -1469,6 +1604,21 @@ setup_(UNUSED(Module m))
 
 /**/
 int
+features_(Module m, char ***features)
+{
+    *features = featuresarray(m, &module_features);
+    return 0;
+}
+
+/**/
+int
+enables_(Module m, int **enables)
+{
+    return handlefeatures(m, &module_features, enables);
+}
+
+/**/
+int
 boot_(Module m)
 {
     addhookfunc("complete", (Hookfn) do_completion);
@@ -1478,12 +1628,8 @@ boot_(Module m)
     addhookfunc("reverse_menu", (Hookfn) reverse_menu);
     addhookfunc("list_matches", (Hookfn) list_matches);
     addhookfunc("invalidate_list", (Hookfn) invalidate_list);
-    addhookdefs(m->nam, comphooks, sizeof(comphooks)/sizeof(*comphooks));
-    if (!(addbuiltins(m->nam, bintab, sizeof(bintab)/sizeof(*bintab)) |
-	  addconddefs(m->nam, cotab, sizeof(cotab)/sizeof(*cotab)) |
-	  !addwrapper(m, wrapper)))
-	return 1;
-    return 0;
+    (void)addhookdefs(m, comphooks, sizeof(comphooks)/sizeof(*comphooks));
+    return addwrapper(m, wrapper);
 }
 
 /**/
@@ -1497,11 +1643,10 @@ cleanup_(Module m)
     deletehookfunc("reverse_menu", (Hookfn) reverse_menu);
     deletehookfunc("list_matches", (Hookfn) list_matches);
     deletehookfunc("invalidate_list", (Hookfn) invalidate_list);
-    deletehookdefs(m->nam, comphooks, sizeof(comphooks)/sizeof(*comphooks));
-    deletebuiltins(m->nam, bintab, sizeof(bintab)/sizeof(*bintab));
-    deleteconddefs(m->nam, cotab, sizeof(cotab)/sizeof(*cotab));
+    (void)deletehookdefs(m, comphooks,
+			 sizeof(comphooks)/sizeof(*comphooks));
     deletewrapper(m, wrapper);
-    return 0;
+    return setfeatureenables(m, &module_features, NULL);
 }
 
 /**/

@@ -1,4 +1,4 @@
-.TH "ZSHROADMAP" "1" "December 17, 2007" "zsh 4\&.2\&.7"
+.TH "ZSHROADMAP" "1" "July 21, 2012" "zsh 5\&.0\&.0"
 .SH "NAME"
 zshroadmap \- informal introduction to the zsh manual
 .\" Yodl file: Zsh/roadmap.yo
@@ -13,6 +13,14 @@ where in the rest of the manual the documentation is to be found\&.
 When it starts, the shell reads commands from various files\&.  These can
 be created or edited to customize the shell\&.  See the section
 Startup/Shutdown Files in \fIzsh\fP(1)\&.
+.PP
+If no personal initialization files exist for the current user, a function
+is run to help you change some of the most common settings\&.  It won\&'t
+appear if your administrator has disabled the \fBzsh/newuser\fP module\&.
+The function is designed to be self\-explanatory\&.  You can run it by hand
+with `\fBautoload \-Uz zsh\-newuser\-install; zsh\-newuser\-install \-f\fP\&'\&.
+See also
+the section User Configuration Functions in \fIzshcontrib\fP(1)\&.
 .PP
 .SH "INTERACTIVE USE"
 .PP
@@ -31,6 +39,23 @@ set appropriate variables, and the number of history lines retained by
 default is quite small (30 lines)\&.  See the description of the shell
 variables (referred to in the documentation as parameters) \fBHISTFILE\fP,
 \fBHISTSIZE\fP and \fBSAVEHIST\fP in \fIzshparam\fP(1)\&.
+.PP
+The shell now supports the UTF\-8 character set (and also others if
+supported by the operating system)\&.  This is (mostly) handled transparently
+by the shell, but the degree of support in terminal emulators is variable\&.
+There is some discussion of this in the shell FAQ,
+http://zsh\&.dotsrc\&.org/FAQ/ \&.  Note in particular that for combining
+characters to be handled the option \fBCOMBINING_CHARS\fP needs to be set\&.
+Because the shell is now more sensitive to the definition of the
+character set, note that if you are upgrading from an older version of
+the shell you should ensure that the appropriate variable, either
+\fBLANG\fP (to affect all aspects of the shell\&'s operation) or
+\fBLC_CTYPE\fP (to affect only the handling of character sets) is set to
+an appropriate value\&.  This is true even if you are using a
+single\-byte character set including extensions of ASCII such as
+\fBISO\-8859\-1\fP or \fBISO\-8859\-15\fP\&.  See the description of \fBLC_CTYPE\fP
+in
+\fIzshparam\fP(1)\&.
 .PP
 .SS "Completion"
 .PP
@@ -123,11 +148,10 @@ its default behaviour does not entirely correspond to those shells\&.
 General shell syntax is introduced in the section `Shell Grammar\&' in
 \fIzshmisc\fP(1)\&.
 .PP
-One commonly encountered difference is that variables (other than arrays, a
-particular type of variable) substituted onto the command line are not
-split into words\&.  See the description of the shell option
-\fBSH_WORD_SPLIT\fP in the section `Parameter Expansion\&' in
-\fIzshexpn\fP(1)\&.
+One commonly encountered difference is that variables substituted onto the
+command line are not split into words\&.  See the description of the shell option
+\fBSH_WORD_SPLIT\fP in
+the section `Parameter Expansion\&' in \fIzshexpn\fP(1)\&.
 In zsh, you can either explicitly request the splitting (e\&.g\&. \fB${=foo}\fP)
 or use an array when you want a variable to expand to more than one word\&.  See
 the section `Array Parameters\&' in \fIzshparam\fP(1)\&.
@@ -137,7 +161,9 @@ the section `Array Parameters\&' in \fIzshparam\fP(1)\&.
 The most convenient way of adding enhancements to the shell is typically
 by writing a shell function and arranging for it to be autoloaded\&.
 Functions are described in the section `Functions\&' in
-\fIzshmisc\fP(1)\&.
+\fIzshmisc\fP(1)\&.  Users changing from the C shell and its
+relatives should notice that aliases are less used in zsh as they don\&'t
+perform argument substitution, only simple text replacement\&.
 .PP
 A few general functions, other than those for the line editor described
 above, are provided with the shell and are described in
@@ -162,4 +188,4 @@ a calculator
 a version of \fBxargs\fP that makes the \fBfind\fP command redundant
 .TP
 \fBzmv\fP
-a command for renaming files with patterns\&.
+a command for renaming files by means of shell patterns\&.

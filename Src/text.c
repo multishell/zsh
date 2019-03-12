@@ -30,7 +30,7 @@
 #include "zsh.mdh"
 #include "text.pro"
 
-static char *tptr, *tbuf, *tlim;
+static char *tptr, *tbuf, *tlim, *tpending;
 static int tsiz, tindent, tnewlins, tjob;
 
 static void
@@ -39,6 +39,53 @@ dec_tindent(void)
     DPUTS(tindent == 0, "attempting to decrement tindent below zero");
     if (tindent > 0)
 	tindent--;
+}
+
+/*
+ * Add a pair of pending strings and a newline.
+ * This is used for here documents.  It will be output when
+ * we have a lexically significant newline.
+ *
+ * This isn't that common and a multiple use on the same line is *very*
+ * uncommon; we don't try to optimise it.
+ *
+ * This is not used for job text; there we bear the inaccuracy
+ * of turning this into a here-string.
+ */
+static void
+taddpending(char *str1, char *str2)
+{
+    int len = strlen(str1) + strlen(str2) + 1;
+
+    /*
+     * We don't strip newlines from here-documents converted
+     * to here-strings, so no munging is required except to
+     * add a newline after the here-document terminator.
+     * However, because the job text doesn't automatically
+     * have a newline right at the end, we handle that
+     * specially.
+     */
+    if (tpending) {
+	int oldlen = strlen(tpending);
+	tpending = realloc(tpending, len + oldlen);
+	sprintf(tpending + oldlen, "%s%s", str1, str2);
+    } else {
+	tpending = (char *)zalloc(len);
+	sprintf(tpending, "%s%s", str1, str2);
+    }
+}
+
+/* Output the pending string where appropriate */
+
+static void
+tdopending(void)
+{
+    if (tpending) {
+	taddchr('\n');
+	taddstr(tpending);
+	zsfree(tpending);
+	tpending = NULL;
+    }
 }
 
 /* add a character to the text buffer */
@@ -102,23 +149,27 @@ taddlist(Estate state, int num)
 
 /**/
 static void
-taddnl(void)
+taddnl(int no_semicolon)
 {
     int t0;
 
     if (tnewlins) {
+	tdopending();
 	taddchr('\n');
 	for (t0 = 0; t0 != tindent; t0++)
 	    taddchr('\t');
-    } else
+    } else if (no_semicolon) {
+	taddstr(" ");
+    } else {
 	taddstr("; ");
+    }
 }
 
 /* get a permanent textual representation of n */
 
 /**/
 mod_export char *
-getpermtext(Eprog prog, Wordcode c)
+getpermtext(Eprog prog, Wordcode c, int start_indent)
 {
     struct estate s;
 
@@ -131,11 +182,11 @@ getpermtext(Eprog prog, Wordcode c)
     s.pc = c;
     s.strs = prog->strs;
 
+    tindent = start_indent;
     tnewlins = 1;
     tbuf = (char *)zalloc(tsiz = 32);
     tptr = tbuf;
     tlim = tbuf + tsiz;
-    tindent = 1;
     tjob = 0;
     if (prog->len)
 	gettext2(&s);
@@ -163,11 +214,11 @@ getjobtext(Eprog prog, Wordcode c)
     s.pc = c;
     s.strs = prog->strs;
 
+    tindent = 0;
     tnewlins = 0;
     tbuf = NULL;
     tptr = jbuf;
     tlim = tptr + JOBTEXTSIZE - 1;
-    tindent = 1;
     tjob = 1;
     gettext2(&s);
     *tptr = '\0';
@@ -202,6 +253,7 @@ struct tstack {
 	struct {
 	    char *strs;
 	    Wordcode end;
+	    int nargs;
 	} _funcdef;
 	struct {
 	    Wordcode end;
@@ -250,7 +302,7 @@ gettext2(Estate state)
     while (1) {
 	if (stack) {
 	    if (!(s = tstack))
-		return;
+		break;
 	    if (s->pop) {
 		tstack = s->prev;
 		s->prev = tfree;
@@ -275,7 +327,7 @@ gettext2(Estate state)
 		}
 		if (!(stack = (WC_LIST_TYPE(code) & Z_END))) {
 		    if (tnewlins)
-			taddnl();
+			taddnl(0);
 		    else
 			taddstr((WC_LIST_TYPE(code) & Z_ASYNC) ? " " : "; ");
 		    s->code = *state->pc++;
@@ -355,7 +407,7 @@ gettext2(Estate state)
 	    if (!s) {
 		taddstr("(");
 		tindent++;
-		taddnl();
+		taddnl(1);
 		n = tpush(code, 1);
 		n->u._subsh.end = state->pc + WC_SUBSH_SKIP(code);
 		/* skip word only use for try/always */
@@ -363,7 +415,8 @@ gettext2(Estate state)
 	    } else {
 		state->pc = s->u._subsh.end;
 		dec_tindent();
-		taddnl();
+		/* semicolon is optional here but more standard */
+		taddnl(0);
 		taddstr(")");
 		stack = 1;
 	    }
@@ -372,7 +425,7 @@ gettext2(Estate state)
 	    if (!s) {
 		taddstr("{");
 		tindent++;
-		taddnl();
+		taddnl(1);
 		n = tpush(code, 1);
 		n->u._subsh.end = state->pc + WC_CURSH_SKIP(code);
 		/* skip word only use for try/always */
@@ -380,7 +433,8 @@ gettext2(Estate state)
 	    } else {
 		state->pc = s->u._subsh.end;
 		dec_tindent();
-		taddnl();
+		/* semicolon is optional here but more standard */
+		taddnl(0);
 		taddstr("}");
 		stack = 1;
 	    }
@@ -403,19 +457,31 @@ gettext2(Estate state)
 	    if (!s) {
 		Wordcode p = state->pc;
 		Wordcode end = p + WC_FUNCDEF_SKIP(code);
+		int nargs = *state->pc++;
 
-		taddlist(state, *state->pc++);
+		taddlist(state, nargs);
+		if (nargs)
+		    taddstr(" ");
 		if (tjob) {
-		    taddstr(" () { ... }");
+		    taddstr("() { ... }");
 		    state->pc = end;
+		    if (!nargs) {
+			/*
+			 * Unnamed fucntion.
+			 * We're not going to pull any arguments off
+			 * later, so skip them now...
+			 */
+			state->pc += *end;
+		    }
 		    stack = 1;
 		} else {
-		    taddstr(" () {");
+		    taddstr("() {");
 		    tindent++;
-		    taddnl();
+		    taddnl(1);
 		    n = tpush(code, 1);
 		    n->u._funcdef.strs = state->strs;
 		    n->u._funcdef.end = end;
+		    n->u._funcdef.nargs = nargs;
 		    state->strs += *state->pc;
 		    state->pc += 3;
 		}
@@ -423,8 +489,19 @@ gettext2(Estate state)
 		state->strs = s->u._funcdef.strs;
 		state->pc = s->u._funcdef.end;
 		dec_tindent();
-		taddnl();
+		taddnl(0);
 		taddstr("}");
+		if (s->u._funcdef.nargs == 0) {
+		    /* Unnamed function with post-arguments */
+		    int nargs;
+		    s->u._funcdef.end += *state->pc++;
+		    nargs = *state->pc++;
+		    if (nargs) {
+			taddstr(" ");
+			taddlist(state, nargs);
+		    }
+		    state->pc = s->u._funcdef.end;
+		}
 		stack = 1;
 	    }
 	    break;
@@ -445,15 +522,15 @@ gettext2(Estate state)
 			taddstr(" in ");
 			taddlist(state, *state->pc++);
 		    }
-		    taddnl();
+		    taddnl(0);
 		    taddstr("do");
 		}
 		tindent++;
-		taddnl();
+		taddnl(0);
 		tpush(code, 1);
 	    } else {
 		dec_tindent();
-		taddnl();
+		taddnl(0);
 		taddstr("done");
 		stack = 1;
 	    }
@@ -467,11 +544,11 @@ gettext2(Estate state)
 		    taddlist(state, *state->pc++);
 		}
 		tindent++;
-		taddnl();
+		taddnl(0);
 		tpush(code, 1);
 	    } else {
 		dec_tindent();
-		taddnl();
+		taddnl(0);
 		taddstr("done");
 		stack = 1;
 	    }
@@ -484,14 +561,14 @@ gettext2(Estate state)
 		tpush(code, 0);
 	    } else if (!s->pop) {
 		dec_tindent();
-		taddnl();
+		taddnl(0);
 		taddstr("do");
 		tindent++;
-		taddnl();
+		taddnl(0);
 		s->pop = 1;
 	    } else {
 		dec_tindent();
-		taddnl();
+		taddnl(0);
 		taddstr("done");
 		stack = 1;
 	    }
@@ -500,14 +577,14 @@ gettext2(Estate state)
 	    if (!s) {
 		taddstr("repeat ");
 		taddstr(ecgetstr(state, EC_NODUP, NULL));
-		taddnl();
+		taddnl(0);
 		taddstr("do");
 		tindent++;
-		taddnl();
+		taddnl(0);
 		tpush(code, 1);
 	    } else {
 		dec_tindent();
-		taddnl();
+		taddnl(0);
 		taddstr("done");
 		stack = 1;
 	    }
@@ -522,7 +599,7 @@ gettext2(Estate state)
 
 		if (state->pc >= end) {
 		    if (tnewlins)
-			taddnl();
+			taddnl(0);
 		    else
 			taddchr(' ');
 		    taddstr("esac");
@@ -530,7 +607,7 @@ gettext2(Estate state)
 		} else {
 		    tindent++;
 		    if (tnewlins)
-			taddnl();
+			taddnl(0);
 		    else
 			taddchr(' ');
 		    taddstr("(");
@@ -559,7 +636,7 @@ gettext2(Estate state)
 		    break;
 		}
 		if (tnewlins)
-		    taddnl();
+		    taddnl(0);
 		else
 		    taddchr(' ');
 		taddstr("(");
@@ -588,7 +665,7 @@ gettext2(Estate state)
 		}
 		dec_tindent();
 		if (tnewlins)
-		    taddnl();
+		    taddnl(0);
 		else
 		    taddchr(' ');
 		taddstr("esac");
@@ -610,14 +687,14 @@ gettext2(Estate state)
 		stack = 1;
 	    } else if (s->u._if.cond) {
 		dec_tindent();
-		taddnl();
+		taddnl(0);
 		taddstr("then");
 		tindent++;
-		taddnl();
+		taddnl(0);
 		s->u._if.cond = 0;
 	    } else if (state->pc < s->u._if.end) {
 		dec_tindent();
-		taddnl();
+		taddnl(0);
 		code = *state->pc++;
 		if (WC_IF_TYPE(code) == WC_IF_ELIF) {
 		    taddstr("elif ");
@@ -626,12 +703,12 @@ gettext2(Estate state)
 		} else {
 		    taddstr("else");
 		    tindent++;
-		    taddnl();
+		    taddnl(0);
 		}
 	    } else {
 		s->pop = 1;
 		dec_tindent();
-		taddnl();
+		taddnl(0);
 		taddstr("fi");
 		stack = 1;
 	    }
@@ -640,7 +717,7 @@ gettext2(Estate state)
 	    {
 		static char *c1[] = {
 		    "=", "!=", "<", ">", "-nt", "-ot", "-ef", "-eq",
-		    "-ne", "-lt", "-gt", "-le", "-ge"
+		    "-ne", "-lt", "-gt", "-le", "-ge", "=~"
 		};
 
 		int ctype;
@@ -724,7 +801,7 @@ gettext2(Estate state)
 			}
 			break;
 		    default:
-			if (ctype <= COND_GE) {
+			if (ctype < COND_MOD) {
 			    /* Binary test: `a = b' etc. */
 			    taddstr(ecgetstr(state, EC_NODUP, NULL));
 			    taddstr(" ");
@@ -761,7 +838,7 @@ gettext2(Estate state)
 	    if (!s) {
 		taddstr("{");
 		tindent++;
-		taddnl();
+		taddnl(0);
 		n = tpush(code, 0);
 		state->pc++;
 		/* this is the end of the try block alone */
@@ -769,14 +846,14 @@ gettext2(Estate state)
 	    } else if (!s->pop) {
 		state->pc = s->u._subsh.end;
 		dec_tindent();
-		taddnl();
+		taddnl(0);
 		taddstr("} always {");
 		tindent++;
-		taddnl();
+		taddnl(0);
 		s->pop = 1;
 	    } else {
 		dec_tindent();
-		taddnl();
+		taddnl(0);
 		taddstr("}");
 		stack = 1;
 	    }
@@ -789,6 +866,7 @@ gettext2(Estate state)
 	    return;
 	}
     }
+    tdopending();
 }
 
 /**/
@@ -821,23 +899,59 @@ getredirs(LinkList redirs)
 	case REDIR_MERGEOUT:
 	case REDIR_INPIPE:
 	case REDIR_OUTPIPE:
-	    if (f->fd1 != (IS_READFD(f->type) ? 0 : 1))
+	    if (f->varid) {
+		taddchr('{');
+		taddstr(f->varid);
+		taddchr('}');
+	    } else if (f->fd1 != (IS_READFD(f->type) ? 0 : 1))
 		taddchr('0' + f->fd1);
-	    taddstr(fstr[f->type]);
-	    taddchr(' ');
- 	    if (f->type == REDIR_HERESTR && !has_token(f->name)) {
- 		/*
- 		 * Strings that came from here-documents are converted
- 		 * to here strings without quotation, so add that
- 		 * now.  If tokens are already present taddstr()
- 		 * will do the right thing (anyway, adding more
- 		 * quotes certainly isn't right in that case).
- 		 */
- 		taddchr('\'');
- 		taddstr(bslashquote(f->name, NULL, 1));
- 		taddchr('\'');
-	    } else
+	    if (f->type == REDIR_HERESTR &&
+		(f->flags & REDIRF_FROM_HEREDOC)) {
+		if (tnewlins) {
+		    /*
+		     * Strings that came from here-documents are converted
+		     * to here strings without quotation, so convert them
+		     * back.
+		     */
+		    taddstr(fstr[REDIR_HEREDOC]);
+		    taddstr(f->here_terminator);
+		    taddpending(f->name, f->munged_here_terminator);
+		} else {
+		    int fnamelen, sav;
+		    taddstr(fstr[REDIR_HERESTR]);
+		    /*
+		     * Just a quick and dirty representation.
+		     * Remove a terminating newline, if any.
+		     */
+		    fnamelen = strlen(f->name);
+		    if (fnamelen > 0 && f->name[fnamelen-1] == '\n') {
+			sav = 1;
+			f->name[fnamelen-1] = '\0';
+		    } else
+			sav = 0;
+		    /*
+		     * Strings that came from here-documents are converted
+		     * to here strings without quotation, so add that
+		     * now.  If tokens are present we need to do double quoting.
+		     */
+		    if (!has_token(f->name)) {
+			taddchr('\'');
+			taddstr(quotestring(f->name, NULL, QT_SINGLE));
+			taddchr('\'');
+		    } else {
+			taddchr('"');
+			taddstr(quotestring(f->name, NULL, QT_DOUBLE));
+			taddchr('"');
+		    }
+		    if (sav)
+			f->name[fnamelen-1] = '\n';
+		}
+	    } else {
+		taddstr(fstr[f->type]);
+		if (f->type != REDIR_MERGEIN && f->type != REDIR_MERGEOUT)
+		    taddchr(' ');
 		taddstr(f->name);
+	    }
 	    taddchr(' ');
 	    break;
 #ifdef DEBUG

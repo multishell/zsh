@@ -1,4 +1,4 @@
-.TH "ZSHEXPN" "1" "December 17, 2007" "zsh 4\&.2\&.7"
+.TH "ZSHEXPN" "1" "July 21, 2012" "zsh 5\&.0\&.0"
 .SH "NAME"
 zshexpn \- zsh expansion and substitution
 .\" Yodl file: Zsh/expn.yo
@@ -56,7 +56,7 @@ most recent command is always retained in any case\&.  Each saved command in
 the history list is called a history \fIevent\fP and is assigned a number,
 beginning with 1 (one) when the shell starts up\&.  The history number that
 you may see in your prompt (see
-Prompt Expansion in \fIzshmisc\fP(1)) is the number that is to be assigned to the \fInext\fP command\&.
+EXPANSION OF PROMPT SEQUENCES in \fIzshmisc\fP(1)) is the number that is to be assigned to the \fInext\fP command\&.
 .PP
 .SS "Overview"
 A history expansion begins with the first character of the \fBhistchars\fP
@@ -98,7 +98,7 @@ repeats the last command, replacing the string \fIfoo\fP with \fIbar\fP\&.
 More precisely, the sequence `\fB^\fP\fIfoo\fP\fB^\fP\fIbar\fP\fB^\fP\&' is
 synonymous with `\fB!!:s\fP\fB^\fP\fIfoo\fP\fB^\fP\fIbar\fP\fB^\fP\&', hence other
 modifiers (see the section `Modifiers\&') may follow the final `\fB^\fP'\&.
-In particular, `\fB^\fP\fIfoo\fP\fB^\fP\fIbar\fP\fB:G\fP\&' performs a global
+In particular, `\fB^\fP\fIfoo\fP\fB^\fP\fIbar\fP\fB^:G\fP\&' performs a global
 substitution\&.
 .PP
 If the shell encounters the character sequence `\fB!"\fP\&'
@@ -202,20 +202,37 @@ noted\&.
 .PD 0
 .TP
 .PD
+\fBa\fP
+Turn a file name into an absolute path:  prepends the current directory,
+if necessary, and resolves any use of `\fB\&.\&.\fP\&' and `\fB\&.\fP' in the path\&.
+Note that the transformation takes place even if the file or any
+intervening directories do not exist\&.
+.TP
+\fBA\fP
+As `\fBa\fP\&', but also resolve use of symbolic links where possible\&.
+Note that resolution of `\fB\&.\&.\fP\&' occurs \fIbefore\fP resolution of symbolic
+links\&.  This call is equivalent to \fBa\fP unless your system has the
+\fBrealpath\fP system call (modern systems do)\&.
+.TP
+\fBc\fP
+Resolve a command name into an absolute path by searching the command
+path given by the \fBPATH\fP variable\&.  This does not work for commands
+containing directory parts\&.  Note also that this does not usually work as
+a glob qualifier unless a file of the same name is found in the
+current directory\&.
+.TP
+\fBe\fP
+Remove all but the part of the filename extension following the `\fB\&.\fP\&';
+see the definition of the filename extension in the description of the
+\fBr\fP modifier below\&.  Note that according to that definition the result
+will be empty if the string ends with a `\fB\&.\fP\&'\&.
+.TP
 \fBh\fP
 Remove a trailing pathname component, leaving the head\&.  This works
 like `\fBdirname\fP\&'\&.
 .TP
-\fBr\fP
-Remove a filename extension of the form `\fB\&.\fP\fIxxx\fP\&', leaving
-the root name\&.
-.TP
-\fBe\fP
-Remove all but the extension\&.
-.TP
-\fBt\fP
-Remove all leading pathname components, leaving the tail\&.  This works
-like `\fBbasename\fP\&'\&.
+\fBl\fP
+Convert the words to all lowercase\&.
 .TP
 \fBp\fP
 Print the new command but do not execute it\&.  Only works with history
@@ -230,27 +247,28 @@ by \fBeval\fP\&.
 \fBQ\fP
 Remove one level of quotes from the substituted words\&.
 .TP
-\fBx\fP
-Like \fBq\fP, but break into words at whitespace\&.  Does not work with
-parameter expansion\&.
-.TP
-\fBl\fP
-Convert the words to all lowercase\&.
-.TP
-\fBu\fP
-Convert the words to all uppercase\&.
+\fBr\fP
+Remove a filename extension leaving the root name\&.  Strings with no
+filename extension are not altered\&.  A filename
+extension is a `\fB\&.\fP\&' followed by any number of characters (including
+zero) that are neither `\fB\&.\fP\&' nor `\fB/\fP' and that continue to the end
+of the string\&.  For example, the extension of
+`\fBfoo\&.orig\&.c\fP\&' is `\fB\&.c\fP', and `\fBdir\&.c/foo\fP' has no extension\&.
 .TP
 \fBs/\fP\fIl\fP\fB/\fP\fIr\fP[\fB/\fP]
 Substitute \fIr\fP for \fIl\fP as described below\&.
 The substitution is done only for the
 first string that matches \fIl\fP\&.  For arrays and for filename
-generation, this applies to each word of the expanded text\&.
+generation, this applies to each word of the expanded text\&.  See
+below for further notes on substitutions\&.
 .RS
 .PP
 The forms `\fBgs/\fP\fIl\fP\fB/\fP\fIr\fP\&' and `\fBs/\fP\fIl\fP\fB/\fP\fIr\fP\fB/:G\fP'
 perform global substitution, i\&.e\&. substitute every occurrence of \fIr\fP
 for \fIl\fP\&.  Note that the \fBg\fP or \fB:G\fP must appear in exactly the
 position shown\&.
+.PP
+See further notes on this form of substitution below\&.
 .RE
 .TP
 \fB&\fP
@@ -258,19 +276,71 @@ Repeat the previous \fBs\fP substitution\&.  Like \fBs\fP, may be preceded
 immediately by a \fBg\fP\&.  In parameter expansion the \fB&\fP must appear
 inside braces, and in filename generation it must be quoted with a
 backslash\&.
+.TP
+\fBt\fP
+Remove all leading pathname components, leaving the tail\&.  This works
+like `\fBbasename\fP\&'\&.
+.TP
+\fBu\fP
+Convert the words to all uppercase\&.
+.TP
+\fBx\fP
+Like \fBq\fP, but break into words at whitespace\&.  Does not work with
+parameter expansion\&.
 .PP
-The \fBs/l/r/\fP substitution works as follows\&.  The left\-hand side of
-substitutions are not regular expressions, but character strings\&.  Any
-character can be used as the delimiter in place of `\fB/\fP\&'\&.  A
-backslash quotes the delimiter character\&.  The character `\fB&\fP\&', in
-the right\-hand\-side \fIr\fP, is replaced by the text from the
+The \fBs/\fP\fIl\fP\fB/\fP\fIr\fP\fB/\fP substitution works as follows\&.  By
+default the left\-hand side of substitutions are not patterns, but
+character strings\&.  Any character can be used as the delimiter in place
+of `\fB/\fP\&'\&.  A backslash quotes the delimiter character\&.  The character
+`\fB&\fP\&', in the right\-hand\-side \fIr\fP, is replaced by the text from the
 left\-hand\-side \fIl\fP\&.  The `\fB&\fP\&' can be quoted with a backslash\&.  A
-null \fIl\fP uses the previous string either from the previous \fIl\fP
-or from the contextual scan string \fIs\fP from `\fB!?\fP\fIs\fP\&'\&.  You can
+null \fIl\fP uses the previous string either from the previous \fIl\fP or
+from the contextual scan string \fIs\fP from `\fB!?\fP\fIs\fP\&'\&.  You can
 omit the rightmost delimiter if a newline immediately follows \fIr\fP;
-the rightmost `\fB?\fP\&' in a context scan can similarly be omitted\&.
-Note the same record of the last \fIl\fP and \fIr\fP is maintained
-across all forms of expansion\&.
+the rightmost `\fB?\fP\&' in a context scan can similarly be omitted\&.  Note
+the same record of the last \fIl\fP and \fIr\fP is maintained across all
+forms of expansion\&.
+.PP
+Note that if a `\fB&\fP\&' is used within glob qualifers an extra backslash
+is needed as a \fB&\fP is a special character in this case\&.
+.PP
+If the option \fBHIST_SUBST_PATTERN\fP is set, \fIl\fP is treated as
+a pattern of the usual form described in
+the section FILENAME GENERATION below\&.  This can be used in
+all the places where modifiers are available; note, however, that
+in globbing qualifiers parameter substitution has already taken place,
+so parameters in the replacement string should be quoted to ensure
+they are replaced at the correct time\&.
+Note also that complicated patterns used in globbing qualifiers may
+need the extended glob qualifier notation
+\fB(#q:s/\fP\fI\&.\&.\&.\fP\fB/\fP\fI\&.\&.\&.\fP\fB/)\fP in order for the
+shell to recognize the expression as a glob qualifier\&.  Further,
+note that bad patterns in the substitution are not subject to
+the \fBNO_BAD_PATTERN\fP option so will cause an error\&.
+.PP
+When \fBHIST_SUBST_PATTERN\fP is set, \fIl\fP may start with a \fB#\fP
+to indicate that the pattern must match at the start of the string
+to be substituted, and a \fB%\fP may appear at the start or after an \fB#\fP
+to indicate that the pattern must match at the end of the string
+to be substituted\&.  The \fB%\fP or \fB#\fP may be quoted with two
+backslashes\&.
+.PP
+For example, the following piece of filename generation code
+with the \fBEXTENDED_GLOB\fP option:
+.PP
+.RS
+.nf
+\fBprint *\&.c(#q:s/#%(#b)s(*)\&.c/\&'S${match[1]}\&.C'/)\fP
+.fi
+.RE
+.PP
+takes the expansion of \fB*\&.c\fP and applies the glob qualifiers in the
+\fB(#q\fP\fI\&.\&.\&.\fP\fB)\fP expression, which consists of a substitution
+modifier anchored to the start and end of each word (\fB#%\fP)\&.  This
+turns on backreferences (\fB(#b)\fP), so that the parenthesised
+subexpression is available in the replacement string as \fB${match[1]}\fP\&.
+The replacement string is quoted so that the parameter is not substituted
+before the start of filename generation\&.
 .PP
 The following \fBf\fP, \fBF\fP, \fBw\fP and \fBW\fP modifiers work only with
 parameter expansion and filename generation\&.  They are listed here to
@@ -300,13 +370,21 @@ Like \fBw\fP but words are considered to be the parts of the string
 that are separated by \fIsep\fP\&. Any character can be used instead of
 the `\fB:\fP\&'; opening parentheses are handled specially, see above\&.
 .SH "PROCESS SUBSTITUTION"
-Each command argument of the form
+Each part of a command argument that takes the form
 `\fB<(\fP\fIlist\fP\fB)\fP\&',
 `\fB>(\fP\fIlist\fP\fB)\fP\&' or
 `\fB=(\fP\fIlist\fP\fB)\fP\&'
-is subject to process substitution\&.
-In the case of the \fB<\fP or \fB>\fP forms, the shell runs process
-\fIlist\fP asynchronously\&.  If the system supports the \fB/dev/fd\fP
+is subject to process substitution\&.  The expression may be preceded
+or followed by other strings except that, to prevent clashes with
+commonly occurring strings and patterns, the last
+form must occur at the start of a command argument, and the forms
+are only expanded when first parsing command or assignment arguments\&.
+Process substitutions may be used following redirection operators; in this
+case, the substitution must appear with no trailing string\&.
+.PP
+In the case of the \fB<\fP or \fB>\fP forms, the shell runs the commands in
+\fIlist\fP as a subprocess of the job executing the shell command line\&.
+If the system supports the \fB/dev/fd\fP
 mechanism, the command argument is the name of the device file
 corresponding to a file descriptor; otherwise, if the system supports named
 pipes (FIFOs), the command argument will be a named pipe\&.  If the form with
@@ -332,6 +410,15 @@ of a temporary file containing the output of the \fIlist\fP
 process\&.  This may be used instead of the \fB<\fP
 form for a program that expects to lseek (see \fIlseek\fP(2))
 on the input file\&.
+.PP
+There is an optimisation for substitutions of the form
+\fB=(<<<\fP\fIarg\fP\fB)\fP, where \fIarg\fP is a single\-word argument
+to the here\-string redirection \fB<<<\fP\&.  This form produces a file name
+containing the value of \fIarg\fP after any substitutions have been
+performed\&.  This is handled entirely within the current shell\&.  This is
+effectively the reverse of the special form \fB$(<\fP\fIarg\fP\fB)\fP
+which treats \fIarg\fP as a file name and replaces it with the file\&'s
+contents\&.
 .PP
 The \fB=\fP form is useful as both the \fB/dev/fd\fP and the named pipe
 implementation of \fB<(\fP\fI\&.\&.\&.\fP\fB)\fP have drawbacks\&.  In 
@@ -374,7 +461,7 @@ version of the example above:
 .RE
 .PP
 (note that no \fBMULTIOS\fP are involved), \fIprocess\fP will be run
-asynchronously\&.  The workaround is:
+asynchronously as far as the parent shell is concerned\&.  The workaround is:
 .PP
 .RS
 .nf
@@ -384,6 +471,22 @@ asynchronously\&.  The workaround is:
 .PP
 The extra processes here are
 spawned from the parent shell which will wait for their completion\&.
+.PP
+Another problem arises any time a job with a substitution that requires
+a temporary file is disowned by the shell, including the case where
+`\fB&!\fP\&' or `\fB&|\fP' appears at the end of a command containing a
+subsitution\&.  In that case the temporary file will not be cleaned up as
+the shell no longer has any memory of the job\&.  A workaround is to use
+a subshell, for example,
+.PP
+.RS
+.nf
+\fB(mycmd =(myoutput)) &!\fP
+.fi
+.RE
+.PP
+as the forked subshell will wait for the command to finish then remove
+the temporary file\&.
 .PP
 .SH "PARAMETER EXPANSION"
 The character `\fB$\fP\&' is used to introduce parameter expansions\&.
@@ -435,40 +538,51 @@ See also the flags \fB=\fP and \fBs:\fP\fIstring\fP\fB:\fP\&.
 If \fIname\fP is the name of a set parameter `\fB1\fP\&' is substituted,
 otherwise `\fB0\fP\&' is substituted\&.
 .TP
+.PD 0
+\fB${\fP\fIname\fP\fB\-\fP\fIword\fP\fB}\fP
+.TP
+.PD
 \fB${\fP\fIname\fP\fB:\-\fP\fIword\fP\fB}\fP
-If \fIname\fP is set and is non\-null then substitute its
-value; otherwise substitute \fIword\fP\&. If \fIname\fP is
-missing, substitute \fIword\fP\&.
-Note that you can use standard shell quoting in the \fIword\fP value to
-selectively override the splitting done by the \fBSH_WORD_SPLIT\fP option
-and the \fB=\fP flag, but not the \fBs:\fP\fIstring\fP\fB:\fP flag\&.
+If \fIname\fP is set, or in the second form is non\-null, then substitute
+its value; otherwise substitute \fIword\fP\&.  In the second form \fIname\fP
+may be omitted, in which case \fIword\fP is always substituted\&.
+.TP
+.PD 0
+\fB${\fP\fIname\fP\fB+\fP\fIword\fP\fB}\fP
+.TP
+.PD
+\fB${\fP\fIname\fP\fB:+\fP\fIword\fP\fB}\fP
+If \fIname\fP is set, or in the second form is non\-null, then substitute
+\fIword\fP; otherwise substitute nothing\&.
+.TP
+.PD 0
+\fB${\fP\fIname\fP\fB=\fP\fIword\fP\fB}\fP
 .TP
 .PD 0
 \fB${\fP\fIname\fP\fB:=\fP\fIword\fP\fB}\fP
 .TP
 .PD
 \fB${\fP\fIname\fP\fB::=\fP\fIword\fP\fB}\fP
-In the first form, if \fIname\fP is unset or is null then
-set it to \fIword\fP; in the second form, unconditionally
-set \fIname\fP to \fIword\fP\&.  In both forms, the value of
-the parameter is then substituted\&.
+In the first form, if \fIname\fP is unset then set it to \fIword\fP; in the
+second form, if \fIname\fP is unset or null then set it to \fIword\fP; and
+in the third form, unconditionally set \fIname\fP to \fIword\fP\&.  In all
+forms, the value of the parameter is then substituted\&.
 .TP
+.PD 0
+\fB${\fP\fIname\fP\fB?\fP\fIword\fP\fB}\fP
+.TP
+.PD
 \fB${\fP\fIname\fP\fB:?\fP\fIword\fP\fB}\fP
-If \fIname\fP is set and is non\-null then substitute
-its value; otherwise, print \fIword\fP and exit from the shell\&.
-Interactive shells instead return to the prompt\&.
-If \fIword\fP is omitted, then a standard message is printed\&.
-.TP
-\fB${\fP\fIname\fP\fB:+\fP\fIword\fP\fB}\fP
-If \fIname\fP is set and is non\-null then substitute
-\fIword\fP; otherwise substitute nothing\&.
-Note that you can use standard shell quoting in the \fIword\fP value to
-selectively override the splitting done by the \fBSH_WORD_SPLIT\fP option
-and the \fB=\fP flag, but not the \fBs:\fP\fIstring\fP\fB:\fP flag\&.
+In the first form, if \fIname\fP is set, or in the second form if \fIname\fP
+is both set and non\-null, then substitute its value; otherwise, print
+\fIword\fP and exit from the shell\&.  Interactive shells instead return to
+the prompt\&.  If \fIword\fP is omitted, then a standard message is printed\&.
 .PP
-If the colon is omitted from one of the above expressions
-containing a colon, then the shell only checks whether
-\fIname\fP is set, not whether its value is null\&.
+In any of the above expressions that test a variable and substitute an
+alternate \fIword\fP, note that you can use standard shell quoting in the
+\fIword\fP value to selectively override the splitting done by the
+\fBSH_WORD_SPLIT\fP option and the \fB=\fP flag, but not splitting by the
+\fBs:\fP\fIstring\fP\fB:\fP flag\&.
 .PP
 In the following expressions, when \fIname\fP is an array and
 the substitution is not quoted, or if the `\fB(@)\fP\&' flag or the
@@ -510,6 +624,97 @@ If \fIname\fP is an array
 the matching array elements are removed (use the `\fB(M)\fP\&' flag to
 remove the non\-matched elements)\&.
 .TP
+\fB${\fP\fIname\fP\fB:|\fP\fIarrayname\fP\fB}\fP
+If \fIarrayname\fP is the name (N\&.B\&., not contents) of an array
+variable, then any elements contained in \fIarrayname\fP are removed
+from the substitution of \fIname\fP\&.  If the substitution is scalar,
+either because \fIname\fP is a scalar variable or the expression is
+quoted, the elements of \fIarrayname\fP are instead tested against the
+entire expression\&.
+.TP
+\fB${\fP\fIname\fP\fB:*\fP\fIarrayname\fP\fB}\fP
+Similar to the preceding subsitution, but in the opposite sense,
+so that entries present in both the original substitution and as
+elements of \fIarrayname\fP are retained and others removed\&.
+.TP
+.PD 0
+\fB${\fP\fIname\fP\fB:\fP\fIoffset\fP\fB}\fP
+.TP
+.PD
+\fB${\fP\fIname\fP\fB:\fP\fIoffset\fP\fB:\fP\fIlength\fP\fB}\fP
+This syntax gives effects similar to parameter subscripting
+in the form \fB$\fP\fIname\fP\fB[\fP\fIstart\fP\fB,\fP\fIend\fP\fB]\fP, but is
+compatible with other shells; note that both \fIoffset\fP and \fIlength\fP
+are interpreted differently from the components of a subscript\&.
+.RS
+.PP
+If \fIoffset\fP is non\-negative, then if the variable \fIname\fP is a
+scalar substitute the contents starting \fIoffset\fP characters from the
+first character of the string, and if \fIname\fP is an array substitute
+elements starting \fIoffset\fP elements from the first element\&.  If
+\fIlength\fP is given, substitute that many characters or elements,
+otherwise the entire rest of the scalar or array\&.
+.PP
+A positive \fIoffset\fP is always treated as the offset of a character or
+element in \fIname\fP from the first character or element of the array
+(this is different from native zsh subscript notation)\&.  Hence 0
+refers to the first character or element regardless of the setting of
+the option \fBKSH_ARRAYS\fP\&.
+.PP
+A negative offset counts backwards from the end of the scalar or array,
+so that \-1 corresponds to the last character or element, and so on\&.
+.PP
+When positive, \fIlength\fP counts from the \fIoffset\fP position
+toward the end of the scalar or array\&.  When negative, \fIlength\fP
+counts back from the end\&.  If this results in a position smaller
+than \fIoffset\fP, a diagnostic is printed and nothing is substituted\&.
+.PP
+The option \fBMULTIBYTE\fP is obeyed, i\&.e\&. the offset and length
+count multibyte characters where appropriate\&.
+.PP
+\fIoffset\fP and \fIlength\fP undergo the same set of shell substitutions
+as for scalar assignment; in addition, they are then subject to arithmetic
+evaluation\&.  Hence, for example
+.PP
+.RS
+.nf
+\fBprint ${foo:3}
+print ${foo: 1 + 2}
+print ${foo:$(( 1 + 2))}
+print ${foo:$(echo 1 + 2)}\fP
+.fi
+.RE
+.PP
+all have the same effect, extracting the string starting at the fourth
+character of \fB$foo\fP if the substution would otherwise return a scalar,
+or the array starting at the fourth element if \fB$foo\fP would return an
+array\&.  Note that with the option \fBKSH_ARRAYS\fP \fB$foo\fP always returns
+a scalar (regardless of the use of the offset syntax) and a form
+such as \fB$foo[*]:3\fP is required to extract elements of an array named
+\fBfoo\fP\&.
+.PP
+If \fIoffset\fP is negative, the \fB\-\fP may not appear immediately
+after the \fB:\fP as this indicates the
+\fB${\fP\fIname\fP\fB:\-\fP\fIword\fP\fB}\fP form of substitution\&.  Instead, a space
+may be inserted before the \fB\-\fP\&.  Furthermore, neither \fIoffset\fP nor
+\fIlength\fP may begin with an alphabetic character or \fB&\fP as these are
+used to indicate history\-style modifiers\&.  To substitute a value from a
+variable, the recommended approach is to precede it with a \fB$\fP as this
+signifies the intention (parameter substitution can easily be rendered
+unreadable); however, as arithmetic substitution is performed, the
+expression \fB${var: offs}\fP does work, retrieving the offset from
+\fB$offs\fP\&.
+.PP
+For further compatibility with other shells there is a special case
+for array offset 0\&.  This usually accesses to the
+first element of the array\&.  However, if the substitution refers the
+positional parameter array, e\&.g\&. \fB$@\fP or \fB$*\fP, then offset 0
+instead refers to \fB$0\fP, offset 1 refers to \fB$1\fP, and so on\&.  In
+other words, the positional parameter array is effectively extended by
+prepending \fB$0\fP\&.  Hence \fB${*:0:1}\fP substitutes \fB$0\fP and
+\fB${*:1:1}\fP substitutes \fB$1\fP\&.
+.RE
+.TP
 .PD 0
 \fB${\fP\fIname\fP\fB/\fP\fIpattern\fP\fB/\fP\fIrepl\fP\fB}\fP
 .TP
@@ -527,13 +732,14 @@ substituted as \fB${~opat}\fP\&.
 .PP
 The \fIpattern\fP may begin with a `\fB#\fP\&', in which case the
 \fIpattern\fP must match at the start of the string, or `\fB%\fP\&', in
-which case it must match at the end of the string\&.  The \fIrepl\fP may
+which case it must match at the end of the string, or `\fB#%\fP\&' in which
+case the \fIpattern\fP must match the entire string\&.  The \fIrepl\fP may
 be an empty string, in which case the final `\fB/\fP\&' may also be omitted\&.
 To quote the final `\fB/\fP\&' in other cases it should be preceded by a
 single backslash; this is not necessary if the
-`\fB/\fP\&' occurs inside a substituted parameter\&.  Note also that the `\fB#\fP'
-and `\fB%\fP\&' are not active if they occur inside a substituted parameter,
-even at the start\&.
+`\fB/\fP\&' occurs inside a substituted parameter\&.  Note also that the `\fB#\fP',
+`\fB%\fP\&' and `\fB#%\fP are not active if they occur inside a substituted
+parameter, even at the start\&.
 .PP
 The first `\fB/\fP\&' may be preceded by a `\fB:\fP', in which case the match
 will only succeed if it matches the entire word\&.  Note also the
@@ -573,7 +779,8 @@ When this option is set, array expansions of the form
 where the parameter \fIxx\fP
 is set to \fB(\fP\fIa b c\fP\fB)\fP, are substituted with
 `\fIfooabar foobbar foocbar\fP\&' instead of the default
-`\fIfooa b cbar\fP\&'\&.
+`\fIfooa b cbar\fP\&'\&.  Note that an empty array will therefore cause
+all arguments to be removed\&.
 .RS
 .PP
 Internally, each such expansion is converted into the
@@ -654,10 +861,16 @@ following flags are supported:
 Evaluate the resulting words as numeric expressions and output the
 characters corresponding to the resulting integer\&.  Note that this form is
 entirely distinct from use of the \fB#\fP without parentheses\&.
+.RS
+.PP
+If the \fBMULTIBYTE\fP option is set and the number is greater than 127
+(i\&.e\&. not an ASCII character) it is treated as a Unicode character\&.
+.RE
 .TP
 \fB%\fP
 Expand all \fB%\fP escapes in the resulting words in the same way as in
-prompts (see the section `Prompt Expansion\&')\&. If this flag is given twice,
+prompts (see 
+EXPANSION OF PROMPT SEQUENCES in \fIzshmisc\fP(1))\&. If this flag is given twice,
 full prompt expansion is done on the resulting words, depending on the
 setting of the \fBPROMPT_PERCENT\fP, \fBPROMPT_SUBST\fP and \fBPROMPT_BANG\fP
 options\&.
@@ -666,7 +879,7 @@ options\&.
 In double quotes, array elements are put into separate words\&.
 E\&.g\&., `\fB"${(@)foo}"\fP\&' is equivalent to `\fB"${foo[@]}"\fP' and
 `\fB"${(@)foo[1,2]}"\fP\&' is the same as `\fB"$foo[1]" "$foo[2]"\fP'\&.
-This is distinct from \fIfield splitting\fP by the the \fBf\fP, \fBs\fP
+This is distinct from \fIfield splitting\fP by the \fBf\fP, \fBs\fP
 or \fBz\fP flags, which still applies within each array element\&.
 .TP
 \fBA\fP
@@ -680,9 +893,10 @@ example by using `\fB${(AA)=\fP\fIname\fP\fB=\fP\&.\&.\&.\fB}\fP\&' to activate
 field splitting, when creating an associative array\&.
 .TP
 \fBa\fP
-With \fBo\fP or \fBO\fP, sort in array index order\&. Note that `\fBoa\fP\&' is
-therefore equivalent to the default but `\fBOa\fP\&' is useful for
-obtaining an array\&'s elements in reverse order\&.
+Sort in array index order; when combined with `\fBO\fP\&' sort in reverse
+array index order\&.  Note that `\fBa\fP\&' is therefore equivalent to the
+default but `\fBOa\fP\&' is useful for obtaining an array's elements in reverse
+order\&.
 .TP
 \fBc\fP
 With \fB${#\fP\fIname\fP\fB}\fP, count the total number of characters in an array,
@@ -693,21 +907,37 @@ Capitalize the resulting words\&.  `Words\&' in this case refers to sequences
 of alphanumeric characters separated by non\-alphanumerics, \fInot\fP to words
 that result from field splitting\&.
 .TP
+\fBD\fP
+Assume the string or array elements contain directories and attempt
+to substitute the leading part of these by names\&.  The remainder of
+the path (the whole of it if the leading part was not subsituted)
+is then quoted so that the whole string can be used as a shell
+argument\&.  This is the reverse of `\fB~\fP\&' substitution:  see
+the section FILENAME EXPANSION below\&.
+.TP
 \fBe\fP
 Perform \fIparameter expansion\fP, \fIcommand substitution\fP and
 \fIarithmetic expansion\fP on the result\&. Such expansions can be
 nested but too deep recursion may have unpredictable effects\&.
 .TP
 \fBf\fP
-Split the result of the expansion to lines\&. This is a shorthand
+Split the result of the expansion at newlines\&. This is a shorthand
 for `\fBps:\en:\fP\&'\&.
 .TP
 \fBF\fP
 Join the words of arrays together using newline as a separator\&.
 This is a shorthand for `\fBpj:\en:\fP\&'\&.
 .TP
+\fBg:opts:\fP
+Process escape sequences like the echo builtin when no options are given
+(\fBg::\fP)\&.  With the \fBo\fP option, octal escapes don\&'t take a leading
+zero\&.  With the \fBc\fP option, sequences like `\fB^X\fP\&' are also processed\&.
+With the \fBe\fP option, processes `\fB\eM\-t\fP\&' and similar sequences like the
+print builtin\&.  With both of the \fBo\fP and \fBe\fP options, behaves like the
+print builtin except that in none of these modes is `\fB\ec\fP\&' interpreted\&.
+.TP
 \fBi\fP
-With \fBo\fP or \fBO\fP, sort case\-independently\&.
+Sort case\-insensitively\&.  May be combined with `\fBn\fP\&' or `\fBO\fP'\&.
 .TP
 \fBk\fP
 If \fIname\fP refers to an associative array, substitute the \fIkeys\fP
@@ -720,27 +950,58 @@ this flag may not be combined with subscript ranges\&.
 Convert all letters in the result to lower case\&.
 .TP
 \fBn\fP
-With \fBo\fP or \fBO\fP, sort numerically\&.
+Sort decimal integers numerically; if the first differing
+characters of two test strings are not digits, sorting
+is lexical\&.   Integers with more initial zeroes
+are sorted before those with fewer or none\&.  Hence the array `\fBfoo1 foo02
+foo2 foo3 foo20 foo23\fP\&' is sorted into the order shown\&.
+May be combined with `\fBi\fP\&' or `\fBO\fP'\&.
 .TP
 \fBo\fP
-Sort the resulting words in ascending order\&.
+Sort the resulting words in ascending order; if this appears on its
+own the sorting is lexical and case\-sensitive (unless the locale
+renders it case\-insensitive)\&.  Sorting in ascending order is the
+default for other forms of sorting, so this is ignored if combined
+with `\fBa\fP\&', `\fBi\fP' or `\fBn\fP'\&.
 .TP
 \fBO\fP
-Sort the resulting words in descending order\&.
+Sort the resulting words in descending order; `\fBO\fP\&' without `\fBa\fP',
+`\fBi\fP\&' or `\fBn\fP' sorts in reverse lexical order\&.  May be combined
+with `\fBa\fP\&', `\fBi\fP' or `\fBn\fP' to reverse the order of sorting\&.
 .TP
 \fBP\fP
 This forces the value of the parameter \fIname\fP to be interpreted as a
-further parameter name, whose value will be used where appropriate\&. If
-used with a nested parameter or command substitution, the result of that
+further parameter name, whose value will be used where appropriate\&.
+Note that flags set with one of the \fBtypeset\fP family of commands
+(in particular case transformations) are not applied to the value of
+\fIname\fP used in this fashion\&.
+.RS
+.PP
+If used with a nested parameter or command substitution, the result of that
 will be taken as a parameter name in the same way\&.  For example, if you
 have `\fBfoo=bar\fP\&' and `\fBbar=baz\fP', the strings \fB${(P)foo}\fP,
 \fB${(P)${foo}}\fP, and \fB${(P)$(echo bar)}\fP will be expanded to `\fBbaz\fP\&'\&.
+.RE
 .TP
 \fBq\fP
-Quote the resulting words with backslashes\&. If this flag is given
-twice, the resulting words are quoted in single quotes and if it is
-given three times, the words are quoted in double quotes\&. If it is
-given four times, the words are quoted in single quotes preceded by a \fB$\fP\&.
+Quote characters that are special to the shell in the resulting words with
+backslashes; unprintable or invalid characters are quoted using the
+\fB$\&'\e\fP\fINNN\fP\fB'\fP form, with separate quotes for each octet\&.
+.RS
+.PP
+If this flag is given twice, the resulting words are quoted in single
+quotes and if it is given three times, the words are quoted in double
+quotes; in these forms no special handling of unprintable or invalid
+characters is attempted\&.  If the flag is given four times, the words are
+quoted in single quotes preceded by a \fB$\fP\&.  Note that in all three of
+these forms quoting is done unconditionally, even if this does not change
+the way the resulting string would be interpreted by the shell\&.
+.PP
+If a \fBq\-\fP is given (only a single \fBq\fP may appear), a minimal
+form of single quoting is used that only quotes the string if needed to
+protect special characters\&.  Typically this form gives the most readable
+output\&.
+.RE
 .TP
 \fBQ\fP
 Remove one level of quotes from the resulting words\&.
@@ -820,13 +1081,16 @@ Similar to \fBw\fP with the difference that empty words between
 repeated delimiters are also counted\&.
 .TP
 \fBX\fP
-With this flag parsing errors occurring with the \fBQ\fP and \fBe\fP flags or the
-pattern matching forms such as `\fB${\fP\fIname\fP\fB#\fP\fIpattern\fP\fB}\fP\&' 
-are reported\&. Without the flag they are silently ignored\&.
+With this flag, parsing errors occurring with the \fBQ\fP, \fBe\fP and \fB#\fP
+flags or the pattern matching forms such as
+`\fB${\fP\fIname\fP\fB#\fP\fIpattern\fP\fB}\fP\&' are reported\&.  Without the flag,
+errors are silently ignored\&.
 .TP
 \fBz\fP
 Split the result of the expansion into words using shell parsing to
 find the words, i\&.e\&. taking into account any quoting in the value\&.
+Comments are not treated specially but as ordinary strings, similar
+to interactive shells with the \fBINTERACTIVE_COMMENTS\fP option unset\&.
 .RS
 .PP
 Note that this is done very late, as for the `\fB(s)\fP\&' flag\&. So to
@@ -850,7 +1114,23 @@ argument, a matched pair of delimiters must surround each argument\&.
 .PD
 \fBp\fP
 Recognize the same escape sequences as the \fBprint\fP builtin
-in string arguments to any of the flags described below\&.
+in string arguments to any of the flags described below that
+follow this argument\&.
+.TP
+\fB~\fP
+Force string arguments to any of the flags below that follow within
+the parentheses to be treated as patterns\&.  Compare with a \fB~\fP
+outside parentheses, which forces the entire substituted string to
+be treated as a pattern\&.  Hence, for example,
+.RS
+.nf
+\fB[[ "?" = ${(~j\&.|\&.)array} ]]\fP
+.fi
+.RE
+with the \fBEXTENDED_GLOB\fP option set succeeds if and only if \fB$array\fP
+contains the string `\fB?\fP\&' as an element\&.  The argument may be
+repeated to toggle the behaviour; its effect only lasts to the
+end of the parenthesised group\&.
 .TP
 \fBj:\fP\fIstring\fP\fB:\fP
 Join the words of arrays together using \fIstring\fP as a separator\&.
@@ -859,22 +1139,104 @@ flag or the \fBSH_WORD_SPLIT\fP option\&.
 .TP
 \fBl:\fP\fIexpr\fP\fB::\fP\fIstring1\fP\fB::\fP\fIstring2\fP\fB:\fP
 Pad the resulting words on the left\&.  Each word will be truncated if
-required and placed in a field \fIexpr\fP characters wide\&.  The space
-to the left will be filled with \fIstring1\fP (concatenated as often
-as needed) or spaces if \fIstring1\fP is not given\&.  If both
-\fIstring1\fP and \fIstring2\fP are given, this string is inserted
-once directly to the left of each word, before padding\&.
+required and placed in a field \fIexpr\fP characters wide\&.
+.RS
+.PP
+The arguments \fB:\fP\fIstring1\fP\fB:\fP and \fB:\fP\fIstring2\fP\fB:\fP are
+optional; neither, the first, or both may be given\&.  Note that the same
+pairs of delimiters must be used for each of the three arguments\&.  The
+space to the left will be filled with \fIstring1\fP (concatenated as
+often as needed) or spaces if \fIstring1\fP is not given\&.  If both
+\fIstring1\fP and \fIstring2\fP are given, \fBstring2\fP is inserted once
+directly to the left of each word, truncated if necessary, before
+\fIstring1\fP is used to produce any remaining padding\&.
+.PP
+If the \fBMULTIBYTE\fP option is in effect, the flag \fBm\fP may also
+be given, in which case widths will be used for the calculation of
+padding; otherwise individual multibyte characters are treated as occupying
+one unit of width\&.
+.PP
+If the \fBMULTIBYTE\fP option is not in effect, each byte in the string is
+treated as occupying one unit of width\&.
+.PP
+Control characters are always assumed to be one unit wide; this allows the
+mechanism to be used for generating repetitions of control characters\&.
+.RE
+.TP
+\fBm\fP
+Only useful together with one of the flags \fBl\fP or \fBr\fP or with the
+\fB#\fP length operator when the \fBMULTIBYTE\fP option
+is in effect\&.  Use the character width reported by the system in
+calculating how much of the string it occupies or the overall
+length of the string\&.  Most printable characters have a width of one
+unit, however certain Asian character sets and certain special effects
+use wider characters; combining characters have zero width\&.
+Non\-printable characters are arbitrarily counted as zero width; how they
+would actually be displayed will vary\&.
+.RS
+.PP
+If the \fBm\fP is repeated, the character either counts zero (if it has
+zero width), else one\&.  For printable character strings this has the
+effect of counting the number of glyphs (visibly separate characters),
+except for the case where combining characters themselves have non\-zero
+width (true in certain alphabets)\&.
+.RE
 .TP
 \fBr:\fP\fIexpr\fP\fB::\fP\fIstring1\fP\fB::\fP\fIstring2\fP\fB:\fP
 As \fBl\fP, but pad the words on the right and insert \fIstring2\fP
-on the right\&.
+immediately to the right of the string to be padded\&.
+.RS
+.PP
+Left and right padding may be used together\&.  In this case the strategy
+is to apply left padding to the first half width of each of the resulting
+words, and right padding to the second half\&.  If the string to be
+padded has odd width the extra padding is applied on the left\&.
+.RE
 .TP
 \fBs:\fP\fIstring\fP\fB:\fP
 Force field splitting at the
 separator \fIstring\fP\&.  Note that a \fIstring\fP of two or more
 characters means that all of them must match in sequence; this differs from
 the treatment of two or more characters in the \fBIFS\fP parameter\&.
-See also the \fB=\fP flag and the \fBSH_WORD_SPLIT\fP option\&.
+See also the \fB=\fP flag and the \fBSH_WORD_SPLIT\fP option\&.  An empty
+string may also be given in which case every character will be a separate
+element\&.
+.RS
+.PP
+For historical reasons, the usual behaviour that empty array elements
+are retained inside double quotes is disabled for arrays generated
+by splitting; hence the following:
+.PP
+.RS
+.nf
+\fBline="one::three"
+print \-l "${(s\&.:\&.)line}"\fP
+.fi
+.RE
+.PP
+produces two lines of output for \fBone\fP and \fBthree\fP and elides the
+empty field\&.  To override this behaviour, supply the "(@)" flag as well,
+i\&.e\&.  \fB"${(@s\&.:\&.)line}"\fP\&.
+.RE
+.TP
+\fBZ:\fP\fIopts\fP\fB:\fP
+As \fBz\fP but takes a combination of option letters between a following
+pair of delimiter characters\&.  \fB(Z+c+)\fP
+causes comments to be parsed as a string and retained; any field in the
+resulting array beginning with an unquoted comment character is a
+comment\&.  \fB(Z+C+)\fP causes comments to be parsed
+and removed\&.  The rule for comments is standard: anything between a word
+starting with the third character of \fB$HISTCHARS\fP, default \fB#\fP, up to
+the next newline is a comment\&.  \fB(Z+n+)\fP causes
+unquoted newlines to be treated as ordinary whitespace, else they are
+treated as if they are shell code delimiters and converted to
+semicolons\&.
+.TP
+\fB_:\fP\fIflags\fP\fB:\fP
+The underscore (\fB_\fP) flag is reserved for future use\&.  As of this
+revision of zsh, there are no valid \fIflags\fP; anything following an
+underscore, other than an empty pair of delimiters, is treated as an
+error, and the flag itself has no effect\&.
 .PP
 The following flags are meaningful with the \fB${\fP\&.\&.\&.\fB#\fP\&.\&.\&.\fB}\fP or
 \fB${\fP\&.\&.\&.\fB%\fP\&.\&.\&.\fB}\fP forms\&.  The \fBS\fP and \fBI\fP flags may also be
@@ -974,7 +1336,12 @@ substitution then applies the modifier \fB:h\fP and takes the directory part
 of the path\&.)
 .RE
 .TP
-\fB2\&.\fP \fIParameter Subscripting\fP
+\fB2\&.\fP \fIInternal Parameter Flags\fP
+Any parameter flags set by one of the \fBtypeset\fP family of commands,
+in particular the \fBL\fP, \fBR\fP, \fBZ\fP, \fBu\fP and \fBl\fP flags for padding
+and capitalization, are applied directly to the parameter value\&.
+.TP
+\fB3\&.\fP \fIParameter Subscripting\fP
 If the value is a raw parameter reference with a subscript, such as
 \fB${\fP\fIvar\fP\fB[3]}\fP, the effect of subscripting is applied directly to
 the parameter\&.  Subscripts are evaluated left to right; subsequent
@@ -984,11 +1351,11 @@ character of the first word, but \fB${var[2,4][2]}\fP is the entire third
 word (the second word of the range of words two through four of the
 original array)\&.  Any number of subscripts may appear\&.
 .TP
-\fB3\&.\fP \fIParameter Name Replacement\fP
+\fB4\&.\fP \fIParameter Name Replacement\fP
 The effect of any \fB(P)\fP flag, which treats the value so far as a
 parameter name and replaces it with the corresponding value, is applied\&.
 .TP
-\fB4\&.\fP \fIDouble\-Quoted Joining\fP
+\fB5\&.\fP \fIDouble\-Quoted Joining\fP
 If the value after this process is an array, and the substitution
 appears in double quotes, and no \fB(@)\fP flag is present at the current
 level, the words of the value are joined with the first character of the
@@ -996,59 +1363,86 @@ parameter \fB$IFS\fP, by default a space, between each word (single word
 arrays are not modified)\&.  If the \fB(j)\fP flag is present, that is used for
 joining instead of \fB$IFS\fP\&.
 .TP
-\fB5\&.\fP \fINested Subscripting\fP
+\fB6\&.\fP \fINested Subscripting\fP
 Any remaining subscripts (i\&.e\&. of a nested substitution) are evaluated at
 this point, based on whether the value is an array or a scalar\&.  As with
-\fB2\&.\fP, multiple subscripts can appear\&.  Note that \fB${foo[2,4][2]}\fP is
+\fB3\&.\fP, multiple subscripts can appear\&.  Note that \fB${foo[2,4][2]}\fP is
 thus equivalent to \fB${${foo[2,4]}[2]}\fP and also to
 \fB"${${(@)foo[2,4]}[2]}"\fP (the nested substitution returns an array in
 both cases), but not to \fB"${${foo[2,4]}[2]}"\fP (the nested substitution
 returns a scalar because of the quotes)\&.
 .TP
-\fB6\&.\fP \fIModifiers\fP
+\fB7\&.\fP \fIModifiers\fP
 Any modifiers, as specified by a trailing `\fB#\fP\&', `\fB%\fP', `\fB/\fP'
 (possibly doubled) or by a set of modifiers of the form \fB:\&.\&.\&.\fP (see
 the section `Modifiers\&' in the section `History Expansion'), are applied to the words
 of the value at this level\&.
 .TP
-\fB7\&.\fP \fIForced Joining\fP
+\fB8\&.\fP \fICharacter evaluation\fP
+Any \fB(#)\fP flag is applied, evaluating the result so far numerically
+as a character\&.
+.TP
+\fB9\&.\fP \fILength\fP
+Any initial \fB#\fP modifier, i\&.e\&. in the form \fB${#\fP\fIvar\fP\fB}\fP, is
+used to evaluate the length of the expression so far\&.
+.TP
+\fB10\&.\fP \fIForced Joining\fP
 If the `\fB(j)\fP\&' flag is present, or no `\fB(j)\fP' flag is present but
-the string is to be split as given by rules \fB8\&.\fP or \fB9\&.\fP, and joining
-did not take place at step \fB4\&.\fP, any words in the value are joined
+the string is to be split as given by rules \fB16\&.\fP or \fB17\&.\fP, and joining
+did not take place at step \fB5\&.\fP, any words in the value are joined
 together using the given string or the first character of \fB$IFS\fP if none\&.
 Note that the `\fB(F)\fP\&' flag implicitly supplies a string for joining in this
 manner\&.
 .TP
-\fB8\&.\fP \fIForced Splitting\fP
+\fB11\&.\fP \fICase modification\fP
+Any case modification from one of the flags \fB(L)\fP, \fB(U)\fP or \fB(C)\fP
+is applied\&.
+.TP
+\fB12\&.\fP \fIEscape sequence replacement\fP
+First any replacements from the \fB(g)\fP flag are performed, then any
+prompt\-style formatting from the \fB(%)\fP family of flags is applied\&.
+.TP
+\fB13\&.\fP \fIQuote application\fP
+Any quoting or unquoting using \fB(q)\fP and \fB(Q)\fP and related flags
+is applied\&.
+.TP
+\fB14\&.\fP \fIDirectory naming\fP
+Any directory name substitution using \fB(D)\fP flag is applied\&.
+.TP
+\fB15\&.\fP \fIVisibility enhancment\fP
+Any modifications to make characters visible using the \fB(V)\fP flag
+are applied\&.
+.TP
+\fB16\&.\fP \fIForced Splitting\fP
 If one of the `\fB(s)\fP\&', `\fB(f)\fP' or `\fB(z)\fP' flags are present, or the `\fB=\fP'
 specifier was present (e\&.g\&. \fB${=\fP\fIvar\fP\fB}\fP), the word is split on
 occurrences of the specified string, or (for \fB=\fP with neither of the two
 flags present) any of the characters in \fB$IFS\fP\&.
 .TP
-\fB9\&.\fP \fIShell Word Splitting\fP
+\fB17\&.\fP \fIShell Word Splitting\fP
 If no `\fB(s)\fP\&', `\fB(f)\fP' or `\fB=\fP' was given, but the word is not
 quoted and the option \fBSH_WORD_SPLIT\fP is set, the word is split on
 occurrences of any of the characters in \fB$IFS\fP\&.  Note this step, too,
 takes place at all levels of a nested substitution\&.
 .TP
-\fB10\&.\fP \fIUniqueness\fP
+\fB18\&.\fP \fIUniqueness\fP
 If the result is an array and the `\fB(u)\fP\&' flag was present, duplicate
 elements are removed from the array\&.
 .TP
-\fB11\&.\fP \fIOrdering\fP
+\fB19\&.\fP \fIOrdering\fP
 If the result is still an array and one of the `\fB(o)\fP\&' or `\fB(O)\fP' flags
 was present, the array is reordered\&.
 .TP
-\fB12\&.\fP \fIRe\-Evaluation\fP
+\fB20\&.\fP \fIRe\-Evaluation\fP
 Any `\fB(e)\fP\&' flag is applied to the value, forcing it to be re\-examined
 for new parameter substitutions, but also for command and arithmetic
 substitutions\&.
 .TP
-\fB13\&.\fP \fIPadding\fP
+\fB21\&.\fP \fIPadding\fP
 Any padding of the value by the `\fB(l\&.\fP\fIfill\fP\fB\&.)\fP\&' or
 `\fB(r\&.\fP\fIfill\fP\fB\&.)\fP\&' flags is applied\&.
 .TP
-\fB14\&.\fP \fISemantic Joining\fP
+\fB22\&.\fP \fISemantic Joining\fP
 In contexts where expansion semantics requires a single word to
 result, all words are rejoined with the first character of \fBIFS\fP
 between\&.  So in `\fB${(P\fP\fB)${(f\fP\fB)lines}}\fP\&'
@@ -1057,6 +1451,17 @@ joined again before the \fBP\fP flag can be applied\&.
 .RS
 .PP
 If a single word is not required, this rule is skipped\&.
+.RE
+.TP
+\fB23\&.\fP \fIEmpty argument removal\fP
+If the substitution does not appear in double quotes, any resulting
+zero\-length argument, whether from a scalar or an element of an array,
+is elided from the list of arguments inserted into the command line\&.
+.RS
+.PP
+Strictly speaking, the removal happens later as the same happens with
+other forms of substitution; the point to note here is simply that
+it occurs after any of the above parameter operations\&.
 .RE
 .RE
 .PP
@@ -1139,15 +1544,31 @@ where \fIn1\fP and \fIn2\fP are integers,
 is expanded to every number between
 \fIn1\fP and \fIn2\fP inclusive\&.  If either number begins with a
 zero, all the resulting numbers will be padded with leading zeroes to
-that minimum width\&.  If the numbers are in decreasing order the
+that minimum width, but for negative numbers the \fB\-\fP character is also
+included in the width\&.  If the numbers are in decreasing order the
 resulting sequence will also be in decreasing order\&.
 .PP
+An expression of the form `\fB{\fP\fIn1\fP\fB\&.\&.\fP\fIn2\fP\fB\&.\&.\fP\fIn3\fP\fB}\fP\&',
+where \fIn1\fP, \fIn2\fP, and \fIn3\fP are integers,
+is expanded as above, but only every \fIn3\fPth number starting from \fIn1\fP
+is output\&.  If \fIn3\fP is negative the numbers are output in reverse order,
+this is slightly different from simply swapping \fIn1\fP and \fIn2\fP in the case
+that the step \fIn3\fP doesn\&'t evenly divide the range\&.  Zero padding can be
+specified in any of the three numbers, specifying it in the third can be useful
+to pad for example `\fB{\-99\&.\&.100\&.\&.01}\fP\&' which is not possible to specify by putting a
+0 on either of the first two numbers (i\&.e\&. pad to two characters)\&.
+.PP
 If a brace expression matches none of the above forms, it is left
-unchanged, unless the \fBBRACE_CCL\fP option is set\&.
-In that case, it is expanded to a sorted list of the individual
-characters between the braces, in the manner of a search set\&.
-`\fB\-\fP\&' is treated specially as in a search set, but `\fB^\fP' or `\fB!\fP' as
-the first character is treated normally\&.
+unchanged, unless the option \fBBRACE_CCL\fP (an abbreviation for `brace
+character class\&') is set\&.
+In that case, it is expanded to a list of the individual
+characters between the braces sorted into the order of the characters
+in the ASCII character set (multibyte characters are not currently
+handled)\&.  The syntax is similar to a
+\fB[\fP\&.\&.\&.\fB]\fP expression in filename generation:
+`\fB\-\fP\&' is treated specially to denote a range of characters, but `\fB^\fP' or
+`\fB!\fP\&' as the first character is treated normally\&.  For example,
+`\fB{abcdef0\-9}\fP\&' expands to 16 words \fB0 1 2 3 4 5 6 7 8 9 a b c d e f\fP\&.
 .PP
 Note that brace expansion is not part of filename generation (globbing); an
 expression such as \fB*/{foo,bar}\fP is split into two separate words
@@ -1171,8 +1592,8 @@ described here\&.  If so, then the `\fB~\fP\&' and the checked portion are
 replaced with the appropriate substitute value\&.
 .PP
 A `\fB~\fP\&' by itself is replaced by the value of \fB$HOME\fP\&.
-A `\fB~\fP\&' followed by a `\fB+\fP' or a `\fB\-\fP' is replaced by the value of
-\fB$PWD\fP or \fB$OLDPWD\fP, respectively\&.
+A `\fB~\fP\&' followed by a `\fB+\fP' or a `\fB\-\fP' is replaced by current
+or previous working directory, respectively\&.
 .PP
 A `\fB~\fP\&' followed by a number is replaced by the directory at that
 position in the directory stack\&.
@@ -1189,13 +1610,115 @@ The \fBPUSHD_MINUS\fP
 option exchanges the effects of `\fB~+\fP\&' and `\fB~\-\fP' where they are
 followed by a number\&.
 .PP
-A `\fB~\fP\&' followed by anything not already covered is looked up as a
+.SS "Dynamic named directories"
+.PP
+If the function \fBzsh_directory_name\fP exists, or the shell variable
+\fBzsh_directory_name_functions\fP exists and contains an array of
+function names, then the functions are used to implement dynamic
+directory naming\&.  The functions are tried in order until one returns
+status zero, so it is important that functions test whether they can
+handle the case in question and return an appropriate status\&.
+.PP
+A `\fB~\fP\&' followed by a string \fInamstr\fP in unquoted square brackets is
+treated specially as a dynamic directory name\&.  Note that the first
+unquoted closing square bracket always terminates \fInamstr\fP\&.  The shell
+function is passed two arguments: the string \fBn\fP (for name) and
+\fInamstr\fP\&.  It should either set the array \fBreply\fP to a single element
+which is the directory corresponding to the name and return status zero
+(executing an assignment as the last statement is usually sufficient), or
+it should return status non\-zero\&.  In the former case the element of reply
+is used as the directory; in the latter case the substitution is deemed to
+have failed\&.  If all functions fail and the option \fBNOMATCH\fP is set,
+an error results\&.
+.PP
+The functions defined as above are also used to see if a directory can
+be turned into a name, for example when printing the directory stack or
+when expanding \fB%~\fP in prompts\&.  In this case each function is passed two
+arguments: the string \fBd\fP (for directory) and the candidate for dynamic
+naming\&.  The function should either return non\-zero status, if the
+directory cannot be named by the function, or it should set the array reply
+to consist of two elements: the first is the dynamic name for the directory
+(as would appear within `\fB~[\fP\fI\&.\&.\&.\fP\fB]\fP\&'), and the second is the
+prefix length of the directory to be replaced\&.  For example, if the trial
+directory is \fB/home/myname/src/zsh\fP and the dynamic name for
+\fB/home/myname/src\fP (which has 16 characters) is \fBs\fP, then the function
+sets
+.PP
+.RS
+.nf
+\fBreply=(s 16)\fP
+.fi
+.RE
+.PP
+The directory name so returned is compared with possible static names for
+parts of the directory path, as described below; it is used if the prefix
+length matched (16 in the example) is longer than that matched by any
+static name\&.
+.PP
+It is not a requirement that a function implements both
+\fBn\fP and \fBd\fP calls; for example, it might be appropriate for certain
+dynamic forms of expansion not to be contracted to names\&.  In that case
+any call with the first argument \fBd\fP should cause a non\-zero status to
+be returned\&.
+.PP
+The completion system calls `\fBzsh_directory_name c\fP\&' followed by
+equivalent calls to elements of the array
+\fBzsh_directory_name_functions\fP, if it exists, in order to
+complete dynamic names for directories\&.  The code for this should be
+as for any other completion function as described in
+\fIzshcompsys\fP(1)\&.
+.PP
+As a working example, here is a function that expands any dynamic names
+beginning with the string \fBp:\fP to directories below
+\fB/home/pws/perforce\fP\&.  In this simple case a static name for the
+directory would be just as effective\&.
+.PP
+.RS
+.nf
+\fBzsh_directory_name() {
+  emulate \-L zsh
+  setopt extendedglob
+  local \-a match mbegin mend
+  if [[ $1 = d ]]; then
+    # turn the directory into a name
+    if [[ $2 = (#b)(/home/pws/perforce/)([^/]##)* ]]; then
+      typeset \-ga reply
+      reply=(p:$match[2] $(( ${#match[1]} + ${#match[2]} )) )
+    else
+      return 1
+    fi
+  elif [[ $1 = n ]]; then
+    # turn the name into a directory
+    [[ $2 != (#b)p:(?*) ]] && return 1
+    typeset \-ga reply
+    reply=(/home/pws/perforce/$match[1])
+  elif [[ $1 = c ]]; then
+    # complete names
+    local expl
+    local \-a dirs
+    dirs=(/home/pws/perforce/*(/:t))
+    dirs=(p:${^dirs})
+    _wanted dynamic\-dirs expl \&'dynamic directory' compadd \-S\e] \-a dirs
+    return
+  else
+    return 1
+  fi
+  return 0
+}\fP
+.fi
+.RE
+.PP
+.SS "Static named directories"
+A `\fB~\fP\&' followed by anything not already covered consisting
+of any number of alphanumeric characters or underscore (`\fB_\fP\&'),
+hyphen (`\fB\-\fP\&'), or dot (`\fB\&.\fP') is looked up as a
 named directory, and replaced by the value of that named directory if found\&.
 Named directories are typically home directories for users on the system\&.
 They may also be defined if the text after the `\fB~\fP\&' is the name
 of a string shell parameter whose value begins with a `\fB/\fP\&'\&.
 Note that trailing slashes will be removed from the path to the directory
 (though the original parameter is not modified)\&.
+.PP
 It is also possible to define directory names using the \fB\-d\fP option to the
 \fBhash\fP builtin\&.
 .PP
@@ -1208,12 +1731,16 @@ with ties broken in favour of using a named directory,
 except when the directory is \fB/\fP itself\&.  The parameters \fB$PWD\fP and
 \fB$OLDPWD\fP are never abbreviated in this fashion\&.
 .PP
+.SS "`=\&' expansion"
+.PP
 If a word begins with an unquoted `\fB=\fP\&'
 and the \fBEQUALS\fP option is set,
 the remainder of the word is taken as the
 name of a command\&.  If a command
 exists by that name, the word is replaced
 by the full pathname of the command\&.
+.PP
+.SS "Notes"
 .PP
 Filename expansion is performed on the right hand side of a parameter
 assignment, including those appearing after commands of the
@@ -1228,6 +1755,7 @@ If the option \fBMAGIC_EQUAL_SUBST\fP is set, any unquoted shell
 argument in the form `\fIidentifier\fP\fB=\fP\fIexpression\fP\&' becomes eligible
 for file expansion as described in the previous paragraph\&.  Quoting the
 first `\fB=\fP\&' also inhibits this\&.
+.PP
 .SH "FILENAME GENERATION"
 If a word contains an unquoted instance of one of the characters
 `\fB*\fP\&', `\fB(\fP', `\fB|\fP', `\fB<\fP', `\fB[\fP', or `\fB?\fP', it is regarded
@@ -1298,7 +1826,7 @@ The character is a decimal digit
 \fB[:graph:]\fP
 The character is a printable character other than whitespace
 .TP
-\fB[:lower:]\fPl
+\fB[:lower:]\fP
 The character is a lowercase letter
 .TP
 \fB[:print:]\fP
@@ -1476,20 +2004,20 @@ forms:
 .PD 0
 .TP
 .PD
-i
+\fBi\fP
 Case insensitive:  upper or lower case characters in the pattern match
 upper or lower case characters\&.
 .TP
-l
+\fBl\fP
 Lower case characters in the pattern match upper or lower case
 characters; upper case characters in the pattern still only match
 upper case characters\&.
 .TP
-I
+\fBI\fP
 Case sensitive:  locally negates the effect of \fBi\fP or \fBl\fP from
 that point on\&.
 .TP
-b
+\fBb\fP
 Activate backreferences for parenthesised groups in the pattern;
 this does not work in filename generation\&.  When a pattern with a set of
 active parentheses is matched, the strings matched by the groups are
@@ -1546,11 +2074,24 @@ start and end indices are set to \-1\&.
 Pattern matching with backreferences is slightly slower than without\&.
 .RE
 .TP
-B
+\fBB\fP
 Deactivate backreferences, negating the effect of the \fBb\fP flag from that
 point on\&.
 .TP
-m
+\fBc\fP\fIN\fP\fB,\fP\fIM\fP
+The flag \fB(#c\fP\fIN\fP\fB,\fP\fIM\fP\fB)\fP can be used anywhere
+that the \fB#\fP or \fB##\fP operators can be used except in the expressions
+`\fB(*/)#\fP\&' and `\fB(*/)##\fP' in filename generation, where `\fB/\fP'
+has special meaning; it cannot be combined with other globbing flags and
+a bad pattern error occurs if it is misplaced\&.  It is equivalent to the
+form \fB{\fP\fIN\fP\fB,\fP\fIM\fP\fB}\fP in regular expressions\&.  The previous
+character or group is required to match between \fIN\fP and \fIM\fP times,
+inclusive\&.  The form \fB(#c\fP\fIN\fP\fB)\fP requires exactly \fBN\fP
+matches; \fB(#c,\fP\fIM\fP\fB)\fP is equivalent to specifying \fIN\fP
+as 0; \fB(#c\fP\fIN\fP\fB,)\fP specifies that there is no maximum
+limit on the number of matches\&.
+.TP
+\fBm\fP
 Set references to the match data for the entire string matched; this is
 similar to backreferencing and does not work in filename generation\&.  The
 flag must be in effect at the end of the pattern, i\&.e\&. not local to a
@@ -1577,7 +2118,7 @@ references, other than the extra substitutions required for the
 replacement strings in cases such as the example shown\&.
 .RE
 .TP
-M
+\fBM\fP
 Deactivate the \fBm\fP flag, hence no references to match data will be
 created\&.
 .TP
@@ -1624,6 +2165,19 @@ treated as a glob qualifier and the `\fB(#b)\fP\&' will not be useful, while in
 the latter case the `\fB(#b)\fP\&' is useful for backreferences and the
 `\fB(#q\&.)\fP\&' will be ignored\&.  Note that colon modifiers in the glob
 qualifiers are also not applied in ordinary pattern matching\&.
+.TP
+\fBu\fP
+Respect the current locale in determining the presence of multibyte
+characters in a pattern, provided the shell was compiled with 
+\fBMULTIBYTE_SUPPORT\fP\&.  This overrides the \fBMULTIBYTE\fP
+option; the default behaviour is taken from the option\&.  Compare \fBU\fP\&.
+(Mnemonic: typically multibyte characters are from Unicode in the UTF\-8
+encoding, although any extension of ASCII supported by the system
+library may be used\&.)
+.TP
+\fBU\fP
+All characters are considered to be a single byte long\&.  The opposite
+of \fBu\fP\&.  This overrides the \fBMULTIBYTE\fP option\&.
 .PP
 For example, the test string \fBfooxx\fP can be matched by the pattern
 \fB(#i\fP\fB)FOOXX\fP, but not by \fB(#l\fP\fB)FOOXX\fP,
@@ -1776,7 +2330,7 @@ directories
 `full\&' (i\&.e\&. non\-empty) directories\&.  Note that the
 opposite sense \fB(^F\fP\fB)\fP expands to empty directories
 and all non\-directories\&.  Use \fB(/^F\fP\fB)\fP for
-empty directories
+empty directories\&.
 .TP
 \fB\&.\fP
 plain files
@@ -1890,13 +2444,18 @@ permission\&.
 \fB+\fP\fIcmd\fP
 The \fIstring\fP will be executed as shell code\&.  The filename will be
 included in the list if and only if the code returns a zero status (usually
-the status of the last command)\&.  The first character after the `\fBe\fP\&'
+the status of the last command)\&.
+.RS
+.PP
+In the first form, the first character after the `\fBe\fP\&'
 will be used as a separator and anything up to the next matching separator
 will be taken  as the \fIstring\fP; `\fB[\fP\&', `\fB{\fP', and `\fB<\fP' match
 `\fB]\fP\&', `\fB}\fP', and `\fB>\fP', respectively, while any other character
 matches itself\&. Note that expansions must be quoted in the \fIstring\fP
 to prevent them from being expanded before globbing is done\&.
-.RS
+\fIstring\fP is then executed as shell code\&.  The string \fBglobqual\fP
+is appended to the array \fBzsh_eval_context\fP the duration of
+execution\&.
 .PP
 During the execution of \fIstring\fP the filename currently being tested is
 available in the parameter \fBREPLY\fP; the parameter may be altered to
@@ -1907,8 +2466,8 @@ latter is inserted into the command line word by word\&.
 .PP
 For example, suppose a directory contains a single file `\fBlonely\fP\&'\&.  Then
 the expression `\fB*(e:\&'reply=(${REPLY}{1,2})':)\fP' will cause the words
-`\fBlonely1 lonely2\fP\&' to be inserted into the command line\&.  Note the
-quotation marks\&.
+`\fBlonely1\fP\&' and `\fBlonely2\fP' to be inserted into the command line\&.  Note
+the quoting of \fIstring\fP\&.
 .PP
 The form \fB+\fP\fIcmd\fP has the same effect, but no delimiters appear
 around \fIcmd\fP\&.  Instead, \fIcmd\fP is taken as the longest sequence of
@@ -1962,8 +2521,17 @@ Files accessed more than \fIn\fP days ago are selected by a positive \fIn\fP
 value (\fB+\fP\fIn\fP)\&.  Optional unit specifiers `\fBM\fP\&', `\fBw\fP',
 `\fBh\fP\&', `\fBm\fP' or `\fBs\fP' (e\&.g\&. `\fBah5\fP') cause the check to be
 performed with months (of 30 days), weeks, hours, minutes or seconds
-instead of days, respectively\&.  For instance, `\fBecho *(ah\-5)\fP\&' would
-echo files accessed within the last five hours\&.
+instead of days, respectively\&.  An explicit `\fBd\fP\&' for days is also
+allowed\&.
+.RS
+.PP
+Any fractional part of the difference between the access time and the
+current part in the appropriate units is ignored in the comparison\&.  For
+instance, `\fBecho *(ah\-5)\fP\&' would echo files accessed within the last
+five hours, while `\fBecho *(ah+5)\fP\&' would echo files accessed at least
+six hours ago, as times strictly between five and six hours are treated
+as five hours\&.
+.RE
 .TP
 \fBm\fP[\fBMwhms\fP][\fB\-\fP|\fB+\fP]\fIn\fP
 like the file access qualifier, except that it uses the file modification
@@ -1975,10 +2543,19 @@ time\&.
 .TP
 \fBL\fP[\fB+\fP|\fB\-\fP]\fIn\fP
 files less than \fIn\fP bytes (\fB\-\fP), more than \fIn\fP bytes (\fB+\fP), or
-exactly \fIn\fP bytes in length\&. If this flag is directly followed by a `\fBk\fP\&'
-(`\fBK\fP\&'), `\fBm\fP' (`\fBM\fP'), or `\fBp\fP' (`\fBP\fP') (e\&.g\&. `\fBLk\-50\fP')
-the check is performed with kilobytes, megabytes, or blocks (of 512 bytes)
-instead\&.
+exactly \fIn\fP bytes in length\&.
+.RS
+.PP
+If this flag is directly followed by a `\fBk\fP\&' (`\fBK\fP'), `\fBm\fP'
+(`\fBM\fP\&'), or `\fBp\fP' (`\fBP\fP') (e\&.g\&. `\fBLk\-50\fP') the check is performed
+with kilobytes, megabytes, or blocks (of 512 bytes) instead\&.  In this
+case a file is regarded as "exactly" the size if the file size rounded up
+to the next unit is equal to the test size\&.  Hence `\fB*(Lm1)\fP\&'
+matches files from 1 byte up to 1 Megabyte inclusive\&.  Note also that
+the set of files "less than" the test size only includes files that would
+not match the equality test; hence `\fB*(Lm\-1)\fP\&' only matches
+files of zero size\&.
+.RE
 .TP
 \fB^\fP
 negates all qualifiers following it
@@ -2006,7 +2583,7 @@ sets the \fBNUMERIC_GLOB_SORT\fP option for the current pattern
 \fBo\fP\fIc\fP
 specifies how the names of the files should be sorted\&. If \fIc\fP is
 \fBn\fP they are sorted by name (the default); if it is \fBL\fP they
-are sorted depending on the size (length) of the files; if \fBl\fP 
+are sorted depending on the size (length) of the files; if \fBl\fP
 they are sorted by the number of links; if \fBa\fP, \fBm\fP, or \fBc\fP
 they are sorted by the time of the last access, modification, or
 inode change respectively; if \fBd\fP, files in subdirectories appear before
@@ -2019,6 +2596,19 @@ youngest file\&. Also note that the modifiers \fB^\fP and \fB\-\fP are used,
 so `\fB*(^\-oL)\fP\&' gives a list of all files sorted by file size in descending
 order, following any symbolic links\&.  Unless \fBoN\fP is used, multiple order
 specifiers may occur to resolve ties\&.
+.RS
+.PP
+\fBoe\fP and \fBo+\fP are special cases; they are each followed by shell code,
+delimited as for the \fBe\fP glob qualifier and the \fB+\fP glob qualifier
+respectively (see above)\&.  The code is executed for each matched file with
+the parameter \fBREPLY\fP set to the name of the file on entry and
+\fBglobsort\fP appended to \fBzsh_eval_context\fP\&.  The code
+should modify the parameter \fBREPLY\fP in some fashion\&.  On return, the
+value of the parameter is used instead of the file name as the string on
+which to sort\&.  Unlike other sort operators, \fBoe\fP and \fBo+\fP may be
+repeated, but note that the maximum number of sort operators of any kind
+that may appear in any glob expression is 12\&.
+.RE
 .TP
 \fBO\fP\fIc\fP
 like `\fBo\fP\&', but sorts in descending order; i\&.e\&. `\fB*(^oc)\fP' is the
@@ -2033,6 +2623,21 @@ subscripts\&. \fIbeg\fP and the optional \fIend\fP may be mathematical
 expressions\&. As in parameter subscripting they may be negative to make 
 them count from the last match backward\&. E\&.g\&.: `\fB*(\-OL[1,3])\fP\&'
 gives a list of the names of the three largest files\&.
+.TP
+\fBP\fP\fIstring\fP
+The \fIstring\fP will be prepended to each glob match as a separate
+word\&.  \fIstring\fP is delimited in the same way as arguments to the
+\fBe\fP glob qualifier described above\&.  The qualifier can be repeated;
+the words are prepended separately so that the resulting command
+line contains the words in the same order they were given in the
+list of glob qualifiers\&.
+.RS
+.PP
+A typical use for this is to prepend an option before all occurrences
+of a file name; for example, the pattern `\fB*(P:\-f:)\fP\&' produces the
+command line arguments `\fB\-f\fP \fIfile1\fP \fB\-f\fP \fIfile2\fP \&.\&.\&.\&'
+.RE
+.RE
 .PP
 More than one of these lists can be combined, separated by commas\&. The
 whole list matches if at least one of the sublists matches (they are
@@ -2044,12 +2649,13 @@ in brackets (`\fB[\&.\&.\&.]\fP\&')\&.
 .PP
 If a `\fB:\fP\&' appears in a qualifier list, the remainder of the expression in
 parenthesis is interpreted as a modifier (see the section `Modifiers\&'
-in the section `History Expansion\&')\&.  Note that
-each modifier must be introduced by a separate `\fB:\fP\&'\&.  Note also that the
-result after modification does not have to be an existing file\&.  The
-name of any existing file can be followed by a modifier of the form
-`\fB(:\&.\&.)\fP\&' even if no actual filename generation is performed\&.
-Thus:
+in the section `History Expansion\&')\&.  Each modifier must be introduced by a
+separate `\fB:\fP\&'\&.  Note also that the result after modification does not
+have to be an existing file\&.  The name of any existing file can be followed
+by a modifier of the form `\fB(:\&.\&.)\fP\&' even if no actual filename generation
+is performed, although note that the presence of the parentheses
+causes the entire expression to be subjected to any global pattern matching
+options such as \fBNULL_GLOB\fP\&. Thus:
 .PP
 .RS
 .nf

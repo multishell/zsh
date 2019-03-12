@@ -33,10 +33,6 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 
-#ifndef UNIX_PATH_MAX
-# define UNIX_PATH_MAX 108
-#endif
-
 /*
  * We need to include the zsh headers later to avoid clashes with
  * the definitions on some systems, however we need the configuration
@@ -75,7 +71,12 @@ bin_zsocket(char *nam, char **args, Options ops, UNUSED(int func))
 	targetfd = atoi(OPT_ARG(ops,'d'));
 	if (!targetfd) {
 	    zwarnnam(nam, "%s is an invalid argument to -d",
-		     OPT_ARG(ops, 'd'), 0);
+		     OPT_ARG(ops, 'd'));
+	    return 1;
+	}
+	if (targetfd <= max_zsh_fd && fdtable[targetfd] != FDT_UNUSED) {
+	    zwarnnam(nam, "file descriptor %d is in use by the shell",
+		     targetfd);
 	    return 1;
 	}
     }
@@ -84,7 +85,7 @@ bin_zsocket(char *nam, char **args, Options ops, UNUSED(int func))
 	char *localfn;
 
 	if (!args[0]) {
-	    zwarnnam(nam, "-l requires an argument", NULL, 0);
+	    zwarnnam(nam, "-l requires an argument");
 	    return 1;
 	}
 
@@ -93,12 +94,12 @@ bin_zsocket(char *nam, char **args, Options ops, UNUSED(int func))
 	sfd = socket(PF_UNIX, SOCK_STREAM, 0);
 
 	if (sfd == -1) {
-	    zwarnnam(nam, "socket error: %e ", NULL, errno);
+	    zwarnnam(nam, "socket error: %e ", errno);
 	    return 1;
 	}
 
 	soun.sun_family = AF_UNIX;
-	strncpy(soun.sun_path, localfn, UNIX_PATH_MAX);
+	strncpy(soun.sun_path, localfn, sizeof(soun.sun_path)-1);
 
 	if (bind(sfd, (struct sockaddr *)&soun, sizeof(struct sockaddr_un)))
 	{
@@ -109,18 +110,21 @@ bin_zsocket(char *nam, char **args, Options ops, UNUSED(int func))
 
 	if (listen(sfd, 1))
 	{
-	    zwarnnam(nam, "could not listen on socket: %e", NULL, errno);
+	    zwarnnam(nam, "could not listen on socket: %e", errno);
 	    close(sfd);
 	    return 1;
 	}
 
 	if (targetfd) {
-	    redup(sfd, targetfd);
-	    sfd = targetfd;
+	    sfd = redup(sfd, targetfd);
 	}
 	else {
 	    /* move the fd since no one will want to read from it */
 	    sfd = movefd(sfd);
+	}
+	if (sfd == -1) {
+	    zerrnam(nam, "cannot duplicate fd %d: %e", sfd, errno);
+	    return 1;
 	}
 
 	setiparam("REPLY", sfd);
@@ -136,14 +140,14 @@ bin_zsocket(char *nam, char **args, Options ops, UNUSED(int func))
 	int lfd, rfd;
 
 	if (!args[0]) {
-	    zwarnnam(nam, "-a requires an argument", NULL, 0);
+	    zwarnnam(nam, "-a requires an argument");
 	    return 1;
 	}
 
 	lfd = atoi(args[0]);
 
 	if (!lfd) {
-	    zwarnnam(nam, "invalid numerical argument", NULL, 0);
+	    zwarnnam(nam, "invalid numerical argument");
 	    return 1;
 	}
 
@@ -158,7 +162,7 @@ bin_zsocket(char *nam, char **args, Options ops, UNUSED(int func))
 	    if ((ret = poll(&pfd, 1, 0)) == 0) return 1;
 	    else if (ret == -1)
 	    {
-		zwarnnam(nam, "poll error: %e", NULL, errno);
+		zwarnnam(nam, "poll error: %e", errno);
 		return 1;
 	    }
 # else
@@ -174,14 +178,14 @@ bin_zsocket(char *nam, char **args, Options ops, UNUSED(int func))
 	    if ((ret = select(lfd+1, &rfds, NULL, NULL, &tv))) return 1;
 	    else if (ret == -1)
 	    {
-		zwarnnam(nam, "select error: %e", NULL, errno);
+		zwarnnam(nam, "select error: %e", errno);
 		return 1;
 	    }
 	    
 # endif
 	    
 #else
-	    zwarnnam(nam, "not currently supported", NULL, 0);
+	    zwarnnam(nam, "not currently supported");
 	    return 1;
 #endif
 	}
@@ -189,13 +193,16 @@ bin_zsocket(char *nam, char **args, Options ops, UNUSED(int func))
 	len = sizeof(soun);
 	if ((rfd = accept(lfd, (struct sockaddr *)&soun, &len)) == -1)
 	{
-	    zwarnnam(nam, "could not accept connection: %e", NULL, errno);
+	    zwarnnam(nam, "could not accept connection: %e", errno);
 	    return 1;
 	}
 
 	if (targetfd) {
-	    redup(rfd, targetfd);
-	    sfd = targetfd;
+	    sfd = redup(rfd, targetfd);
+	    if (sfd < 0) {
+		zerrnam(nam, "could not duplicate socket fd to %d: %e", targetfd, errno);
+		return 1;
+	    }
 	}
 	else {
 	    sfd = rfd;
@@ -209,30 +216,33 @@ bin_zsocket(char *nam, char **args, Options ops, UNUSED(int func))
     else
     {
 	if (!args[0]) {
-	    zwarnnam(nam, "zsocket requires an argument", NULL, 0);
+	    zwarnnam(nam, "zsocket requires an argument");
 	    return 1;
 	}
 
 	sfd = socket(PF_UNIX, SOCK_STREAM, 0);
 
 	if (sfd == -1) {
-	    zwarnnam(nam, "socket creation failed: %e", NULL, errno);
+	    zwarnnam(nam, "socket creation failed: %e", errno);
 	    return 1;
 	}
 
 	soun.sun_family = AF_UNIX;
-	strncpy(soun.sun_path, args[0], UNIX_PATH_MAX);
+	strncpy(soun.sun_path, args[0], sizeof(soun.sun_path)-1);
 	
 	if ((err = connect(sfd, (struct sockaddr *)&soun, sizeof(struct sockaddr_un)))) {
-	    zwarnnam(nam, "connection failed: %e", NULL, errno);
+	    zwarnnam(nam, "connection failed: %e", errno);
 	    close(sfd);
 	    return 1;
 	}
 	else
 	{
 	    if (targetfd) {
-		redup(sfd, targetfd);
-		sfd = targetfd;
+		sfd = redup(sfd, targetfd);
+		if (sfd < 0) {
+		    zerrnam(nam, "could not duplicate socket fd to %d: %e", targetfd, errno);
+		    return 1;
+		}
 	    }
 
 	    setiparam("REPLY", sfd);
@@ -250,6 +260,14 @@ static struct builtin bintab[] = {
     BUILTIN("zsocket", 0, bin_zsocket, 0, 3, 0, "ad:ltv", NULL),
 };
 
+static struct features module_features = {
+    bintab, sizeof(bintab)/sizeof(*bintab),
+    NULL, 0,
+    NULL, 0,
+    NULL, 0,
+    0
+};
+
 /* The load/unload routines required by the zsh library interface */
 
 /**/
@@ -261,18 +279,31 @@ setup_(UNUSED(Module m))
 
 /**/
 int
-boot_(Module m)
+features_(Module m, char ***features)
 {
-    return !addbuiltins(m->nam, bintab, sizeof(bintab)/sizeof(*bintab));
+    *features = featuresarray(m, &module_features);
+    return 0;
 }
 
+/**/
+int
+enables_(Module m, int **enables)
+{
+    return handlefeatures(m, &module_features, enables);
+}
+
+/**/
+int
+boot_(Module m)
+{
+    return 0;
+}
 
 /**/
 int
 cleanup_(Module m)
 {
-    deletebuiltins(m->nam, bintab, sizeof(bintab)/sizeof(*bintab));
-    return 0;
+    return setfeatureenables(m, &module_features, NULL);
 }
 
 /**/

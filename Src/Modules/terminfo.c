@@ -30,14 +30,13 @@
 #define USES_TERM_H 1
 #include "terminfo.mdh"
 
-#if defined(HAVE_TIGETFLAG) && defined(HAVE_CURSES_H)
+#if defined(HAVE_TIGETFLAG) && defined(ZSH_HAVE_CURSES_H)
 # define USE_TERMINFO_MODULE 1
 #else
 # undef USE_TERMINFO_MODULE
 #endif
 
 #include "terminfo.pro"
-static char terminfo_nam[] = "terminfo";
 
 /**/
 #ifdef USE_TERMINFO_MODULE
@@ -50,12 +49,13 @@ static char terminfo_nam[] = "terminfo";
 #  undef offsetof
 # endif
 
-# include <curses.h>
-# ifdef HAVE_TERM_H
-#  include <term.h>
-# endif
+#ifdef ZSH_HAVE_CURSES_H
+# include "../zshcurses.h"
+#endif
 
-static Param terminfo_pm;
+# ifdef ZSH_HAVE_TERM_H
+#  include "../zshterm.h"
+# endif
 
 /* echoti: output a terminfo capability */
 
@@ -95,12 +95,12 @@ bin_echoti(char *name, char **argv, UNUSED(Options ops), UNUSED(int func))
     t = (char *)tigetstr(s);
     if (!t || t == (char *)-1 || !*t) {
 	/* capability doesn't exist, or (if boolean) is off */
-	zwarnnam(name, "no such terminfo capability: %s", s, 0);
+	zwarnnam(name, "no such terminfo capability: %s", s);
 	return 1;
     }
     /* check that the number of arguments provided is not too high */
     if (arrlen(argv) > 9) {
-        zwarnnam(name, "too many arguments", NULL, 0);
+        zwarnnam(name, "too many arguments");
         return 1;
     }
 
@@ -126,69 +126,16 @@ bin_echoti(char *name, char **argv, UNUSED(Options ops), UNUSED(int func))
     return 0;
 }
 
-/**/
-#else /* !USE_TERMINFO_MODULE */
-
-#define bin_echoti bin_notavail
-
-/**/
-#endif /* !USE_TERMINFO_MODULE */
-
 static struct builtin bintab[] = {
     BUILTIN("echoti", 0, bin_echoti, 1, -1, 0, NULL, NULL),
 };
 
 /**/
-#ifdef USE_TERMINFO_MODULE
-
-/* Empty dummy function for special hash parameters. */
-
-/**/
-static void
-shempty(void)
-{
-}
-
-/* Create a simple special hash parameter. */
-
-/**/
-static Param
-createtihash()
-{
-    Param pm;
-    HashTable ht;
-
-    unsetparam(terminfo_nam);
-
-    if (!(pm = createparam(terminfo_nam, PM_SPECIAL|PM_HIDE|PM_HIDEVAL|
-			   PM_REMOVABLE|PM_HASHED)))
-	return NULL;
-
-    pm->level = pm->old ? locallevel : 0;
-    pm->gsu.h = &stdhash_gsu;
-    pm->u.hash = ht = newhashtable(7, terminfo_nam, NULL);
-
-    ht->hash        = hasher;
-    ht->emptytable  = (TableFunc) shempty;
-    ht->filltable   = NULL;
-    ht->addnode     = (AddNodeFunc) shempty;
-    ht->getnode     = ht->getnode2 = getterminfo;
-    ht->removenode  = (RemoveNodeFunc) shempty;
-    ht->disablenode = NULL;
-    ht->enablenode  = NULL;
-    ht->freenode    = (FreeNodeFunc) shempty;
-    ht->printnode   = printparamnode;
-    ht->scantab     = scanterminfo;
-
-    return (terminfo_pm = pm);
-}
-
-/**/
 static HashNode
-getterminfo(UNUSED(HashTable ht), char *name)
+getterminfo(UNUSED(HashTable ht), const char *name)
 {
     int len, num;
-    char *tistr;
+    char *tistr, *nameu;
     Param pm = NULL;
 
     /* This depends on the termcap stuff in init.c */
@@ -197,36 +144,32 @@ getterminfo(UNUSED(HashTable ht), char *name)
     if ((termflags & TERM_UNKNOWN) && (isset(INTERACTIVE) || !init_term()))
 	return NULL;
 
-    unmetafy(name, &len);
+    nameu = dupstring(name);
+    unmetafy(nameu, &len);
 
     pm = (Param) hcalloc(sizeof(struct param));
-    pm->nam = dupstring(name);
-    pm->flags = PM_READONLY;
+    pm->node.nam = nameu;
+    pm->node.flags = PM_READONLY;
 
-    if (((num = tigetnum(name)) != -1) && (num != -2)) {
+    if (((num = tigetnum(nameu)) != -1) && (num != -2)) {
 	pm->u.val = num;
-	pm->flags |= PM_INTEGER;
+	pm->node.flags |= PM_INTEGER;
 	pm->gsu.i = &nullsetinteger_gsu;
-    }
-    else if ((num = tigetflag(name)) != -1) {
+    } else if ((num = tigetflag(nameu)) != -1) {
 	pm->u.str = num ? dupstring("yes") : dupstring("no");
-	pm->flags |= PM_SCALAR;
+	pm->node.flags |= PM_SCALAR;
 	pm->gsu.s = &nullsetscalar_gsu;
-    }
-    else if ((tistr = (char *)tigetstr(name)) != NULL && tistr != (char *)-1)
-    {
+    } else if ((tistr = (char *)tigetstr(nameu)) != NULL && tistr != (char *)-1) {
 	pm->u.str = dupstring(tistr);
-	pm->flags |= PM_SCALAR;
+	pm->node.flags |= PM_SCALAR;
 	pm->gsu.s = &nullsetscalar_gsu;
-    }
-    else
-    {
-	/* zwarn("no such capability: %s", name, 0); */
+    } else {
+	/* zwarn("no such capability: %s", name); */
 	pm->u.str = dupstring("");
-	pm->flags |= PM_UNSET;
+	pm->node.flags |= PM_UNSET;
 	pm->gsu.s = &nullsetscalar_gsu;
     }
-    return (HashNode) pm;
+    return &pm->node;
 }
 
 /**/
@@ -309,43 +252,64 @@ scanterminfo(UNUSED(HashTable ht), ScanFunc func, int flags)
 
     pm = (Param) hcalloc(sizeof(struct param));
 
-    pm->flags = PM_READONLY | PM_SCALAR;
+    pm->node.flags = PM_READONLY | PM_SCALAR;
     pm->gsu.s = &nullsetscalar_gsu;
 
     for (capname = (char **)boolnames; *capname; capname++) {
 	if ((num = tigetflag(*capname)) != -1) {
 	    pm->u.str = num ? dupstring("yes") : dupstring("no");
-	    pm->nam = dupstring(*capname);
-	    func((HashNode) pm, flags);
+	    pm->node.nam = dupstring(*capname);
+	    func(&pm->node, flags);
 	}
     }
 
-    pm->flags = PM_READONLY | PM_INTEGER;
+    pm->node.flags = PM_READONLY | PM_INTEGER;
     pm->gsu.i = &nullsetinteger_gsu;
 
     for (capname = (char **)numnames; *capname; capname++) {
 	if (((num = tigetnum(*capname)) != -1) && (num != -2)) {
 	    pm->u.val = num;
-	    pm->nam = dupstring(*capname);
-	    func((HashNode) pm, flags);
+	    pm->node.nam = dupstring(*capname);
+	    func(&pm->node, flags);
 	}
     }
 
-    pm->flags = PM_READONLY | PM_SCALAR;
+    pm->node.flags = PM_READONLY | PM_SCALAR;
     pm->gsu.s = &nullsetscalar_gsu;
 
     for (capname = (char **)strnames; *capname; capname++) {
 	if ((tistr = (char *)tigetstr(*capname)) != NULL &&
 	    tistr != (char *)-1) {
 	    pm->u.str = dupstring(tistr);
-	    pm->nam = dupstring(*capname);
-	    func((HashNode) pm, flags);
+	    pm->node.nam = dupstring(*capname);
+	    func(&pm->node, flags);
 	}
     }
 }
 
+static struct paramdef partab[] = {
+    SPECIALPMDEF("terminfo", PM_READONLY, NULL,
+		 getterminfo, scanterminfo)
+};
+
 /**/
 #endif /* USE_TERMINFO_MODULE */
+
+static struct features module_features = {
+#ifdef USE_TERMINFO_MODULE
+    bintab, sizeof(bintab)/sizeof(*bintab),
+#else
+    NULL, 0,
+#endif
+    NULL, 0,
+    NULL, 0,
+#ifdef USE_TERMINFO_MODULE
+    partab, sizeof(partab)/sizeof(*partab),
+#else
+    NULL, 0,
+#endif
+    0
+};
 
 /**/
 int
@@ -356,39 +320,44 @@ setup_(UNUSED(Module m))
 
 /**/
 int
+features_(Module m, char ***features)
+{
+    *features = featuresarray(m, &module_features);
+    return 0;
+}
+
+/**/
+int
+enables_(Module m, int **enables)
+{
+    return handlefeatures(m, &module_features, enables);
+}
+
+/**/
+int
 boot_(Module m)
 {
 #ifdef USE_TERMINFO_MODULE
 # ifdef HAVE_SETUPTERM
     int errret;
 
-    if (setupterm((char *)0, 1, &errret) == ERR)
-	return 1;
+    /*
+     * Just because we can't set up the terminal doesn't
+     * mean the modules hasn't booted---TERM may change,
+     * and it should be handled dynamically---so ignore errors here.
+     */
+    (void)setupterm((char *)0, 1, &errret);
 # endif
-
-    if (!createtihash())
-    	return 1;
-#else
-    unsetparam(terminfo_nam);
 #endif
-    return  !addbuiltins(m->nam, bintab, sizeof(bintab)/sizeof(*bintab));
+
+    return 0;
 }
 
 /**/
 int
 cleanup_(Module m)
 {
-#ifdef USE_TERMINFO_MODULE
-    Param pm;
-
-    if ((pm = (Param) paramtab->getnode(paramtab, terminfo_nam)) &&
-	pm == terminfo_pm) {
-	pm->flags &= ~PM_READONLY;
-	unsetparam_pm(pm, 0, 1);
-    }
-#endif
-    deletebuiltins(m->nam, bintab, sizeof(bintab)/sizeof(*bintab));
-    return 0;
+    return setfeatureenables(m, &module_features, NULL);
 }
 
 /**/

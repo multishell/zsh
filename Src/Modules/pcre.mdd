@@ -1,7 +1,7 @@
 name=zsh/pcre
-link=`if test x$enable_pcre = xyes; then echo dynamic; else echo no; fi`
+link=`if test x$enable_pcre = xyes && (pcre-config --version >/dev/null 2>/dev/null); then echo dynamic; else echo no; fi`
 load=no
 
-autobins="pcre_compile pcre_study pcre_match"
+autofeatures="b:pcre_compile b:pcre_study b:pcre_match"
 
 objects="pcre.o"

@@ -58,10 +58,10 @@ bin_clone(char *nam, char **args, UNUSED(Options ops), UNUSED(int func))
 	mypid = getpid();
 #ifdef HAVE_SETSID
 	if (setsid() != mypid)
-	    zwarnnam(nam, "failed to create new session: %e", NULL, errno);
+	    zwarnnam(nam, "failed to create new session: %e", errno);
 #elif defined(TIOCNOTTY)
 	    if (ioctl(SHTTY, TIOCNOTTY, 0))
-	    zwarnnam(*args, "%e", NULL, errno);
+	    zwarnnam(*args, "%e", errno);
 	    setpgrp(0L, mypid);
 #endif
 	dup2(ttyfd,0);
@@ -75,7 +75,7 @@ bin_clone(char *nam, char **args, UNUSED(Options ops), UNUSED(int func))
 	/* Acquire a controlling terminal */
 	cttyfd = open(*args, O_RDWR);
 	if (cttyfd == -1)
-	    zwarnnam(nam, "%e", NULL, errno);
+	    zwarnnam(nam, "%e", errno);
 	else {
 #ifdef TIOCSCTTY
 	    ioctl(cttyfd, TIOCSCTTY, 0);
@@ -86,7 +86,7 @@ bin_clone(char *nam, char **args, UNUSED(Options ops), UNUSED(int func))
 	cttyfd = open("/dev/tty", O_RDWR);
 	if (cttyfd == -1)
 	    zwarnnam(nam, "could not make %s my controlling tty, job control "
-		     "disabled", *args, 0);
+		     "disabled", *args);
 	else
 	    close(cttyfd);
 
@@ -98,7 +98,7 @@ bin_clone(char *nam, char **args, UNUSED(Options ops), UNUSED(int func))
     }
     close(ttyfd);
     if (pid < 0) {
-	zerrnam(nam, "fork failed: %e", NULL, errno);
+	zerrnam(nam, "fork failed: %e", errno);
 	return 1;
     }
     lastpid = pid;
@@ -107,6 +107,14 @@ bin_clone(char *nam, char **args, UNUSED(Options ops), UNUSED(int func))
 
 static struct builtin bintab[] = {
     BUILTIN("clone", 0, bin_clone, 1, 1, 0, NULL, NULL),
+};
+
+static struct features module_features = {
+    bintab, sizeof(bintab)/sizeof(*bintab),
+    NULL, 0,
+    NULL, 0,
+    NULL, 0,
+    0
 };
 
 /**/
@@ -118,17 +126,31 @@ setup_(UNUSED(Module m))
 
 /**/
 int
-boot_(Module m)
+features_(Module m, char ***features)
 {
-    return !addbuiltins(m->nam, bintab, sizeof(bintab)/sizeof(*bintab));
+    *features = featuresarray(m, &module_features);
+    return 0;
+}
+
+/**/
+int
+enables_(Module m, int **enables)
+{
+    return handlefeatures(m, &module_features, enables);
+}
+
+/**/
+int
+boot_(UNUSED(Module m))
+{
+    return 0;
 }
 
 /**/
 int
 cleanup_(Module m)
 {
-    deletebuiltins(m->nam, bintab, sizeof(bintab)/sizeof(*bintab));
-    return 0;
+    return setfeatureenables(m, &module_features, NULL);
 }
 
 /**/

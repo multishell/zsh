@@ -150,22 +150,73 @@ executing tt(myfunc), use:
 
 example(autoload +X myfunc)
 
+sect(Anonymous Functions)
+cindex(anonymous functions)
+cindex(functions, anonymous)
+
+If no name is given for a function, it is `anonymous' and is handled
+specially.  Either form of function definition may be used: a `tt(())' with
+no preceding name, or a `tt(function)' with an immediately following open
+brace.  The function is executed immediately at the point of definition and
+is not stored for future use.  The function name is set to `tt((anon))'.
+
+Arguments to the function may be specified as words following the
+closing brace defining the function, hence if there are none no
+arguments (other than tt($0)) are set.  This is a difference from the
+way other functions are parsed: normal function definitions may be
+followed by certain keywords such as `tt(else)' or `tt(fi)', which will
+be treated as arguments to anonymous functions, so that a newline or
+semicolon is needed to force keyword interpretation.
+
+Note also that the argument list of any enclosing script or function is
+hidden (as would be the case for any other function called at this
+point).
+
+Redirections may be applied to the anonymous function in the same manner as
+to a current-shell structure enclosed in braces.  The main use of anonymous
+functions is to provide a scope for local variables.  This is particularly
+convenient in start-up files as these do not provide their own local
+variable scope.
+
+For example,
+
+example(variable=outside
+function {
+  local variable=inside
+  print "I am $variable with arguments $*"
+} this and that
+print "I am $variable")
+
+outputs the following:
+
+example(I am inside with arguments this and that
+I am outside)
+
+Note that function definitions with arguments that expand to nothing,
+for example `tt(name=; function $name { )var(...)tt( })', are not
+treated as anonymous functions.  Instead, they are treated as normal
+function definitions where the definition is silently discarded.
+
 sect(Special Functions)
 Certain functions, if defined, have special meaning to the shell.
 
-In the case of tt(chpwd), tt(periodic), tt(precmd) and tt(preexec) it is
-possible to define an array that has the same name with `tt(_functions)'
-appended.  Any element in such an array is taken as the name of a function
-to execute; it is executed in the same context and with the same arguments
-as the basic function.  For example, if tt($chpwd_functions) is an array
-containing the values `tt(mychpwd)', `tt(chpwd_save_dirstack)', then the
-shell attempts to execute the functions `tt(chpwd)', `tt(mychpwd)' and
+subsect(Hook Functions)
+findex(functions, hook)
+findex(hook functions)
+
+For the functions below, it is possible to define an array that has the
+same name as the function with `tt(_functions)' appended.  Any element in
+such an array is taken as the name of a function to execute; it is executed
+in the same context and with the same arguments as the basic function.  For
+example, if tt($chpwd_functions) is an array containing the values
+`tt(mychpwd)', `tt(chpwd_save_dirstack)', then the shell attempts to
+execute the functions `tt(chpwd)', `tt(mychpwd)' and
 `tt(chpwd_save_dirstack)', in that order.  Any function that does not exist
 is silently ignored.  A function found by this mechanism is referred to
-elsewhere as a `hook function'.  An error in any function causes
-subsequent functions not to be run.  Note further that an error
-in a tt(precmd) hook causes an immediately following tt(periodic)
-function not to run (thought it may run at the next opportunity).
+elsewhere as a `hook function'.  An error in any function causes subsequent
+functions not to be run.  Note further that an error in a tt(precmd) hook
+causes an immediately following tt(periodic) function not to run (though
+it may run at the next opportunity).
 
 startitem()
 findex(chpwd)
@@ -189,7 +240,7 @@ findex(precmd)
 vindex(precmd_functions)
 item(tt(precmd))(
 Executed before each prompt.  Note that precommand functions are not
-reexecuted simply because the command line is redrawn, as happens, for
+re-executed simply because the command line is redrawn, as happens, for
 example, when a notification about an exiting job is displayed.
 )
 findex(preexec)
@@ -205,6 +256,34 @@ size-limited version of the command (with things like function bodies
 elided); the third argument contains the full text that is being
 executed.
 )
+findex(zshaddhistory)
+vindex(zshaddhistory_functions)
+item(tt(zshaddhistory))(
+cindex(history, hook when line is saved)
+Executed when a history line has been read interactively, but
+before it is executed.  The sole argument is the complete history
+line (so that any terminating newline will still be present).
+
+If any of the hook functions return a non-zero value the history
+line will not be saved, although it lingers in the history until the
+next line is executed allow you to reuse or edit it immediately.
+
+A hook function may call `tt(fc -p) var(...)' to switch the history
+context so that the history is saved in a different file from the
+that in the global tt(HISTFILE) parameter.  This is handled specially:
+the history context is automatically restored after the processing
+of the history line is finished.
+
+The following example function first adds the history line to the normal
+history with the newline stripped,  which is usually the correct behaviour.
+Then it switches the history context so that the line will
+be written to a history file in the current directory.
+
+example(zshaddhistory+LPAR()RPAR() {
+  print -sr -- ${1%%$'\n'}
+  fc -p .zsh_local_history
+})
+)
 findex(zshexit)
 vindex(zshexit_functions)
 item(tt(zshexit))(
@@ -213,6 +292,14 @@ This is not called by exiting subshells, nor when the tt(exec)
 precommand modifier is used before an external command.  Also, unlike
 tt(TRAPEXIT), it is not called when functions exit.
 )
+enditem()
+
+subsect(Trap Functions)
+
+The functions below are treated specially but do not have corresponding
+hook arrays.
+
+startitem()
 item(tt(TRAP)var(NAL))(
 cindex(signals, trapping)
 cindex(trapping signals)
@@ -244,7 +331,12 @@ executed inside other traps.
 )
 findex(TRAPDEBUG)
 item(tt(TRAPDEBUG))(
-Executed after each command.
+If the option tt(DEBUG_BEFORE_CMD) is set (as it is by default), executed
+before each command; otherwise executed after each command.  See
+the description of the tt(trap) builtin in
+ifnzman(noderef(Shell Builtin Commands))\
+ifzman(zmanref(zshbuiltins)) for details of additional features provided
+in debug traps.
 )
 findex(TRAPEXIT)
 item(tt(TRAPEXIT))(
@@ -254,29 +346,45 @@ The value of tt($?) at the start of execution is the exit status of the
 shell or the return status of the function exiting.
 )
 findex(TRAPZERR)
+findex(TRAPERR)
 item(tt(TRAPZERR))(
 Executed whenever a command has a non-zero exit status.  However, the
 function is not executed if the command occurred in a sublist followed by
 `tt(&&)' or `tt(||)'; only the final command in a sublist of this type
-causes the trap to be executed.
+causes the trap to be executed.  The function tt(TRAPERR) acts the same as
+tt(TRAPZERR) on systems where there is no tt(SIGERR) (this is the usual
+case).
 )
 enditem()
 
 findex(trap, use of)
 The functions beginning `tt(TRAP)' may alternatively be defined with the
-tt(trap) builtin:  this may be preferable for some uses, as they are then
-run in the environment of the calling process, rather than in their own
-function environment.  Apart from the difference in calling procedure and
-the fact that the function form appears in lists of functions, the forms
+tt(trap) builtin:  this may be preferable for some uses.  Setting a trap
+with one form removes any trap of the other form for the same signal;
+removing a trap in either form removes all traps for the same signal.
+The forms
 
 example(TRAPNAL+LPAR()RPAR() { 
  # code
 })
 
-and
+('function traps') and
 
 example(trap '
  # code
 ' NAL)
 
-are equivalent.
+('list traps') are equivalent in most ways, the exceptions being the
+following:
+
+startitemize()
+itemiz(Function traps have all the properties of normal functions,
+appearing in the list of functions and being called with their own
+function context rather than the context where the trap was triggered.)
+itemiz(The return status from function traps is special, whereas a return
+from a list trap causes the surrounding context to return with the given
+status.)
+itemiz(Function traps are not reset within subshells, in accordance with
+zsh behaviour; list traps are reset, in accordance with POSIX
+behaviour.)
+enditemize()

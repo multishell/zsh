@@ -3,6 +3,10 @@
 %prep
   mkdir redir.tmp && cd redir.tmp
 
+  myfd=99
+  (echo >&$myfd) 2>msg
+  bad_fd_msg="${$(<msg)##*:}"
+
 %test
 
   print 'This is file redir' >redir  &&  cat redir
@@ -78,22 +82,89 @@
 >b
 >c
 
-  exec 3>redir  &&  print hello >&3  &&  print goodbye >&3  && cat redir
+# The following tests check that output of parsed here-documents works.
+# This isn't completely trivial because we convert the here-documents
+# internally to here-strings.  So we check again that we can output
+# the reevaluated here-strings correctly.  Hence there are three slightly
+# different stages.  We don't care how the output actually looks, so
+# we don't test that.
+  heretest() {
+    print First line
+    cat <<-HERE
+	$foo$foo met celeste  'but with extra'  "stuff to test quoting"
+	HERE
+    print Last line
+  }
+  heretest
+  eval "$(functions heretest)"
+  heretest
+  eval "$(functions heretest)"
+  heretest
+0:Re-evaluation of function output with here document, unquoted
+>First line
+>barbar met celeste  'but with extra'  "stuff to test quoting"
+>Last line
+>First line
+>barbar met celeste  'but with extra'  "stuff to test quoting"
+>Last line
+>First line
+>barbar met celeste  'but with extra'  "stuff to test quoting"
+>Last line
+
+  heretest() {
+    print First line
+    cat <<'    HERE'
+    $foo$foo met celeste  'but with extra'  "stuff to test quoting"
+    HERE
+    print Last line
+  }
+  heretest
+  eval "$(functions heretest)"
+  heretest
+  eval "$(functions heretest)"
+  heretest
+0:Re-evaluation of function output with here document, quoted
+>First line
+>    $foo$foo met celeste  'but with extra'  "stuff to test quoting"
+>Last line
+>First line
+>    $foo$foo met celeste  'but with extra'  "stuff to test quoting"
+>Last line
+>First line
+>    $foo$foo met celeste  'but with extra'  "stuff to test quoting"
+>Last line
+
+  read -r line <<'  HERE'
+  HERE
+1:No input, not even newline, from empty here document.
+
+  #
+  # exec tests: perform these in subshells so if they fail the
+  # shell won't exit.
+  #
+  (exec 3>redir  &&  print hello >&3  &&  print goodbye >&3  && cat redir)
 0:'>&' redirection
 >hello
 >goodbye
 
-  exec 3<redir && read foo <&3 && print $foo && read foo <&3 && print $foo
+  (exec 3<redir && read foo <&3 && print $foo && read foo <&3 && print $foo)
 0:'<&' redirection
 >hello
 >goodbye
 
+  ({ exec 3<&- } 2>/dev/null
   exec 3<&-
-  read foo <&-
+  read foo <&-)
 1:'<&-' redirection
+*?\(eval\):*: failed to close file descriptor 3:*
 
   print foo >&-
 0:'>&-' redirection
+
+  (exec >&-
+  print foo)
+0:'>&-' with attempt to use closed fd
+*?\(eval\):2: write error:*
 
   fn() { local foo; read foo; print $foo; }
   coproc fn
@@ -235,3 +306,138 @@
 0:null redir with NULLCMD=cat
 <input
 >input
+
+  (myfd=
+  exec {myfd}>logfile
+  if [[ -z $myfd ]]; then
+    print "Ooops, failed to set myfd to a file descriptor." >&2
+  else
+    print This is my logfile. >&$myfd
+    print Examining contents of logfile...
+    cat logfile
+  fi)
+0:Using {fdvar}> syntax to open a new file descriptor
+>Examining contents of logfile...
+>This is my logfile.
+
+  (setopt noclobber
+   exec {myfd}>logfile2
+   echo $myfd
+   exec {myfd}>logfile3) | read myfd
+  (( ! ${pipestatus[1]} ))
+1q:NO_CLOBBER prevents overwriting parameter with allocated fd
+?(eval):4: can't clobber parameter myfd containing file descriptor $myfd
+
+  (exec {myfd}>logfile4
+  echo $myfd
+  exec {myfd}>&-
+  print This message should disappear >&$myfd) | read myfd
+  (( ! ${pipestatus[1]} ))
+1q:Closing file descriptor using brace syntax
+?(eval):4: $myfd:$bad_fd_msg
+
+  typeset -r myfd
+  echo This should not appear {myfd}>nologfile
+1:Error opening file descriptor using readonly variable
+?(eval):2: can't allocate file descriptor to readonly parameter myfd
+
+  (typeset +r myfd
+  exec {myfd}>newlogfile
+  typeset -r myfd
+  exec {myfd}>&-)
+1:Error closing file descriptor using readonly variable
+?(eval):4: can't close file descriptor from readonly parameter myfd
+
+# This tests the here-string to filename optimisation; we can't
+# test that it's actually being optimised, but we can test that it
+# still works.
+  cat =(<<<$'This string has been replaced\nby a file containing it.\n')
+0:Optimised here-string to filename
+>This string has been replaced
+>by a file containing it.
+
+  print This f$'\x69'le contains d$'\x61'ta. >redirfile
+  print redirection:
+  cat<redirfile>outfile
+  print output:
+  cat outfile
+  print append:
+  cat>>outfile<redirfile
+  print more output:
+  cat outfile
+0:Parsing of redirection operators (no space required before operators)
+>redirection:
+>output:
+>This file contains data.
+>append:
+>more output:
+>This file contains data.
+>This file contains data.
+
+  $ZTST_testdir/../Src/zsh -fc 'exec >/nonexistent/nonexistent
+  echo output'
+0:failed exec redir, no POSIX_BUILTINS
+>output
+?zsh:1: no such file or directory: /nonexistent/nonexistent
+
+  $ZTST_testdir/../Src/zsh -f -o POSIX_BUILTINS -c '
+  exec >/nonexistent/nonexistent
+  echo output'
+1:failed exec redir, POSIX_BUILTINS
+?zsh:2: no such file or directory: /nonexistent/nonexistent
+
+  $ZTST_testdir/../Src/zsh -f -o POSIX_BUILTINS -c '
+  set >/nonexistent/nonexistent
+  echo output'
+1:failed special builtin redir, POSIX_BUILTINS
+?zsh:2: no such file or directory: /nonexistent/nonexistent
+
+  $ZTST_testdir/../Src/zsh -f -o POSIX_BUILTINS -c '
+  command set >/nonexistent/nonexistent
+  echo output'
+0:failed special builtin redir with command prefix, POSIX_BUILTINS
+>output
+?zsh:2: no such file or directory: /nonexistent/nonexistent
+
+  $ZTST_testdir/../Src/zsh -f -o POSIX_BUILTINS -c '
+  echo >/nonexistent/nonexistent
+  echo output'
+0:failed unspecial builtin redir, POSIX_BUILTINS
+>output
+?zsh:2: no such file or directory: /nonexistent/nonexistent
+
+  $ZTST_testdir/../Src/zsh -f -o POSIX_BUILTINS -c '
+  . /nonexistent/nonexistent
+  echo output'
+1:failed dot, POSIX_BUILTINS
+?zsh:.:2: no such file or directory: /nonexistent/nonexistent
+
+  $ZTST_testdir/../Src/zsh -f -c '
+  . /nonexistent/nonexistent
+  echo output'
+0:failed dot, NO_POSIX_BUILTINS
+>output
+?zsh:.:2: no such file or directory: /nonexistent/nonexistent
+
+  $ZTST_testdir/../Src/zsh -f <<<'
+  readonly foo
+  foo=bar set output
+  echo output'
+0:failed assignment on posix special, NO_POSIX_BUILTINS
+>output
+?zsh: read-only variable: foo
+
+  $ZTST_testdir/../Src/zsh -f -o POSIX_BUILTINS <<<'
+  readonly foo
+  foo=bar set output
+  echo output'
+1:failed assignment on posix special, POSIX_BUILTINS
+?zsh: read-only variable: foo
+
+  $ZTST_testdir/../Src/zsh -f -o POSIX_BUILTINS <<<'
+  readonly foo
+  foo=bar echo output
+  echo output'
+0:failed assignment on non-posix-special, POSIX_BUILTINS
+>output
+?zsh: read-only variable: foo

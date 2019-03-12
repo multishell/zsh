@@ -37,18 +37,19 @@ static Widget w_zaptochar;
 static int
 deltochar(UNUSED(char **args))
 {
-    int c = getkey(0), dest = cs, ok = 0, n = zmult;
+    ZLE_INT_T c = getfullchar(0);
+    int dest = zlecs, ok = 0, n = zmult;
     int zap = (bindk->widget == w_zaptochar);
 
     if (n > 0) {
-	while (n-- && dest != ll) {
-	    while (dest != ll && line[dest] != c)
-		dest++;
-	    if (dest != ll) {
+	while (n-- && dest != zlell) {
+	    while (dest != zlell && (ZLE_INT_T)zleline[dest] != c)
+		INCPOS(dest);
+	    if (dest != zlell) {
 		if (!zap || n > 0)
-		    dest++;
+		    INCPOS(dest);
 		if (!n) {
-		    forekill(dest - cs, 0);
+		    forekill(dest - zlecs, CUT_RAW);
 		    ok++;
 		}
 	    }
@@ -56,28 +57,54 @@ deltochar(UNUSED(char **args))
     } else {
 	/* ignore character cursor is on when scanning backwards */
 	if (dest)
-	    dest--;
+	    DECPOS(dest);
 	while (n++ && dest != 0) {
-	    while (dest != 0 && line[dest] != c)
-		dest--;
-	    if (line[dest] == c) {
+	    while (dest != 0 && (ZLE_INT_T)zleline[dest] != c)
+		DECPOS(dest);
+	    if ((ZLE_INT_T)zleline[dest] == c) {
 		if (!n) {
-		    backkill(cs - dest - zap, 1);
+		    /* HERE adjust zap for trailing combining chars */
+		    backkill(zlecs - dest - zap, CUT_RAW|CUT_FRONT);
 		    ok++;
 		}
 		if (dest)
-		    dest--;
+		    DECPOS(dest);
 	    }
 	}
     }
     return !ok;
 }
 
+
+static struct features module_features = {
+    NULL, 0,
+    NULL, 0,
+    NULL, 0,
+    NULL, 0,
+    0
+};
+
+
 /**/
 int
 setup_(UNUSED(Module m))
 {
     return 0;
+}
+
+/**/
+int
+features_(Module m, char ***features)
+{
+    *features = featuresarray(m, &module_features);
+    return 0;
+}
+
+/**/
+int
+enables_(Module m, int **enables)
+{
+    return handlefeatures(m, &module_features, enables);
 }
 
 /**/
@@ -93,18 +120,17 @@ boot_(Module m)
 	    return 0;
 	deletezlefunction(w_deletetochar);
     }
-    zwarnnam(m->nam, "deltochar: name clash when adding ZLE functions",
-	     NULL, 0);
+    zwarnnam(m->node.nam, "deltochar: name clash when adding ZLE functions");
     return -1;
 }
 
 /**/
 int
-cleanup_(UNUSED(Module m))
+cleanup_(Module m)
 {
     deletezlefunction(w_deletetochar);
     deletezlefunction(w_zaptochar);
-    return 0;
+    return setfeatureenables(m, &module_features, NULL);
 }
 
 /**/

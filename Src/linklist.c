@@ -30,6 +30,72 @@
 #include "zsh.mdh"
 #include "linklist.pro"
 
+/*
+ * Anatomy of a LinkList
+ *
+ * LinkList with 4 nodes:
+ *
+ * LinkList is a        first   last   flags   (LinkList)
+ * union; see zsh.h     next    prev   dat     (LinkNode)
+ *                    +-------+------+------+
+ *                    |       |      |      | See comment in subst.c
+ *     +------------> |   |   |   |  |      | about LF_ARRAY.
+ *     |              +---|---+---|--+------+
+ *     |                  |       |
+ *     |     +------------+       +--------------+
+ *     |     |                                   |
+ *     |    \|/                                 \|/
+ *     |   +----+      +----+      +----+      +----+
+ *     |   |    |      |    |      |    |      | \/ |  X here is NULL.
+ *     |   |  -------> |  -------> |  -------> | /\ |
+ *     |   |next|      |next|      |next|      |next|
+ *     |   +----+      +----+      +----+      +----+
+ *     |   |    |      |    |      |    |      |    |
+ *     +------  | <-------  | <-------  | <-------  |
+ *         |prev|      |prev|      |prev|      |prev|
+ *         +----+      +----+      +----+      +----+
+ *         |    |      |    |      |    |      |    | Pointers to data,
+ *         |dat |      |dat |      |dat |      |dat | usually char **.
+ *         +----+      +----+      +----+      +----+
+ *        LinkNode    LinkNode    LinkNode    LinkNode
+ *
+ *
+ * Empty LinkList:
+ *                    first   last   flags
+ *                   +------+------+-------+
+ *             +---> | NULL |      |   0   |
+ *             |     |      |   |  |       |
+ *             |     +------+---|--+-------+
+ *             |                |
+ *             +----------------+
+ *
+ * Traversing a LinkList:
+ * Traversing forward through a list uses an iterator-style paradigm.
+ * for (LinkNode node = firstnode(list); node; incnode(node)) {
+ *     // Access/manipulate the node using macros (see zsh.h)
+ * }
+ *
+ * Traversing backwards is the same, with a small caveat.
+ * for (LinkNode node = lastnode(list); node != &list->node; decnode(node)) {
+ *     // The loop condition should be obvious given the above diagrams.
+ * }
+ *
+ * If you're going to be moving back and forth, best to AND both
+ * conditions.
+ *
+ * while (node && node != &list->node) {
+ *     // If both incnode(list) and decnode(list) are used, and it's
+ *     // unknown at which end of the list traversal will stop.
+ * }
+ *
+ * Macros and functions prefixed with 'z' (ie znewlinklist,
+ * zinsertlinknode) use permanent allocation, which you have to free
+ * manually (with freelinklist(), maybe?). Non-z-prefixed
+ * macros/functions allocate from heap, which will be automatically
+ * freed.
+ *
+ */
+
 /* Get an empty linked list header */
 
 /**/
@@ -39,8 +105,9 @@ newlinklist(void)
     LinkList list;
 
     list = (LinkList) zhalloc(sizeof *list);
-    list->first = NULL;
-    list->last = (LinkNode) list;
+    list->list.first = NULL;
+    list->list.last = &list->node;
+    list->list.flags = 0;
     return list;
 }
 
@@ -51,8 +118,9 @@ znewlinklist(void)
     LinkList list;
 
     list = (LinkList) zalloc(sizeof *list);
-    list->first = NULL;
-    list->last = (LinkNode) list;
+    list->list.first = NULL;
+    list->list.last = &list->node;
+    list->list.flags = 0;
     return list;
 }
 
@@ -66,13 +134,13 @@ insertlinknode(LinkList list, LinkNode node, void *dat)
 
     tmp = node->next;
     node->next = new = (LinkNode) zhalloc(sizeof *tmp);
-    new->last = node;
+    new->prev = node;
     new->dat = dat;
     new->next = tmp;
     if (tmp)
-	tmp->last = new;
+	tmp->prev = new;
     else
-	list->last = new;
+	list->list.last = new;
     return new;
 }
 
@@ -84,13 +152,13 @@ zinsertlinknode(LinkList list, LinkNode node, void *dat)
 
     tmp = node->next;
     node->next = new = (LinkNode) zalloc(sizeof *tmp);
-    new->last = node;
+    new->prev = node;
     new->dat = dat;
     new->next = tmp;
     if (tmp)
-	tmp->last = new;
+	tmp->prev = new;
     else
-	list->last = new;
+	list->list.last = new;
     return new;
 }
 
@@ -102,12 +170,12 @@ uinsertlinknode(LinkList list, LinkNode node, LinkNode new)
 {
     LinkNode tmp = node->next;
     node->next = new;
-    new->last = node;
+    new->prev = node;
     new->next = tmp;
     if (tmp)
-	tmp->last = new;
+	tmp->prev = new;
     else
-	list->last = new;
+	list->list.last = new;
     return new;
 }
 
@@ -120,18 +188,18 @@ insertlinklist(LinkList l, LinkNode where, LinkList x)
     LinkNode nx;
 
     nx = where->next;
-    if (!l->first)
+    if (!firstnode(l))
 	return;
-    where->next = l->first;
-    l->last->next = nx;
-    l->first->last = where;
+    where->next = firstnode(l);
+    l->list.last->next = nx;
+    l->list.first->prev = where;
     if (nx)
-	nx->last = l->last;
+	nx->prev = lastnode(l);
     else
-	x->last = l->last;
+	x->list.last = lastnode(l);
 }
 
-/* Get top node in a linked list */
+/* Pop the top node off a linked list and free it. */
 
 /**/
 mod_export void *
@@ -140,19 +208,19 @@ getlinknode(LinkList list)
     void *dat;
     LinkNode node;
 
-    if (!(node = list->first))
+    if (!(node = firstnode(list)))
 	return NULL;
     dat = node->dat;
-    list->first = node->next;
+    list->list.first = node->next;
     if (node->next)
-	node->next->last = (LinkNode) list;
+	node->next->prev = &list->node;
     else
-	list->last = (LinkNode) list;
-    zfree(node, sizeof(struct linknode));
+	list->list.last = &list->node;
+    zfree(node, sizeof *node);
     return dat;
 }
 
-/* Get top node in a linked list without freeing */
+/* Pop the top node off a linked list without freeing it. */
 
 /**/
 mod_export void *
@@ -161,14 +229,14 @@ ugetnode(LinkList list)
     void *dat;
     LinkNode node;
 
-    if (!(node = list->first))
+    if (!(node = firstnode(list)))
 	return NULL;
     dat = node->dat;
-    list->first = node->next;
+    list->list.first = node->next;
     if (node->next)
-	node->next->last = (LinkNode) list;
+	node->next->prev = &list->node;
     else
-	list->last = (LinkNode) list;
+	list->list.last = &list->node;
     return dat;
 }
 
@@ -180,13 +248,13 @@ remnode(LinkList list, LinkNode nd)
 {
     void *dat;
 
-    nd->last->next = nd->next;
+    nd->prev->next = nd->next;
     if (nd->next)
-	nd->next->last = nd->last;
+	nd->next->prev = nd->prev;
     else
-	list->last = nd->last;
+	list->list.last = nd->prev;
     dat = nd->dat;
-    zfree(nd, sizeof(struct linknode));
+    zfree(nd, sizeof *nd);
 
     return dat;
 }
@@ -199,11 +267,11 @@ uremnode(LinkList list, LinkNode nd)
 {
     void *dat;
 
-    nd->last->next = nd->next;
+    nd->prev->next = nd->next;
     if (nd->next)
-	nd->next->last = nd->last;
+	nd->next->prev = nd->prev;
     else
-	list->last = nd->last;
+	list->list.last = nd->prev;
     dat = nd->dat;
     return dat;
 }
@@ -216,13 +284,13 @@ freelinklist(LinkList list, FreeFunc freefunc)
 {
     LinkNode node, next;
 
-    for (node = list->first; node; node = next) {
+    for (node = firstnode(list); node; node = next) {
 	next = node->next;
 	if (freefunc)
 	    freefunc(node->dat);
-	zfree(node, sizeof(struct linknode));
+	zfree(node, sizeof *node);
     }
-    zfree(list, sizeof(struct linklist));
+    zfree(list, sizeof *list);
 }
 
 /* Count the number of nodes in a linked list */
@@ -238,17 +306,21 @@ countlinknodes(LinkList list)
     return ct;
 }
 
+/* Make specified node first, moving preceding nodes to end */
+
 /**/
 mod_export void
 rolllist(LinkList l, LinkNode nd)
 {
-    l->last->next = l->first;
-    l->first->last = l->last;
-    l->first = nd;
-    l->last = nd->last;
-    nd->last = (LinkNode) l;
-    l->last->next = 0;
+    l->list.last->next = firstnode(l);
+    l->list.first->prev = lastnode(l);
+    l->list.first = nd;
+    l->list.last = nd->prev;
+    nd->prev = &l->node;
+    l->list.last->next = 0;
 }
+
+/* Create linklist of specified size. node->dats are not initialized. */
 
 /**/
 mod_export LinkList
@@ -257,33 +329,24 @@ newsizedlist(int size)
     LinkList list;
     LinkNode node;
 
-    list = (LinkList) zhalloc(sizeof(struct linklist) +
-			      (size * sizeof(struct linknode)));
+    list = (LinkList) zhalloc(sizeof *list + (size * sizeof *node));
 
-    list->first = (LinkNode) (list + 1);
-    for (node = list->first; size; size--, node++) {
-	node->last = node - 1;
+    list->list.first = &list[1].node;
+    for (node = firstnode(list); size; size--, node++) {
+	node->prev = node - 1;
 	node->next = node + 1;
     }
-    list->last = node - 1;
-    list->first->last = (LinkNode) list;
+    list->list.last = node - 1;
+    list->list.first->prev = &list->node;
     node[-1].next = NULL;
 
     return list;
 }
 
-/**/
-mod_export int
-listcontains(LinkList list, void *dat)
-{
-    LinkNode node;
-
-    for (node = firstnode(list); node; incnode(node))
-	if (getdata(node) == dat)
-	    return 1;
-
-    return 0;
-}
+/*
+ * Return the node whose data is the pointer "dat", else NULL.
+ * Can be used as a boolean test.
+ */
 
 /**/
 mod_export LinkNode
@@ -296,4 +359,68 @@ linknodebydatum(LinkList list, void *dat)
 	    return node;
 
     return NULL;
+}
+
+/*
+ * Return the node whose data matches the string "dat", else NULL.
+ */
+
+/**/
+mod_export LinkNode
+linknodebystring(LinkList list, char *dat)
+{
+    LinkNode node;
+
+    for (node = firstnode(list); node; incnode(node))
+	if (!strcmp((char *)getdata(node), dat))
+	    return node;
+
+    return NULL;
+}
+
+/*
+ * Convert a linked list whose data elements are strings to
+ * an array.  Memory is off the heap and the elements of the
+ * array are the same elements as the linked list data if copy is
+ * 0, else copied onto the heap.
+ */
+
+/**/
+mod_export char **
+hlinklist2array(LinkList list, int copy)
+{
+    int l = countlinknodes(list);
+    char **ret = (char **) zhalloc((l + 1) * sizeof(char *)), **p;
+    LinkNode n;
+
+    for (n = firstnode(list), p = ret; n; incnode(n), p++) {
+	*p = (char *) getdata(n);
+	if (copy)
+	    *p = dupstring(*p);
+    }
+    *p = NULL;
+
+    return ret;
+}
+
+/*
+ * Convert a linked list whose data elements are strings to
+ * an array.  The result is a permanently allocated, freearrayable
+ * array.
+ */
+
+/**/
+mod_export char **
+zlinklist2array(LinkList list)
+{
+    int l = countlinknodes(list);
+    char **ret = (char **) zalloc((l + 1) * sizeof(char *)), **p;
+    LinkNode n;
+
+    for (n = firstnode(list), p = ret; n; incnode(n), p++) {
+	*p = ztrdup((char *) getdata(n));
+    }
+    *p = NULL;
+
+    return ret;
 }

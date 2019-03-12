@@ -14,6 +14,16 @@ be created or edited to customize the shell.  See ifzman(the section
 Startup/Shutdown Files in zmanref(zsh))\
 ifnzman(noderef(Files)).
 
+If no personal initialization files exist for the current user, a function
+is run to help you change some of the most common settings.  It won't
+appear if your administrator has disabled the tt(zsh/newuser) module.
+The function is designed to be self-explanatory.  You can run it by hand
+with `tt(autoload -Uz zsh-newuser-install; zsh-newuser-install -f)'.
+See also
+ifnzman(noderef(User Configuration Functions))\
+ifzman(the section User Configuration Functions in zmanref(zshcontrib)).
+
+
 sect(Interactive Use)
 
 Interaction with the shell uses the builtin Zsh Line Editor, ZLE.  This is
@@ -33,6 +43,24 @@ default is quite small (30 lines).  See the description of the shell
 variables (referred to in the documentation as parameters) tt(HISTFILE),
 tt(HISTSIZE) and tt(SAVEHIST) in ifzman(zmanref(zshparam))\
 ifnzman(noderef(Parameters Used By The Shell)).
+
+The shell now supports the UTF-8 character set (and also others if
+supported by the operating system).  This is (mostly) handled transparently
+by the shell, but the degree of support in terminal emulators is variable.
+There is some discussion of this in the shell FAQ,
+http://zsh.dotsrc.org/FAQ/ .  Note in particular that for combining
+characters to be handled the option tt(COMBINING_CHARS) needs to be set.
+Because the shell is now more sensitive to the definition of the
+character set, note that if you are upgrading from an older version of
+the shell you should ensure that the appropriate variable, either
+tt(LANG) (to affect all aspects of the shell's operation) or
+tt(LC_CTYPE) (to affect only the handling of character sets) is set to
+an appropriate value.  This is true even if you are using a
+single-byte character set including extensions of ASCII such as
+tt(ISO-8859-1) or tt(ISO-8859-15).  See the description of tt(LC_CTYPE)
+in
+ifnzman(noderef(Parameters))\
+ifzman(zmanref(zshparam)).
 
 subsect(Completion)
 
@@ -130,11 +158,10 @@ General shell syntax is introduced in ifzman(the section `Shell Grammar' in
 zmanref(zshmisc))\
 ifnzman(noderef(Shell Grammar)).
 
-One commonly encountered difference is that variables (other than arrays, a
-particular type of variable) substituted onto the command line are not
-split into words.  See the description of the shell option
-tt(SH_WORD_SPLIT) in ifzman(the section `Parameter Expansion' in
-zmanref(zshexpn))\
+One commonly encountered difference is that variables substituted onto the
+command line are not split into words.  See the description of the shell option
+tt(SH_WORD_SPLIT) in
+ifzman(the section `Parameter Expansion' in zmanref(zshexpn))\
 ifnzman(noderef(Parameter Expansion)).
 In zsh, you can either explicitly request the splitting (e.g. tt(${=foo}))
 or use an array when you want a variable to expand to more than one word.  See
@@ -147,7 +174,9 @@ The most convenient way of adding enhancements to the shell is typically
 by writing a shell function and arranging for it to be autoloaded.
 Functions are described in ifzman(the section `Functions' in
 zmanref(zshmisc))\
-ifnzman(noderef(Functions)).
+ifnzman(noderef(Functions)).  Users changing from the C shell and its
+relatives should notice that aliases are less used in zsh as they don't
+perform argument substitution, only simple text replacement.
 
 A few general functions, other than those for the line editor described
 above, are provided with the shell and are described in
@@ -172,6 +201,6 @@ item(tt(zargs))(
 a version of tt(xargs) that makes the tt(find) command redundant
 )
 item(tt(zmv))(
-a command for renaming files with patterns.
+a command for renaming files by means of shell patterns.
 )
 enditem()

@@ -40,12 +40,12 @@ INSTALL         = @INSTALL@
 MAKEINFO = makeinfo
 TEXI2DVI = texi2dvi
 DVIPS = dvips
-TEXI2HTML = texi2html --output . --ifinfo --split=chapter
+TEXI2HTML = @TEXI2HTML@ --output . --ifinfo --split=chapter --node-files
 
 .SUFFIXES: .yo .1
 
 # man pages to install
-MAN = zsh.1 zshbuiltins.1 zshcompctl.1 zshcompwid.1 zshcompsys.1 \
+MAN = zsh.1 zshbuiltins.1 zshcalsys.1 zshcompctl.1 zshcompwid.1 zshcompsys.1 \
 zshcontrib.1 zshexpn.1 zshmisc.1 zshmodules.1 \
 zshoptions.1 zshparam.1 zshroadmap.1 zshtcpsys.1 zshzftpsys.1 zshzle.1 \
 zshall.1
@@ -55,12 +55,13 @@ zshall.1
 YODLDOC = $(MAN) texi
 
 MODDOCSRC = \
-Zsh/mod_cap.yo Zsh/mod_clone.yo \
+Zsh/mod_attr.yo Zsh/mod_cap.yo Zsh/mod_clone.yo \
 Zsh/mod_compctl.yo Zsh/mod_complete.yo Zsh/mod_complist.yo \
-Zsh/mod_computil.yo \
+Zsh/mod_computil.yo Zsh/mod_curses.yo \
 Zsh/mod_datetime.yo Zsh/mod_deltochar.yo \
-Zsh/mod_example.yo Zsh/mod_files.yo \
-Zsh/mod_mapfile.yo Zsh/mod_mathfunc.yo Zsh/mod_parameter.yo Zsh/mod_pcre.yo \
+Zsh/mod_example.yo Zsh/mod_files.yo Zsh/mod_langinfo.yo \
+Zsh/mod_mapfile.yo Zsh/mod_mathfunc.yo Zsh/mod_newuser.yo \
+Zsh/mod_parameter.yo Zsh/mod_pcre.yo Zsh/mod_regex.yo \
 Zsh/mod_sched.yo Zsh/mod_socket.yo \
 Zsh/mod_stat.yo  Zsh/mod_system.yo Zsh/mod_tcp.yo \
 Zsh/mod_termcap.yo Zsh/mod_terminfo.yo \
@@ -69,9 +70,11 @@ Zsh/mod_zprof.yo Zsh/mod_zpty.yo Zsh/mod_zselect.yo \
 Zsh/mod_zutil.yo
 
 YODLSRC = zmacros.yo zman.yo ztexi.yo Zsh/arith.yo Zsh/builtins.yo \
+Zsh/calsys.yo \
 Zsh/compat.yo Zsh/compctl.yo Zsh/compsys.yo Zsh/compwid.yo Zsh/cond.yo \
 Zsh/contrib.yo Zsh/exec.yo Zsh/expn.yo \
-Zsh/filelist.yo Zsh/files.yo Zsh/func.yo Zsh/grammar.yo Zsh/manual.yo \
+Zsh/filelist.yo Zsh/files.yo Zsh/ftp_sites.yo \
+Zsh/func.yo Zsh/grammar.yo Zsh/manual.yo \
 Zsh/index.yo Zsh/intro.yo Zsh/invoke.yo Zsh/jobs.yo Zsh/metafaq.yo \
 Zsh/modules.yo Zsh/modlist.yo Zsh/modmenu.yo Zsh/manmodmenu.yo $(MODDOCSRC) \
 Zsh/options.yo Zsh/params.yo Zsh/prompt.yo Zsh/redirect.yo Zsh/restricted.yo \
@@ -91,7 +94,7 @@ dvi: zsh.dvi
 zsh.dvi: $(sdir)/zsh.texi
 	$(TEXI2DVI) $(sdir)/zsh.texi
 
-pdf: zsh.pdf
+pdf: zsh.pdf intro.pdf
 .PHONY: pdf
 
 zsh.pdf: $(sdir)/zsh.texi
@@ -100,6 +103,9 @@ zsh.pdf: $(sdir)/zsh.texi
 	else \
 	  PDFTEX=$(PDFETEX) $(TEXI2DVI) --pdf $(sdir)/zsh.texi; \
 	fi
+
+intro.pdf: $(sdir)/intro.ms
+	pdfroff -ms $(sdir)/intro.ms >intro.pdf
 
 texi: $(sdir)/zsh.texi
 .PHONY: texi
@@ -120,8 +126,8 @@ zsh.info: $(sdir)/zsh.texi
 	  *) target=$(sdir)/$@ ;; \
 	esac; \
 	case '$(YODL)' in :*) touch $$target ;; *) \
-	    echo $(YODL) -o $$target -I$(sdir) -w zman.yo version.yo $< ; \
-	    $(YODL) -I$(sdir) -w zman.yo version.yo $< | \
+	    echo $(YODL) -o $$target -I$(sdir):. -w zman.yo version.yo $< ; \
+	    $(YODL) -I$(sdir):. -w zman.yo version.yo $< | \
 	      sed -e '1s/\\-/-/g' -e '/^\.'\''/d' -e 's/\(\\fB\)*'\''/\1\\\&'\''/' > $$target \
 	;; esac; \
 
@@ -159,9 +165,9 @@ zshall.1: zsh.yo
 	    $(YODL) -I$(sdir) -DZSHALL -w zman.yo version.yo zsh.yo | sed -e '1s/\\-/-/g' -e '/^\.'\''/d' > $$target \
 	;; esac; \
 
-../META-FAQ: META-FAQ.yo Zsh/metafaq.yo
+../META-FAQ: META-FAQ.yo Zsh/metafaq.yo Zsh/ftp_sites.yo
 	case '$(YODL)' in :*) touch $(sdir_top)/META-FAQ ;; *) \
-	    $(YODL) -I$(sdir) META-FAQ.yo | sed -e '/NEXTLINE/N' -e '/DELLINE/d' -e '/^SECTHEAD$$/{N;s/^SECTHEAD.//;h;s/./-/g;H;g;}' -e 's/  *$$//' > $(sdir_top)/META-FAQ \
+	    $(YODL) -I$(sdir) META-FAQ.yo | sed -e '/NEXTLINE/N' -e '/DELLINE/d' -e '/^SECTHEAD$$/{N;s/^SECTHEAD.//;h;s/./-/g;H;g;}' -e 's/  *$$//' -e '/comment(.*)/d' > $(sdir_top)/META-FAQ \
 	;; esac
 
 $(YODLDOC): version.yo
@@ -174,9 +180,12 @@ man: $(MAN)
 $(MAN): zmacros.yo zman.yo
 
 zsh.1 zshall.1: Zsh/intro.yo Zsh/metafaq.yo Zsh/invoke.yo Zsh/files.yo \
-                Zsh/filelist.yo Zsh/filelist.yo Zsh/seealso.yo
+                Zsh/filelist.yo Zsh/filelist.yo Zsh/seealso.yo \
+                Zsh/ftp_sites.yo
 
 zshbuiltins.1: Zsh/builtins.yo
+
+zshcalsys.1: Zsh/calsys.yo
 
 zshcompctl.1: Zsh/compctl.yo
 
@@ -206,11 +215,19 @@ zshzftpsys.1: Zsh/zftpsys.yo
 
 zshzle.1: Zsh/zle.yo
 
+# This should depend on config.status to get the /etc files right
+# but that would introduce a dependency on Yodl in shipped versions
+# of the shell that we want to avoid.
 version.yo: $(sdir_top)/Config/version.mk
 	( \
 	  echo 'IFDEF(INCWSLEVEL)(INCWSLEVEL())(STARTDEF())'; \
 	  echo 'def(version)(0)('$(VERSION)')'; \
 	  echo 'def(date)(0)('$(VERSION_DATE)')'; \
+	  echo 'def(zshenv)(0)(@zshenv@)'; \
+	  echo 'def(zprofile)(0)(@zprofile@)'; \
+	  echo 'def(zshrc)(0)(@zshrc@)'; \
+	  echo 'def(zlogin)(0)(@zlogin@)'; \
+	  echo 'def(zlogout)(0)(@zlogout@)'; \
 	  echo 'IFDEF(DECWSLEVEL)(DECWSLEVEL())(ENDDEF())#' | tr '#' '\\'; \
 	) > $(sdir)/version.yo
 
@@ -274,6 +291,7 @@ uninstall: uninstall.man
 install.man: man
 	${SHELL} $(sdir_top)/mkinstalldirs $(DESTDIR)$(mandir)/man1
 	for file in $(MAN); do \
+	    test -s $(sdir)/$$file || exit 1; \
 	    $(INSTALL_DATA) $(sdir)/$$file $(DESTDIR)$(mandir)/man1/`echo $$file | sed 's|zsh|$(tzsh)|'` || exit 1; \
 	done
 .PHONY: install.man
@@ -319,14 +337,14 @@ uninstall.info:
 # install HTML manual
 install.html: html
 	${SHELL} $(sdir_top)/mkinstalldirs $(DESTDIR)$(htmldir)
-	for file in zsh*.html; do \
+	for file in *.html; do \
 	    $(INSTALL_DATA) $$file $(DESTDIR)$(htmldir) || exit 1; \
 	done
 .PHONY: install.html
 
 # uninstall HTML manual
 uninstall.html:
-	rm -f $(DESTDIR)$(htmldir)/zsh*.html
+	rm -f $(DESTDIR)$(htmldir)/*.html
 .PHONY: uninstall.html
 
 # ========== DEPENDENCIES FOR CLEANUP ==========

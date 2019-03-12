@@ -256,6 +256,8 @@
 ?next one should fail
 ?(eval):1: parse error near `end'
 
+# ` emacs deconfusion
+
   setopt cshjunkiequotes
   print this should cause an error >&2
   eval "print 'line one
@@ -270,6 +272,8 @@
 ?this should cause an error
 ?(eval):1: unmatched '
 ?this should not
+
+# ' emacs deconfusion
 
   nullcmd() { print '$NULLCMD run'; }
   readnullcmd() { print 'Running $READNULLCMD'; cat; }
@@ -343,6 +347,19 @@
   (print before; setopt noexec; print after)
 0:NO_EXEC option
 >before
+
+  (setopt noexec
+  typeset -A hash
+  hash['this is a string'])
+0:NO_EXEC option should not attempt to parse subscripts
+
+  (setopt noexec nomatch
+  echo *NonExistentFile*)
+0:NO_EXEC option should not do globbing
+
+  (setopt noexec
+  echo ${unset_var?Not an error})
+0:NO_EXEC should not test for unset variables
 
   setopt NO_eval_lineno
   eval 'print $LINENO'
@@ -487,6 +504,20 @@
 >tmpcd tmpfile1 tmpfile2
 >tmp*
 
+  setopt histsubstpattern
+  print *(:s/t??/TING/)
+  foo=(tmp*)
+  print ${foo:s/??p/THUMP/}
+  foo=(one.c two.c three.c)
+  print ${foo:s/#%(#b)t(*).c/T${match[1]}.X/}
+  print *(#q:s/#(#b)tmp(*e)/'scrunchy${match[1]}'/)
+  unsetopt histsubstpattern
+0:HIST_SUBST_PATTERN option
+>TINGcd TINGfile1 TINGfile2
+>THUMPcd THUMPfile1 THUMPfile2
+>one.c Two.X Three.X
+>scrunchyfile1 scrunchyfile2 tmpcd
+
   setopt ignorebraces
   echo X{a,b}Y
   unsetopt ignorebraces
@@ -507,7 +538,7 @@
 >one one[2]
 >one two three
 >one two three two
->one one two three
+>one two three
 
   fpath=(.)
   echo >foo 'echo foo loaded; foo() { echo foo run; }'
@@ -654,7 +685,7 @@
 >hello
 
 # This tests for another race in multios.
-  print 'This test hangs the shell when it fails...' >&8
+  print -u $ZTST_fd 'This test hangs the shell when it fails...'
   setopt multios
   echo These are the contents of the file >multio_race.out
   multio_race_fn() { cat; }
@@ -874,6 +905,8 @@
 ?(eval):exec:6: ls: restricted
 ?(eval):unsetopt:7: can't change option: restricted
 
+# ' emacs deconfusion
+
   fn() {
     print =ls ={ls,}
     local foo='=ls'
@@ -984,7 +1017,7 @@
 >two
 >words
 
-  fn() { unset foo; print $foo; }
+  fn() { unset foo; print value is $foo; }
   setopt nounset
   print option unset unset by setting nounset
   eval fn
@@ -994,12 +1027,56 @@
 0:UNSET option
 >option unset unset by setting nounset
 >option unset reset
->
+>value is
 ?fn: foo: parameter not set
+
+  fn1() { unset foo; print value 1 is ${foo#bar}; }
+  fn2() { unset foo; print value 2 is ${foo%bar}; }
+  fn3() { unset foo; print value 3 is ${foo/bar}; }
+  setopt nounset
+  print option unset unset by setting nounset
+  eval fn1
+  eval fn2
+  eval fn3
+  print option unset reset
+  setopt unset
+  fn1
+  fn2
+  fn3
+0:UNSET option with operators
+>option unset unset by setting nounset
+>option unset reset
+>value 1 is
+>value 2 is
+>value 3 is
+?fn1: foo: parameter not set
+?fn2: foo: parameter not set
+?fn3: foo: parameter not set
+
+  fn() {
+    emulate -L zsh
+    setopt warncreateglobal
+    foo1=bar1
+    unset foo1
+    foo1=bar2
+    local foo2=bar3
+    unset foo2
+    foo2=bar4
+    typeset -g foo3
+    foo3=bar5
+    fn2() {
+      foo3=bar6
+    }
+  }
+  fn
+0:WARN_CREATE_GLOBAL option
+?fn:3: scalar parameter foo1 created globally in function
+?fn:5: scalar parameter foo1 created globally in function
 
 # This really just tests if XTRACE is egregiously broken.
 # To test it properly would need a full set of its own.
   fn() { print message; }
+  PS4='+%N:%i> '
   setopt xtrace
   fn
   unsetopt xtrace
@@ -1007,6 +1084,15 @@
 0:XTRACE option
 >message
 >message
-?+(eval):3> fn
+?+(eval):4> fn
 ?+fn:0> print message
-?+(eval):4> unsetopt xtrace
+?+(eval):5> unsetopt xtrace
+
+  setopt ignoreclosebraces
+  eval "icb_test() { echo this is OK; }"
+  icb_test
+  icb_args() { print $#; }
+  eval "icb_args { this, is, ok, too }"
+0:IGNORE_CLOSE_BRACES option
+>this is OK
+>6

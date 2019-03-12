@@ -1,7 +1,7 @@
 #compdef urpme urpmi urpmi.addmedia urpmi.removemedia urpmi.update urpmq urpmf parsehdlist
 
 _urpmi_media() {
-  local ret=1  signle=0
+  local ret=1  single=0
   local -a all_sources opts
 
   if [[ $1 = -s ]]; then
@@ -303,7 +303,7 @@ _urpmi() {
 	"($help --all --interactive  --name)--summary[print tag summary: summary]" \
 	"($help)--uniq[do not print identical lines]" \
 	"($help --all --interactive  --name)--url[print tag url: url]" \
-	"*:hdlist files:_files -g '*.cz'" \
+	"*:hdlist files:_files -g '*.cz(-.)'" \
       && ret=0
     ;;
   esac
