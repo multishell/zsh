@@ -27,8 +27,8 @@
 @end iftex
 @titlepage
 @title The Z Shell Manual
-@subtitle Version 5.6.1
-@subtitle Updated September 8, 2018
+@subtitle Version 5.6.2
+@subtitle Updated September 14, 2018
 @author Original documentation by Paul Falstad
 @page
 This is a texinfo version of the documentation for the Z Shell, originally by 
@@ -63,7 +63,7 @@ POSIX shells, but its default mode is not POSIX compatible, either.
 
 @noindent
 @cindex version
-Version 5.6.1, last updated September 8, 2018.
+Version 5.6.2, last updated September 14, 2018.
 @end ifinfo
 
 @menu
@@ -34402,7 +34402,7 @@ distribution in your home directory, you would use the commands:
 @noindent
 @example
 mkdir ~/zsh_help
-perl ~/zsh-5.6.1/Util/helpfiles ~/zsh_help
+perl ~/zsh-5.6.2/Util/helpfiles ~/zsh_help
 @end example
 
 @noindent
@@ -34563,7 +34563,7 @@ Run @t{zkbd} either as an autoloaded function, or as a shell script:
 
 @noindent
 @example
-zsh -f ~/zsh-5.6.1/Functions/Misc/zkbd
+zsh -f ~/zsh-5.6.2/Functions/Misc/zkbd
 @end example
 
 @noindent
@@ -34628,7 +34628,7 @@ command and redirect the output into a file:
 
 @noindent
 @example
-. ~/zsh-5.6.1/Util/reporter > zsh.report
+. ~/zsh-5.6.2/Util/reporter > zsh.report
 @end example
 
 @noindent
