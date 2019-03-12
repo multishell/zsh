@@ -202,16 +202,19 @@ noted.
 
 startitem()
 item(tt(h))(
-Remove a trailing pathname component, leaving the head.
+Remove a trailing pathname component, leaving the head.  This works
+like `tt(dirname)'.
 )
 item(tt(r))(
-Remove a trailing suffix of the form `tt(.)var(xxx)', leaving the basename.
+Remove a filename extension of the form `tt(.)var(xxx)', leaving
+the root name.
 )
 item(tt(e))(
-Remove all but the suffix.
+Remove all but the extension.
 )
 item(tt(t))(
-Remove all leading pathname components, leaving the tail.
+Remove all leading pathname components, leaving the tail.  This works
+like `tt(basename)'.
 )
 item(tt(p))(
 Print the new command but do not execute it.  Only works with history
@@ -553,11 +556,15 @@ possible to perform nested operations:  tt(${${foo#head}%tail})
 substitutes the value of tt($foo) with both `tt(head)' and `tt(tail)'
 deleted.  The form with tt($LPAR())...tt(RPAR()) is often useful in
 combination with the flags described next; see the examples below.
+Each var(name) or nested tt(${)...tt(}) in a parameter expansion may
+also be followed by a subscript expression as described in
+ifzman(em(Array Parameters) in zmanref(zshparam))\
+ifnzman(noderef(Array Parameters)).
 
-Note that double quotes may appear around nested substitutions, in which
+Note that double quotes may appear around nested expressions, in which
 case only the part inside is treated as quoted; for example,
 tt(${(f)"$(foo)"}) quotes the result of tt($(foo)), but the flag `tt((f))'
-(see below) is applied using the rules for unquoted substitutions.  Note
+(see below) is applied using the rules for unquoted expansions.  Note
 further that quotes are themselves nested in this context; for example, in
 tt("${(@f)"$(foo)"}"), there are two sets of quotes, one surrounding the
 whole expression, the other (redundant) surrounding the tt($(foo)) as
@@ -576,19 +583,19 @@ in place of the colon as delimiters.  The following flags are supported:
 
 startitem()
 item(tt(A))(
-Create an array parameter with tt(${)...tt(=)...tt(}),
-tt(${)...tt(:=)...tt(}) or tt(${)...tt(::=)...tt(}).
-If this flag is repeated (as in tt(AA)), create an associative
+Create an array parameter with `tt(${)...tt(=)...tt(})',
+`tt(${)...tt(:=)...tt(})' or `tt(${)...tt(::=)...tt(})'.
+If this flag is repeated (as in `tt(AA)'), create an associative
 array parameter.  Assignment is made before sorting or padding.
 The var(name) part may be a subscripted range for ordinary
 arrays; the var(word) part em(must) be converted to an array, for
-example by using tt(${(AA)=)var(name)tt(=)...tt(}) to activate word
+example by using `tt(${(AA)=)var(name)tt(=)...tt(})' to activate word
 splitting, when creating an associative array.
 )
 item(tt(@))(
 In double quotes, array elements are put into separate words.
-E.g., tt("${(@)foo}") is equivalent to tt("${foo[@]}") and
-tt("${(@)foo[1,2]}") is the same as tt("$foo[1]" "$foo[2]").
+E.g., `tt("${(@)foo}")' is equivalent to `tt("${foo[@]}")' and
+`tt("${(@)foo[1,2]}")' is the same as `tt("$foo[1]" "$foo[2]")'.
 )
 item(tt(e))(
 Perform em(parameter expansion), em(command substitution) and
@@ -630,7 +637,7 @@ item(tt(q))(
 Quote the resulting words with backslashes. If this flag is given
 twice, the resulting words are quoted in single quotes and if it is
 given three times, the words are quoted in double quotes. If it is
-given four times, the words are quoted in single quotes preceded a tt($).
+given four times, the words are quoted in single quotes preceded by a tt($).
 )
 item(tt(Q))(
 Remove one level of quotes from the resulting words.
@@ -643,7 +650,7 @@ setting of the tt(PROMPT_PERCENT), tt(PROMPT_SUBST) and
 tt(PROMPT_BANG) options.
 )
 item(tt(X))(
-With this flag parsing errors occuring with the tt(Q) flag or the
+With this flag parsing errors occurring with the tt(Q) and tt(e) flags or the
 pattern matching forms such as `tt(${)var(name)tt(#)var(pattern)tt(})' 
 are reported. Without the flag they are silently ignored.
 )
@@ -721,8 +728,8 @@ Use a string describing the type of the parameter where the value
 of the parameter would usually appear. This string consists of keywords
 separated by hyphens (`tt(-)'). The first keyword in the string describes
 the main type, it can be one of `tt(scalar)', `tt(array)', `tt(integer)',
-or `tt(association)'. The other keywords describe the type in more
-detail:
+`tt(float)' or `tt(association)'. The other keywords describe the type in
+more detail:
 
 startitem()
 item(tt(local))(
@@ -884,7 +891,7 @@ item(tt(9.) em(Shell Word Splitting))(
 If no `tt((s))', `tt((f))' or `tt(=)' was given, but the word is not
 quoted and the option tt(SH_WORD_SPLIT) is set, the word is split on
 occurrences of any of the characters in tt($IFS).  Note this step, too,
-take place at all levels of a nested substitution.
+takes place at all levels of a nested substitution.
 )
 item(tt(10.) em(Re-Evaluation))(
 Any `tt((e))' flag is applied to the value, forcing it to be re-examined
@@ -918,7 +925,7 @@ that this is a scalar, so that (despite the `tt((@))' flag) the subscript
 picks the first character. 
 )
 item(tt("${${(@)foo}[1]}"))(
-The produces the result `tt(bar)'.  In this case, the inner substitution
+This produces the result `tt(bar)'.  In this case, the inner substitution
 tt("${(@)foo}") produces the array `tt(LPAR()bar baz)tt(RPAR())'.  The outer
 substitution tt("${...[1]}") detects that this is an array and picks the
 first word.  This is similar to the simple case tt("${foo[1]}").
@@ -1119,6 +1126,7 @@ Matches any of the enclosed characters.  Ranges of characters
 can be specified by separating two characters by a `tt(-)'.
 A `tt(-)' or `tt(])' may be matched by including it as the
 first character in the list.
+cindex(character classes)
 There are also several named classes of characters, in the form
 `tt([:)var(name)tt(:])' with the following meanings:  `tt([:alnum:])'
 alphanumeric, `tt([:alpha:])' alphabetic,
@@ -1245,7 +1253,7 @@ The precedence of the operators given above is (highest) `tt(^)', `tt(/)',
 `tt(~)', `tt(|)' (lowest); the
 remaining operators are simply treated from left to right as part of a
 string, with `tt(#)' and `tt(##)' applying to the shortest possible
-preceeding unit (i.e. a character, `tt(?)', `tt([)...tt(])',
+preceding unit (i.e. a character, `tt(?)', `tt([)...tt(])',
 `tt(<)...tt(>)', or a parenthesised expression).  As mentioned
 above, a `tt(/)' used as a directory separator may not appear inside
 parentheses, while a `tt(|)' must do so; in patterns used in other contexts
@@ -1623,6 +1631,8 @@ will be taken  as the var(string); `tt([)', `tt({)', and `tt(<)' match
 matches itself. Note that expansions must be quoted in the var(string)
 to prevent them from being expanded before globbing is done.
 
+vindex(REPLY, use of)
+vindex(reply, use of)
 During the execution of var(string) the filename currently being tested is
 available in the parameter tt(REPLY); the parameter may be altered to
 a string to be inserted into the list instead of the original
@@ -1640,7 +1650,7 @@ files on the device var(dev)
 )
 item(tt(l)[tt(-)|tt(PLUS())]var(ct))(
 files having a link count less than var(ct) (tt(-)), greater than
-var(ct) (tt(PLUS())), or is equal to var(ct)
+var(ct) (tt(PLUS())), or equal to var(ct)
 )
 item(tt(U))(
 files owned by the effective user ID
@@ -1724,7 +1734,7 @@ those in the current directory at each level of the search --- this is best
 combined with other criteria, for example `tt(odon)' to sort on names for
 files within the same directory.  Note that tt(a), tt(m), and tt(c) compare
 the age against the current time, hence the first name in the list is the
-the youngest file. Also note that the modifiers tt(^) and tt(-) are used,
+youngest file. Also note that the modifiers tt(^) and tt(-) are used,
 so `tt(*(^-oL))' gives a list of all files sorted by file size in descending
 order, following any symbolic links.
 )
@@ -1746,7 +1756,11 @@ enditem()
 
 More than one of these lists can be combined, separated by commas. The
 whole list matches if at least one of the sublists matches (they are
-`or'ed, the qualifiers in the sublists are `and'ed).
+`or'ed, the qualifiers in the sublists are `and'ed).  Some qualifiers,
+however, affect all matches generated, independent of the sublist in
+which they are given.  These are the qualifiers `tt(M)', `tt(T)',
+`tt(N)', `tt(D)', `tt(n)', `tt(o)', `tt(O)' and the subscripts given
+in brackets (`tt([...])').
 
 If a `tt(:)' appears in a qualifier list, the remainder of the expression in
 parenthesis is interpreted as a modifier (see noderef(Modifiers)

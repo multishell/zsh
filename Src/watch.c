@@ -491,8 +491,6 @@ dowatch(void)
     int uct, wct;
 
     s = watch;
-    if (!(fmt = getsparam("WATCHFMT")))
-	fmt = DEFAULT_WATCHFMT;
 
     holdintr();
     if (!wtab) {
@@ -542,6 +540,9 @@ dowatch(void)
 	free(utab);
 	return;
     }
+    queue_signals();
+    if (!(fmt = getsparam("WATCHFMT")))
+	fmt = DEFAULT_WATCHFMT;
     while ((uct || wct) && !errflag)
 	if (!uct || (wct && ucmp(uptr, wptr) > 0))
 	    wct--, watchlog(0, wptr++, s, fmt);
@@ -549,6 +550,7 @@ dowatch(void)
 	    uct--, watchlog(1, uptr++, s, fmt);
 	else
 	    uptr++, wptr++, wct--, uct--;
+    unqueue_signals();
     free(wtab);
     wtab = utab;
     wtabsz = utabsz;

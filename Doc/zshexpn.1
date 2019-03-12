@@ -1,4 +1,4 @@
-.TH "ZSHEXPN" "1" "June 5, 2000" "zsh 3\&.1\&.9"
+.TH "ZSHEXPN" "1" "June 1, 2001" "zsh 4\&.0\&.1"
 .SH "NAME"
 zshexpn \- zsh expansion and substitution
 .\" Yodl file: Zsh/expn.yo
@@ -196,16 +196,19 @@ noted\&.
 .TP
 .PD
 \fBh\fP
-Remove a trailing pathname component, leaving the head\&.
+Remove a trailing pathname component, leaving the head\&.  This works
+like `\fBdirname\fP'\&.
 .TP
 \fBr\fP
-Remove a trailing suffix of the form `\fB\&.\fP\fIxxx\fP', leaving the basename\&.
+Remove a filename extension of the form `\fB\&.\fP\fIxxx\fP', leaving
+the root name\&.
 .TP
 \fBe\fP
-Remove all but the suffix\&.
+Remove all but the extension\&.
 .TP
 \fBt\fP
-Remove all leading pathname components, leaving the tail\&.
+Remove all leading pathname components, leaving the tail\&.  This works
+like `\fBbasename\fP'\&.
 .TP
 \fBp\fP
 Print the new command but do not execute it\&.  Only works with history
@@ -553,11 +556,14 @@ possible to perform nested operations:  \fB${${foo#head}%tail}\fP
 substitutes the value of \fB$foo\fP with both `\fBhead\fP' and `\fBtail\fP'
 deleted\&.  The form with \fB$(\fP\&.\&.\&.\fB)\fP is often useful in
 combination with the flags described next; see the examples below\&.
+Each \fIname\fP or nested \fB${\fP\&.\&.\&.\fB}\fP in a parameter expansion may
+also be followed by a subscript expression as described in
+\fIArray Parameters\fP in \fIzshparam\fP(1)\&.
 .PP
-Note that double quotes may appear around nested substitutions, in which
+Note that double quotes may appear around nested expressions, in which
 case only the part inside is treated as quoted; for example,
 \fB${(f)"$(foo)"}\fP quotes the result of \fB$(foo)\fP, but the flag `\fB(f)\fP'
-(see below) is applied using the rules for unquoted substitutions\&.  Note
+(see below) is applied using the rules for unquoted expansions\&.  Note
 further that quotes are themselves nested in this context; for example, in
 \fB"${(@f)"$(foo)"}"\fP, there are two sets of quotes, one surrounding the
 whole expression, the other (redundant) surrounding the \fB$(foo)\fP as
@@ -575,19 +581,19 @@ in place of the colon as delimiters\&.  The following flags are supported:
 .TP
 .PD
 \fBA\fP
-Create an array parameter with \fB${\fP\&.\&.\&.\fB=\fP\&.\&.\&.\fB}\fP,
-\fB${\fP\&.\&.\&.\fB:=\fP\&.\&.\&.\fB}\fP or \fB${\fP\&.\&.\&.\fB::=\fP\&.\&.\&.\fB}\fP\&.
-If this flag is repeated (as in \fBAA\fP), create an associative
+Create an array parameter with `\fB${\fP\&.\&.\&.\fB=\fP\&.\&.\&.\fB}\fP',
+`\fB${\fP\&.\&.\&.\fB:=\fP\&.\&.\&.\fB}\fP' or `\fB${\fP\&.\&.\&.\fB::=\fP\&.\&.\&.\fB}\fP'\&.
+If this flag is repeated (as in `\fBAA\fP'), create an associative
 array parameter\&.  Assignment is made before sorting or padding\&.
 The \fIname\fP part may be a subscripted range for ordinary
 arrays; the \fIword\fP part \fImust\fP be converted to an array, for
-example by using \fB${(AA)=\fP\fIname\fP\fB=\fP\&.\&.\&.\fB}\fP to activate word
+example by using `\fB${(AA)=\fP\fIname\fP\fB=\fP\&.\&.\&.\fB}\fP' to activate word
 splitting, when creating an associative array\&.
 .TP
 \fB@\fP
 In double quotes, array elements are put into separate words\&.
-E\&.g\&., \fB"${(@)foo}"\fP is equivalent to \fB"${foo[@]}"\fP and
-\fB"${(@)foo[1,2]}"\fP is the same as \fB"$foo[1]" "$foo[2]"\fP\&.
+E\&.g\&., `\fB"${(@)foo}"\fP' is equivalent to `\fB"${foo[@]}"\fP' and
+`\fB"${(@)foo[1,2]}"\fP' is the same as `\fB"$foo[1]" "$foo[2]"\fP'\&.
 .TP
 \fBe\fP
 Perform \fIparameter expansion\fP, \fIcommand substitution\fP and
@@ -629,7 +635,7 @@ Make any special characters in the resulting words visible\&.
 Quote the resulting words with backslashes\&. If this flag is given
 twice, the resulting words are quoted in single quotes and if it is
 given three times, the words are quoted in double quotes\&. If it is
-given four times, the words are quoted in single quotes preceded a \fB$\fP\&.
+given four times, the words are quoted in single quotes preceded by a \fB$\fP\&.
 .TP
 \fBQ\fP
 Remove one level of quotes from the resulting words\&.
@@ -642,7 +648,7 @@ setting of the \fBPROMPT_PERCENT\fP, \fBPROMPT_SUBST\fP and
 \fBPROMPT_BANG\fP options\&.
 .TP
 \fBX\fP
-With this flag parsing errors occuring with the \fBQ\fP flag or the
+With this flag parsing errors occurring with the \fBQ\fP and \fBe\fP flags or the
 pattern matching forms such as `\fB${\fP\fIname\fP\fB#\fP\fIpattern\fP\fB}\fP' 
 are reported\&. Without the flag they are silently ignored\&.
 .TP
@@ -721,8 +727,8 @@ Use a string describing the type of the parameter where the value
 of the parameter would usually appear\&. This string consists of keywords
 separated by hyphens (`\fB\-\fP')\&. The first keyword in the string describes
 the main type, it can be one of `\fBscalar\fP', `\fBarray\fP', `\fBinteger\fP',
-or `\fBassociation\fP'\&. The other keywords describe the type in more
-detail:
+`\fBfloat\fP' or `\fBassociation\fP'\&. The other keywords describe the type in
+more detail:
 .RS
 .PP
 .PD 0
@@ -887,7 +893,7 @@ flags present) any of the characters in \fB$IFS\fP\&.
 If no `\fB(s)\fP', `\fB(f)\fP' or `\fB=\fP' was given, but the word is not
 quoted and the option \fBSH_WORD_SPLIT\fP is set, the word is split on
 occurrences of any of the characters in \fB$IFS\fP\&.  Note this step, too,
-take place at all levels of a nested substitution\&.
+takes place at all levels of a nested substitution\&.
 .TP
 \fB10\&.\fP \fIRe\-Evaluation\fP
 Any `\fB(e)\fP' flag is applied to the value, forcing it to be re\-examined
@@ -921,7 +927,7 @@ that this is a scalar, so that (despite the `\fB(@)\fP' flag) the subscript
 picks the first character\&. 
 .TP
 \fB"${${(@)foo}[1]}"\fP
-The produces the result `\fBbar\fP'\&.  In this case, the inner substitution
+This produces the result `\fBbar\fP'\&.  In this case, the inner substitution
 \fB"${(@)foo}"\fP produces the array `\fB(bar baz\fP\fB)\fP'\&.  The outer
 substitution \fB"${\&.\&.\&.[1]}"\fP detects that this is an array and picks the
 first word\&.  This is similar to the simple case \fB"${foo[1]}"\fP\&.
@@ -1226,7 +1232,7 @@ The precedence of the operators given above is (highest) `\fB^\fP', `\fB/\fP',
 `\fB~\fP', `\fB|\fP' (lowest); the
 remaining operators are simply treated from left to right as part of a
 string, with `\fB#\fP' and `\fB##\fP' applying to the shortest possible
-preceeding unit (i\&.e\&. a character, `\fB?\fP', `\fB[\fP\&.\&.\&.\fB]\fP',
+preceding unit (i\&.e\&. a character, `\fB?\fP', `\fB[\fP\&.\&.\&.\fB]\fP',
 `\fB<\fP\&.\&.\&.\fB>\fP', or a parenthesised expression)\&.  As mentioned
 above, a `\fB/\fP' used as a directory separator may not appear inside
 parentheses, while a `\fB|\fP' must do so; in patterns used in other contexts
@@ -1647,7 +1653,7 @@ files on the device \fIdev\fP
 .TP
 \fBl\fP[\fB\-\fP|\fB+\fP]\fIct\fP
 files having a link count less than \fIct\fP (\fB\-\fP), greater than
-\fIct\fP (\fB+\fP), or is equal to \fIct\fP
+\fIct\fP (\fB+\fP), or equal to \fIct\fP
 .TP
 \fBU\fP
 files owned by the effective user ID
@@ -1727,7 +1733,7 @@ those in the current directory at each level of the search \-\-\- this is best
 combined with other criteria, for example `\fBodon\fP' to sort on names for
 files within the same directory\&.  Note that \fBa\fP, \fBm\fP, and \fBc\fP compare
 the age against the current time, hence the first name in the list is the
-the youngest file\&. Also note that the modifiers \fB^\fP and \fB\-\fP are used,
+youngest file\&. Also note that the modifiers \fB^\fP and \fB\-\fP are used,
 so `\fB*(^\-oL)\fP' gives a list of all files sorted by file size in descending
 order, following any symbolic links\&.
 .TP
@@ -1747,7 +1753,11 @@ gives a list of the names of the three largest files\&.
 .PP
 More than one of these lists can be combined, separated by commas\&. The
 whole list matches if at least one of the sublists matches (they are
-`or'ed, the qualifiers in the sublists are `and'ed)\&.
+`or'ed, the qualifiers in the sublists are `and'ed)\&.  Some qualifiers,
+however, affect all matches generated, independent of the sublist in
+which they are given\&.  These are the qualifiers `\fBM\fP', `\fBT\fP',
+`\fBN\fP', `\fBD\fP', `\fBn\fP', `\fBo\fP', `\fBO\fP' and the subscripts given
+in brackets (`\fB[\&.\&.\&.]\fP')\&.
 .PP
 If a `\fB:\fP' appears in a qualifier list, the remainder of the expression in
 parenthesis is interpreted as a modifier (see the section `Modifiers'

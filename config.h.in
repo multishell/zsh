@@ -53,6 +53,9 @@
 /* Define if you have <alloca.h> and it should be used (not on Ultrix).  */
 #undef HAVE_ALLOCA_H
 
+/* Define if you have a working `mmap' system call.  */
+#undef HAVE_MMAP
+
 /* Define if you have the strcoll function and it is properly defined.  */
 #undef HAVE_STRCOLL
 
@@ -361,8 +364,35 @@
 /* Define to 1 if ino_t is 64 bit (for large file support) */
 #undef INO_T_IS_64_BIT
 
+/* Define to 1 if h_errno is not defined by the system */
+#undef USE_LOCAL_H_ERRNO
+
+/* Define if you have the termcap boolcodes symbol.  */
+#undef HAVE_BOOLCODES
+
+/* Define if you have the termcap numcodes symbol.  */
+#undef HAVE_NUMCODES
+
+/* Define if you have the termcap strcodes symbol.  */
+#undef HAVE_STRCODES
+
+/* Define if you have the terminfo boolnames symbol.  */
+#undef HAVE_BOOLNAMES
+
+/* Define if you have the terminfo numnames symbol.  */
+#undef HAVE_NUMNAMES
+
+/* Define if you have the terminfo strnames symbol.  */
+#undef HAVE_STRNAMES
+
+/* Define if term.h chokes without curses.h */
+#undef TERM_H_NEEDS_CURSES_H
+
 /* Define if you have the _mktemp function.  */
 #undef HAVE__MKTEMP
+
+/* Define if you have the brk function.  */
+#undef HAVE_BRK
 
 /* Define if you have the cap_get_proc function.  */
 #undef HAVE_CAP_GET_PROC
@@ -397,6 +427,9 @@
 /* Define if you have the ftruncate function.  */
 #undef HAVE_FTRUNCATE
 
+/* Define if you have the getenv function.  */
+#undef HAVE_GETENV
+
 /* Define if you have the getgrgid function.  */
 #undef HAVE_GETGRGID
 
@@ -414,6 +447,9 @@
 
 /* Define if you have the getlogin function.  */
 #undef HAVE_GETLOGIN
+
+/* Define if you have the getpagesize function.  */
+#undef HAVE_GETPAGESIZE
 
 /* Define if you have the getpwent function.  */
 #undef HAVE_GETPWENT
@@ -469,9 +505,6 @@
 /* Define if you have the mkfifo function.  */
 #undef HAVE_MKFIFO
 
-/* Define if you have the mmap function.  */
-#undef HAVE_MMAP
-
 /* Define if you have the msync function.  */
 #undef HAVE_MSYNC
 
@@ -484,11 +517,20 @@
 /* Define if you have the nis_list function.  */
 #undef HAVE_NIS_LIST
 
+/* Define if you have the pathconf function.  */
+#undef HAVE_PATHCONF
+
 /* Define if you have the poll function.  */
 #undef HAVE_POLL
 
+/* Define if you have the putenv function.  */
+#undef HAVE_PUTENV
+
 /* Define if you have the readlink function.  */
 #undef HAVE_READLINK
+
+/* Define if you have the sbrk function.  */
+#undef HAVE_SBRK
 
 /* Define if you have the select function.  */
 #undef HAVE_SELECT
@@ -516,6 +558,9 @@
 
 /* Define if you have the setuid function.  */
 #undef HAVE_SETUID
+
+/* Define if you have the setupterm function.  */
+#undef HAVE_SETUPTERM
 
 /* Define if you have the shl_findsym function.  */
 #undef HAVE_SHL_FINDSYM
@@ -556,11 +601,26 @@
 /* Define if you have the strstr function.  */
 #undef HAVE_STRSTR
 
+/* Define if you have the sysconf function.  */
+#undef HAVE_SYSCONF
+
 /* Define if you have the tcgetattr function.  */
 #undef HAVE_TCGETATTR
 
 /* Define if you have the tcsetpgrp function.  */
 #undef HAVE_TCSETPGRP
+
+/* Define if you have the tgetent function.  */
+#undef HAVE_TGETENT
+
+/* Define if you have the tigetflag function.  */
+#undef HAVE_TIGETFLAG
+
+/* Define if you have the tigetnum function.  */
+#undef HAVE_TIGETNUM
+
+/* Define if you have the tigetstr function.  */
+#undef HAVE_TIGETSTR
 
 /* Define if you have the uname function.  */
 #undef HAVE_UNAME
@@ -574,8 +634,8 @@
 /* Define if you have the waitpid function.  */
 #undef HAVE_WAITPID
 
-/* Define if you have the yp_all function.  */
-#undef HAVE_YP_ALL
+/* Define if you have the <curses.h> header file.  */
+#undef HAVE_CURSES_H
 
 /* Define if you have the <dirent.h> header file.  */
 #undef HAVE_DIRENT_H
@@ -600,9 +660,6 @@
 
 /* Define if you have the <limits.h> header file.  */
 #undef HAVE_LIMITS_H
-
-/* Define if you have the <linux/tasks.h> header file.  */
-#undef HAVE_LINUX_TASKS_H
 
 /* Define if you have the <locale.h> header file.  */
 #undef HAVE_LOCALE_H
@@ -664,6 +721,9 @@
 /* Define if you have the <sys/utsname.h> header file.  */
 #undef HAVE_SYS_UTSNAME_H
 
+/* Define if you have the <term.h> header file.  */
+#undef HAVE_TERM_H
+
 /* Define if you have the <termcap.h> header file.  */
 #undef HAVE_TERMCAP_H
 
@@ -682,9 +742,6 @@
 /* Define if you have the <utmpx.h> header file.  */
 #undef HAVE_UTMPX_H
 
-/* Define if you have the c library (-lc).  */
-#undef HAVE_LIBC
-
 /* Define if you have the cap library (-lcap).  */
 #undef HAVE_LIBCAP
 
@@ -693,9 +750,6 @@
 
 /* Define if you have the m library (-lm).  */
 #undef HAVE_LIBM
-
-/* Define if you have the nsl library (-lnsl).  */
-#undef HAVE_LIBNSL
 
 /* Define if you have the socket library (-lsocket).  */
 #undef HAVE_LIBSOCKET

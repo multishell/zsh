@@ -39,6 +39,9 @@ static Widget lastcompwidget;
 /**/
 int useexact, useline, uselist, forcelist, startauto;
 
+/**/
+mod_export int iforcemenu;
+
 /* Non-zero if we should go back to the last prompt. */
 
 /**/
@@ -139,6 +142,11 @@ mod_export Cmgroup lastmatches, pmatches, amatches, lmatches, lastlmatches;
 
 /**/
 mod_export int hasoldlist, hasperm;
+
+/* Non-zero if we have a match representing all other matches. */
+
+/**/
+int hasallmatch;
 
 /* Non-zero if we have newly added matches. */
 
@@ -279,7 +287,7 @@ int lastend;
 int
 do_completion(Hookdef dummy, Compldat dat)
 {
-    int ret = 0, lst = dat->lst, incmd = dat->incmd;
+    int ret = 0, lst = dat->lst, incmd = dat->incmd, osl = showinglist;
     char *s = dat->s;
     char *opm;
     LinkNode n;
@@ -328,6 +336,7 @@ do_completion(Hookdef dummy, Compldat dat)
     maxmlen = -1;
     compignored = 0;
     nmessages = 0;
+    hasallmatch = 0;
 
     /* Make sure we have the completion list and compctl. */
     if (makecomplist(s, incmd, lst)) {
@@ -349,7 +358,11 @@ do_completion(Hookdef dummy, Compldat dat)
 
     if (comppatmatch && *comppatmatch && comppatmatch != opm)
 	haspattern = 1;
-    if (useline < 0)
+    if (iforcemenu) {
+	if (nmatches)
+	    do_ambig_menu();
+	ret = !nmatches;
+    } else if (useline < 0)
 	ret = selfinsert(zlenoargs);
     else if (!useline && uselist) {
 	/* All this and the guy only wants to see the list, sigh. */
@@ -359,41 +372,8 @@ do_completion(Hookdef dummy, Compldat dat)
 	cs = origcs;
 	showinglist = -2;
     } else if (useline == 2 && nmatches > 1) {
-	int first = 1, nm = nmatches;
-	Cmatch *mc;
+	do_allmatches(1);
 
-	menucmp = 1;
-	menuacc = 0;
-
-	for (minfo.group = amatches;
-	     minfo.group && !(minfo.group)->mcount;
-	     minfo.group = (minfo.group)->next);
-
-	mc = (minfo.group)->matches;
-
-	while (1) {
-	    if (!first)
-		accept_last();
-	    first = 0;
-
-	    if (!--nm)
-		menucmp = 0;
-
-	    do_single(*mc);
-	    minfo.cur = mc;
-
-	    if (!*++(minfo.cur)) {
-		do {
-		    if (!(minfo.group = (minfo.group)->next))
-			break;
-		} while (!(minfo.group)->mcount);
-		if (!minfo.group)
-		    break;
-		minfo.cur = minfo.group->matches;
-	    }
-	    mc = minfo.cur;
-	}
-	menucmp = 0;
 	minfo.cur = NULL;
 
 	if (forcelist)
@@ -405,6 +385,9 @@ do_completion(Hookdef dummy, Compldat dat)
 	if (nmatches > 1 && diffmatches) {
 	    /* There is more than one match. */
 	    ret = do_ambiguous();
+
+	    if (!showinglist && uselist && listshown && (usemenu == 2 || oldlist))
+		showinglist = osl;
 	} else if (nmatches == 1 || (nmatches > 1 && !diffmatches)) {
 	    /* Only one match. */
 	    Cmgroup m = amatches;
@@ -500,25 +483,30 @@ before_complete(Hookdef dummy, int *lst)
 
 /**/
 int
-after_complete(Hookdef dummy, Compldat dat)
+after_complete(Hookdef dummy, int *dat)
 {
     if (menucmp && !oldmenucmp) {
-	struct chdata dat;
+	struct chdata cdat;
 	int ret;
 
-	dat.matches = amatches;
-	dat.num = nmatches;
-	dat.cur = NULL;
-	if ((ret = runhookdef(MENUSTARTHOOK, (void *) &dat))) {
+	cdat.matches = amatches;
+	cdat.num = nmatches;
+	cdat.nmesg = nmessages;
+	cdat.cur = NULL;
+	if ((ret = runhookdef(MENUSTARTHOOK, (void *) &cdat))) {
+	    dat[1] = 0;
 	    menucmp = menuacc = 0;
-	    if (ret == 2) {
+	    minfo.cur = NULL;
+	    if (ret >= 2) {
 		fixsuffix();
 		cs = 0;
 		foredel(ll);
 		inststr(origline);
 		cs = origcs;
-		clearlist = 1;
-		invalidatelist();
+		if (ret == 2) {
+		    clearlist = 1;
+		    invalidatelist();
+		}
 	    }
 	}
     }
@@ -654,7 +642,7 @@ callcompfunc(char *s, char *fn)
 	zsfree(compprefix);
 	zsfree(compsuffix);
 	if (unset(COMPLETEINWORD)) {
-	    tmp = multiquote(s, 0);
+	    tmp = (linwhat == IN_MATH ? dupstring(s) : multiquote(s, 0));
 	    untokenize(tmp);
 	    compprefix = ztrdup(tmp);
 	    compsuffix = ztrdup("");
@@ -665,11 +653,11 @@ callcompfunc(char *s, char *fn)
 
 	    sav = *ss;
 	    *ss = '\0';
-	    tmp = multiquote(s, 0);
+	    tmp = (linwhat == IN_MATH ? dupstring(s) : multiquote(s, 0));
 	    untokenize(tmp);
 	    compprefix = ztrdup(tmp);
 	    *ss = sav;
-	    ss = multiquote(ss, 0);
+	    ss = (linwhat == IN_MATH ? dupstring(ss) : multiquote(ss, 0));
 	    untokenize(ss);
 	    compsuffix = ztrdup(ss);
 	}
@@ -946,7 +934,7 @@ makecomplist(char *s, int incmd, int lst)
 	    amatches = lastmatches;
 	    lmatches = lastlmatches;
 	    if (pmatches) {
-		freematches(pmatches);
+		freematches(pmatches, 1);
 		pmatches = NULL;
 		hasperm = 0;
 	    }
@@ -955,7 +943,7 @@ makecomplist(char *s, int incmd, int lst)
 	    return 0;
 	}
 	if (lastmatches) {
-	    freematches(lastmatches);
+	    freematches(lastmatches, 1);
 	    lastmatches = NULL;
 	}
 	permmatches(1);
@@ -1249,7 +1237,7 @@ set_comp_sep(void)
     LinkNode n;
     int owe = we, owb = wb, ocs = cs, swb, swe, scs, soffs, ne = noerrs;
     int tl, got = 0, i = 0, cur = -1, oll = ll, sl, remq;
-    int ois = instring, oib = inbackt, noffs = lp;
+    int ois = instring, oib = inbackt, noffs = lp, ona = noaliases;
     char *tmp, *p, *ns, *ol = (char *) line, sav, *qp, *qs, *ts, qc = '\0';
 
     s += lip;
@@ -1311,7 +1299,7 @@ set_comp_sep(void)
 	}
 	i++;
     } while (tok != ENDINPUT && tok != LEXERR);
-    noaliases = 0;
+    noaliases = ona;
     strinend();
     inpop();
     errflag = zleparse = 0;
@@ -1538,27 +1526,36 @@ get_user_var(char *nam)
 	/* Otherwise it should be a parameter name. */
 	char **arr = NULL, *val;
 
+	queue_signals();
 	if ((arr = getaparam(nam)) || (arr = gethparam(nam)))
-	    return (incompfunc ? arrdup(arr) : arr);
-
-	if ((val = getsparam(nam))) {
+	    arr = (incompfunc ? arrdup(arr) : arr);
+	else if ((val = getsparam(nam))) {
 	    arr = (char **) zhalloc(2*sizeof(char *));
 	    arr[0] = (incompfunc ? dupstring(val) : val);
 	    arr[1] = NULL;
 	}
+	unqueue_signals();
 	return arr;
     }
 }
 
 static char **
-get_user_keys(char *nam)
+get_data_arr(char *name, int keys)
 {
+    struct value vbuf;
     char **ret;
+    Value v;
 
-    if ((ret = gethkparam(nam)))
-	return (incompfunc ? arrdup(ret) : ret);
+    queue_signals();
+    if (!(v = fetchvalue(&vbuf, &name, 1,
+			 (keys ? SCANPM_WANTKEYS : SCANPM_WANTVALS) |
+			 SCANPM_MATCHMANY)))
+	ret = NULL;
+    else
+	ret = getarrvalue(v);
+    unqueue_signals();
 
-    return NULL;
+    return ret;
 }
 
 /* This is used by compadd to add a couple of matches. The arguments are
@@ -1584,9 +1581,10 @@ addmatches(Cadata dat, char **argv)
     Patprog cp = NULL, *pign = NULL;
     LinkList aparl = NULL, oparl = NULL, dparl = NULL;
     Brinfo bp, bpl = brbeg, obpl, bsl = brend, obsl;
+    Heap oldheap;
 
-    if (!*argv) {
-	SWITCHHEAPS(compheap) {
+    if (!*argv && !(dat->aflags & CAF_ALL)) {
+	SWITCHHEAPS(oldheap, compheap) {
 	    /* Select the group in which to store the matches. */
 	    gflags = (((dat->aflags & CAF_NOSORT ) ? CGF_NOSORT  : 0) |
 		      ((dat->aflags & CAF_UNIQALL) ? CGF_UNIQALL : 0) |
@@ -1600,7 +1598,7 @@ addmatches(Cadata dat, char **argv)
 	    }
 	    if (dat->mesg)
 		addmesg(dat->mesg);
-	} SWITCHBACKHEAPS;
+	} SWITCHBACKHEAPS(oldheap);
 
 	return 1;
     }
@@ -1636,7 +1634,7 @@ addmatches(Cadata dat, char **argv)
 
     /* Switch back to the heap that was used when the completion widget
      * was invoked. */
-    SWITCHHEAPS(compheap) {
+    SWITCHHEAPS(oldheap, compheap) {
 	if ((doadd = (!dat->apar && !dat->opar && !dat->dpar))) {
 	    if (dat->aflags & CAF_MATCH)
 		hasmatched = 1;
@@ -1885,17 +1883,22 @@ addmatches(Cadata dat, char **argv)
 	obpl = bpl;
 	obsl = bsl;
 	if (dat->aflags & CAF_ARRAYS) {
-	    arrays = argv;
-	    argv = NULL;
-	    while (*arrays && (!(argv = ((dat->aflags & CAF_KEYS) ?
-					 get_user_keys(*arrays) :
-					 get_user_var(*arrays))) || !*argv))
+	    Heap oldheap2;
+
+	    SWITCHHEAPS(oldheap2, oldheap) {
+		arrays = argv;
+		argv = NULL;
+		while (*arrays &&
+		       (!(argv = get_data_arr(*arrays,
+					      (dat->aflags & CAF_KEYS))) ||
+			!*argv))
+		    arrays++;
 		arrays++;
-	    arrays++;
-	    if (!argv) {
-		ms = NULL;
-		argv = &ms;
-	    }
+		if (!argv) {
+		    ms = NULL;
+		    argv = &ms;
+		}
+	    } SWITCHBACKHEAPS(oldheap2);
 	}
 	if (dat->ppre)
 	    ppl = strlen(dat->ppre);
@@ -1912,8 +1915,8 @@ addmatches(Cadata dat, char **argv)
 	    if (aign || pign) {
 		int il = ppl + sl + psl, addit = 1;
 
-		if (il > ilen)
-		    ibuf = (char *) zhalloc((ilen = il) + 1);
+		if (il + 1> ilen)
+		    ibuf = (char *) zhalloc((ilen = il) + 2);
 
 		if (ppl)
 		    memcpy(ibuf, dat->ppre, ppl);
@@ -1992,17 +1995,22 @@ addmatches(Cadata dat, char **argv)
 		free_cline(lc);
 	    }
 	    if ((dat->aflags & CAF_ARRAYS) && !argv[1]) {
-		argv = NULL;
-		while (*arrays && (!(argv = ((dat->aflags & CAF_KEYS) ?
-					     get_user_keys(*arrays) :
-					     get_user_var(*arrays))) || !*argv))
+		Heap oldheap2;
+
+		SWITCHHEAPS(oldheap2, oldheap) {
+		    argv = NULL;
+		    while (*arrays &&
+			   (!(argv = get_data_arr(*arrays,
+						  (dat->aflags & CAF_KEYS))) ||
+			    !*argv))
+			arrays++;
 		    arrays++;
-		arrays++;
-		if (!argv) {
-		    ms = NULL;
-		    argv = &ms;
-		}
-		argv--;
+		    if (!argv) {
+			ms = NULL;
+			argv = &ms;
+		    }
+		    argv--;
+		} SWITCHBACKHEAPS(oldheap2);
 	    }
 	}
 	if (dat->apar)
@@ -2013,7 +2021,37 @@ addmatches(Cadata dat, char **argv)
 	    set_list_array(dat->dpar, dparl);
 	if (dat->exp)
 	    addexpl();
-    } SWITCHBACKHEAPS;
+	if (!hasallmatch && (dat->aflags & CAF_ALL)) {
+	    Cmatch cm = (Cmatch) zhalloc(sizeof(struct cmatch));
+
+	    memset(cm, 0, sizeof(struct cmatch));
+	    cm->str = dupstring("<all>");
+	    cm->flags = (dat->flags | CMF_ALL |
+			 (complist ?
+			  ((strstr(complist, "packed") ? CMF_PACKED : 0) |
+			   (strstr(complist, "rows")   ? CMF_ROWS   : 0)) : 0));
+	    if (disp) {
+		if (!*++disp)
+		    disp = NULL;
+		if (disp)
+		    cm->disp = dupstring(*disp);
+	    } else {
+		cm->disp = dupstring("");
+		cm->flags |= CMF_DISPLINE;
+	    }
+	    mnum++;
+	    ainfo->count++;
+	    if (curexpl)
+		curexpl->count++;
+
+	    addlinknode(matches, cm);
+
+	    newmatches = 1;
+	    mgroup->new = 1;
+
+	    hasallmatch = 1;
+	}
+    } SWITCHBACKHEAPS(oldheap);
 
     /* We switched back to the current heap, now restore the stack of
      * matchers. */
@@ -2373,7 +2411,7 @@ add_match_data(int alt, char *str, Cline line,
 		comp_setunset(0, 0, CP_EXACTSTR, 0);
 	    }
 	    ai->exactm = cm;
-	} else if (useexact) {
+	} else if (useexact && !matcheq(cm, ai->exactm)) {
 	    ai->exact = 2;
 	    ai->exactm = NULL;
 	    if (incompfunc)
@@ -2666,7 +2704,7 @@ dupmatch(Cmatch m, int nbeg, int nend)
     r->pre = ztrdup(m->pre);
     r->suf = ztrdup(m->suf);
     r->flags = m->flags;
-    if (nbeg) {
+    if (m->brpl) {
 	int *p, *q, i;
 
 	r->brpl = (int *) zalloc(nbeg * sizeof(int));
@@ -2675,7 +2713,7 @@ dupmatch(Cmatch m, int nbeg, int nend)
 	    *p = *q;
     } else
 	r->brpl = NULL;
-    if (nend) {
+    if (m->brsl) {
 	int *p, *q, i;
 
 	r->brsl = (int *) zalloc(nend * sizeof(int));
@@ -2755,7 +2793,7 @@ permmatches(int last)
 
 	    if (g->perm) {
 		g->perm->next = NULL;
-		freematches(g->perm);
+		freematches(g->perm, 0);
 	    }
 	    g->perm = n;
 
@@ -2859,8 +2897,10 @@ freematch(Cmatch m, int nbeg, int nend)
     zsfree(m->remf);
     zsfree(m->disp);
     zsfree(m->autoq);
-    zfree(m->brpl, nbeg * sizeof(int));
-    zfree(m->brsl, nend * sizeof(int));
+    if (m->brpl)
+	zfree(m->brpl, nbeg * sizeof(int));
+    if (m->brsl)
+	zfree(m->brsl, nend * sizeof(int));
 
     zfree(m, sizeof(m));
 }
@@ -2869,7 +2909,7 @@ freematch(Cmatch m, int nbeg, int nend)
 
 /**/
 mod_export void
-freematches(Cmgroup g)
+freematches(Cmgroup g, int cm)
 {
     Cmgroup n;
     Cmatch *m;
@@ -2898,4 +2938,6 @@ freematches(Cmgroup g)
 
 	g = n;
     }
+    if (cm)
+	minfo.cur = NULL;
 }

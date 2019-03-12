@@ -1,4 +1,6 @@
 name=zsh/sched
+link=either
+load=yes
 
 autobins="sched"
 

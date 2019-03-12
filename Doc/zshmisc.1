@@ -1,4 +1,4 @@
-.TH "ZSHMISC" "1" "June 5, 2000" "zsh 3\&.1\&.9"
+.TH "ZSHMISC" "1" "June 1, 2001" "zsh 4\&.0\&.1"
 .SH "NAME"
 zshmisc \- everything and then some
 .\" Yodl file: Zsh/grammar.yo
@@ -724,7 +724,7 @@ contain the definitions for all functions in the directory named
 \fIelement\fP\&.  The file is treated in the same manner as a directory
 containing files for functions and is searched for the definition of the
 function\&.   If the definition is not found, the search for a definition
-proceeds with the the other two possibilities described below\&.
+proceeds with the other two possibilities described below\&.
 .RS
 .PP
 If \fIelement\fP already includes a \fB\&.zwc\fP extension (i\&.e\&. the extension
@@ -854,8 +854,14 @@ Executed before each prompt\&.
 .TP
 \fBpreexec\fP
 Executed just after a command has been read and is about to be
-executed\&.  If the history mechanism is active, the string to be
-executed is passed as an argument\&.
+executed\&.  If the history mechanism is active (and the line was not
+discarded from the history buffer), the string that the user typed is
+passed as the first argument, otherwise it is an empty string\&.  The
+actual command that will be executed (including expanded aliases) is
+passed in two different forms: the second argument is a single\-line,
+size\-limited version of the command (with things like function bodies
+elided); the third argument contains the full text what what is being
+executed\&.
 .TP
 \fBTRAP\fP\fINAL\fP
 If defined and non\-null,
@@ -948,6 +954,11 @@ but this can be disabled by giving the command `\fBstty tostop\fP'\&.
 If you set this
 tty option, then background jobs will suspend when they try to produce
 output like they do when they try to read input\&.
+.PP
+When a command is suspended and continued later with the \fBfg\fP or
+\fBwait\fP builtins, zsh restores tty modes that were in effect when it was
+suspended\&.  This (intentionally) does not apply if the command is
+continued via `\fBkill \-CONT\fP', nor when it is continued with \fBbg\fP\&.
 .PP
 There are several ways to refer to jobs in the shell\&.
 A job can be referred to by the process ID of any process of the job
@@ -1072,6 +1083,11 @@ have output base 16, while \fBx\fP (assuming it does not already exist) is
 implicitly typed by the arithmetic evaluation, where it acquires the output
 base 8\&.
 .PP
+When an output base is specified using the `\fB[#\fP\fIbase\fP\fB]\fP' syntax,
+an appropriate base prefix will be output if necessary, so that the value
+output is valid syntax for input\&.  If the \fB#\fP is doubled, for example
+`\fB[##16]\fP', then no base prefix is output\&.
+.PP
 Floating point constants are recognized by the presence of a decimal point
 or an exponent\&.  The decimal point may be the first character of the
 constant, but the exponent character \fBe\fP or \fBE\fP may not, as it will be
@@ -1144,9 +1160,9 @@ the \fBzmodload\fP builtin to provide standard floating point mathematical
 functions\&.
 .PP
 An expression of the form `\fB##\fP\fIx\fP' where \fIx\fP is any character
-sequence such as `\fBa\fP', `\fB^A\fP', or `\fB\eM\-\eC\-x\fP' gives the ascii
+sequence such as `\fBa\fP', `\fB^A\fP', or `\fB\eM\-\eC\-x\fP' gives the ASCII
 value of this character and an expression of the form `\fB#\fP\fIfoo\fP'
-gives the ascii value of the first character of the value of the
+gives the ASCII value of the first character of the value of the
 parameter \fIfoo\fP\&.  Note that this is different from the expression
 `\fB$#\fP\fIfoo\fP', a standard parameter substitution which gives the
 length of the parameter \fIfoo\fP\&.  `\fB#\e\fP' is accepted instead of
@@ -1196,7 +1212,7 @@ the loop
 .PP
 .RS
 .nf
-\fBfor (( f = 0; f < 1; f += 0\&.1 )); do;
+\fBfor (( f = 0; f < 1; f += 0\&.1 )); do
 # use $f
 done\fP
 .fi
@@ -1426,7 +1442,8 @@ A `\fB)\fP'\&.
 \fB%/\fP
 Present working directory (\fB$PWD\fP)\&.  If an integer follows the `\fB%\fP',
 it specifies a number of trailing components of \fB$PWD\fP to show; zero
-means the whole path\&.
+means the whole path\&.  A negative integer specifies leading components,
+i\&.e\&. \fB%\-1d\fP specifies the first component\&.
 .TP
 \fB%~\fP
 As \fB%d\fP and \fB%/\fP, but if \fB$PWD\fP has a named directory as its prefix,
@@ -1449,7 +1466,8 @@ The full machine hostname\&.
 \fB%m\fP
 The hostname up to the first `\fB\&.\fP'\&.
 An integer may follow the `\fB%\fP' to specify
-how many components of the hostname are desired\&.
+how many components of the hostname are desired\&.  With a negative integer,
+trailing components of the hostname are shown\&.
 .TP
 \fB%S\fP (\fB%s\fP)
 Start (stop) standout mode\&.
@@ -1481,7 +1499,7 @@ The name of the script, sourced file, or shell function that zsh is
 currently executing, whichever was started most recently\&.  If there is
 none, this is equivalent to the parameter \fB$0\fP\&.  An integer may follow
 the `\fB%\fP' to specify a number of trailing path components to show; zero
-means the full path\&.
+means the full path\&.  A negative integer specifies leading components\&.
 .TP
 \fB%i\fP
 The line number currently being executed in the script, sourced file, or
@@ -1514,7 +1532,7 @@ The return code of the last command executed just before the prompt\&.
 \fB%_\fP
 The status of the parser, i\&.e\&. the shell constructs (like `\fBif\fP' and
 `\fBfor\fP') that have been started on the command line\&. If given an integer
-number that many strings will be printed; zero or no integer means
+number that many strings will be printed; zero or negative or no integer means
 print as many as there are\&.  This is most useful in prompts \fBPS2\fP for
 continuation lines and \fBPS4\fP for debugging with the \fBXTRACE\fP option; in
 the latter case it will also work non\-interactively\&.
@@ -1532,7 +1550,8 @@ capability vectors\&.
 .TP
 \fB%v\fP
 The value of the first element of the \fBpsvar\fP array parameter\&.  Following
-the `\fB%\fP' with an integer gives that element of the array\&.
+the `\fB%\fP' with an integer gives that element of the array\&.  Negative
+integers count from the end of the array\&.
 .TP
 \fB%{\fP\&.\&.\&.\fB%}\fP
 Include a string as a literal escape sequence\&.
@@ -1551,10 +1570,9 @@ and \fIfalse\-text\fP may both contain arbitrarily\-nested escape
 sequences, including further ternary expressions\&.
 .RS
 .PP
-The left
-parenthesis may be preceded or followed by a positive integer \fIn\fP,
-which defaults to zero\&.  The test character \fIx\fP may be any of the
-following:
+The left parenthesis may be preceded or followed by a positive integer \fIn\fP,
+which defaults to zero\&.  A negative integer will be multiplied by \-1\&.
+The test character \fIx\fP may be any of the following:
 .PP
 .PD 0
 .TP

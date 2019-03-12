@@ -1,4 +1,4 @@
-.TH "ZSHBUILTINS" "1" "June 5, 2000" "zsh 3\&.1\&.9"
+.TH "ZSHBUILTINS" "1" "June 1, 2001" "zsh 4\&.0\&.1"
 .SH "NAME"
 zshbuiltins \- zsh built\-in commands
 .\" Yodl file: Zsh/builtins.yo
@@ -177,6 +177,12 @@ See the section `The zsh/compctl Module' in \fIzshmodules\fP(1)\&.
 \fBcompdescribe\fP
 See the section `The zsh/computil Module' in \fIzshmodules\fP(1)\&.
 .TP
+\fBcompfiles\fP
+See the section `The zsh/computil Module' in \fIzshmodules\fP(1)\&.
+.TP
+\fBcompgroups\fP
+See the section `The zsh/computil Module' in \fIzshmodules\fP(1)\&.
+.TP
 \fBcompquote\fP
 See the section `The zsh/computil Module' in \fIzshmodules\fP(1)\&.
 .TP
@@ -286,9 +292,11 @@ these escape sequences\&.  In the latter case, \fB\-e\fP flag can be used to
 enable them\&.
 .RE
 .TP
-\fBechotc\fP \fIcap\fP [ \fIarg\fP \&.\&.\&. ]
-Output the termcap string corresponding to the capability
-\fIcap\fP, with optional arguments\&.
+\fBechotc\fP
+See the section `The zsh/termcap Module' in \fIzshmodules\fP(1)\&.
+.TP
+\fBechoti\fP
+See the section `The zsh/terminfo Module' in \fIzshmodules\fP(1)\&.
 .TP
 \fBemulate\fP [ \fB\-LR\fP ] {\fBzsh\fP|\fBsh\fP|\fBksh\fP|\fBcsh\fP}
 Set up zsh options to emulate the specified shell as much as possible\&.
@@ -745,7 +753,8 @@ Treat the arguments as directory names, replacing prefixes with \fB~\fP
 expressions, as appropriate\&.
 .TP
 \fB\-P\fP
-Perform prompt expansion (see the section `Prompt Expansion')\&.
+Perform prompt expansion (see
+\fIzshmisc\fP(1))\&.
 .RE
 .TP
 .PD 0
@@ -791,12 +800,18 @@ contain symbolic links\&.
 \fBr\fP
 Same as \fBfc \-e \-\fP\&.
 .TP
-\fBread\fP [ \fB\-rzpqAclneE\fP ] [ \fB\-k\fP [ \fInum\fP ] ] [ \fB\-u\fP\fIn\fP ] [ \fIname\fP[\fB?\fP\fIprompt\fP] ] [ \fIname\fP \&.\&.\&.  ]
+.PD 0
+\fBread\fP [ \fB\-rzpqAclneEt\fP ] [ \fB\-k\fP [ \fInum\fP ] ]
+.TP
+.PD
+[ \fB\-u\fP\fIn\fP ] [ \fIname\fP[\fB?\fP\fIprompt\fP] ] [ \fIname\fP \&.\&.\&.  ]
 Read one line and break it into fields using the characters
 in \fB$IFS\fP as separators, except as noted below\&.
 The first field is assigned to the first \fIname\fP, the second field
 to the second \fIname\fP, etc\&., with leftover
 fields assigned to the last \fIname\fP\&.
+If \fIname\fP is omitted then
+\fBREPLY\fP is used for scalars and \fBreply\fP for arrays\&.
 .RS
 .PP
 .PD 0
@@ -804,7 +819,8 @@ fields assigned to the last \fIname\fP\&.
 .PD
 \fB\-r\fP
 Raw mode: a `\fB\e\fP' at the end of a line does not signify line
-continuation\&.
+continuation and backslashes in the line don't quote the following
+character and are not removed\&.
 .TP
 \fB\-q\fP
 Read only one character from the terminal and set \fIname\fP to
@@ -853,8 +869,7 @@ function used for completion (specified with the \fB\-K\fP flag to
 \fBcompctl\fP)\&.  If the \fB\-c\fP flag is given, the words of the
 current command are read\&. If the \fB\-l\fP flag is given, the whole
 line is assigned as a scalar\&.  If both flags are present, \fB\-l\fP
-is used and \fB\-c\fP is ignored\&.  If \fIname\fP is omitted then
-\fBREPLY\fP is used for scalars and \fBreply\fP for arrays\&.
+is used and \fB\-c\fP is ignored\&.
 .TP
 \fB\-n\fP
 Together with \fB\-c\fP, the number of the word the cursor is on is
@@ -869,7 +884,22 @@ digit and must \fInot\fP be separated from \fB\-u\fP by any whitespace\&.
 .TP
 \fB\-p\fP
 Input is read from the coprocess\&.
-.PP
+.TP
+\fB\-t\fP
+Test if input is available before attempting to read; if none is, return
+status 1 and do not set any variables\&.  This is not available when reading
+from the editor buffer with \fB\-z\fP, when called from within completion
+with \fB\-c\fP or \fB\-l\fP, with \fB\-q\fP which clears the input queue before
+reading, or within zle where other mechanisms should be used to test for
+input\&.
+ 
+Note that read does not attempt to alter the input processing mode\&.  The
+default mode is canonical input, in which an entire line is read at a time,
+so usually `\fBread \-t\fP' will not read anything until an entire line has
+been typed\&.  However, when reading from the terminal with \fB\-k\fP
+this is automatically handled; note that only availability of the first
+character is tested, so that e\&.g\&. `\fBread \-t \-k 2\fP' can still block on the
+second character\&.
 If the first argument contains a `\fB?\fP', the remainder of this
 word is used as a \fIprompt\fP on standard error when the shell
 is interactive\&.
@@ -1059,9 +1089,9 @@ assigned in \fBtypeset\fP expressions, only scalars and integers\&.
 .PP
 For each remaining \fIname\fP that refers to a parameter that is set, the
 name and value of the parameter are printed in the form of an assignment\&.
-Nothing is printed for newly\-created parameters, or if any attribute flags
-listed below are given\&.  Using `\fB+\fP' instead of minus to introduce
-an attribute turns it off\&.
+Nothing is printed for newly\-created parameters, or when any attribute
+flags listed below are given along with the \fIname\fP\&.  Using `\fB+\fP'
+instead of minus to introduce an attribute turns it off\&.
 .PP
 If the \fB\-T\fP option is given, exactly two (or zero) \fIname\fP
 arguments must be present\&.  They represent a scalar and an array (in
@@ -1075,7 +1105,7 @@ of untying the variables without unsetting them, or converting the
 type of one of them with another \fBtypeset\fP command; \fB+T\fP does not
 work, assigning an array to \fISCALAR\fP is an error, and assigning a
 scalar to \fIarray\fP sets it to be a single\-element array\&.  Note that
-both \fBtypeset \-xT \&.\&.\&.\fP and \fBexport \-T \&.\&.\&.\fP work, but only the
+both `\fBtypeset \-xT \&.\&.\&.\fP' and `\fBexport \-T \&.\&.\&.\fP' work, but only the
 scalar will be marked for export\&.
 .PP
 The \fB\-g\fP (global) flag is treated specially: it means that any
@@ -1084,19 +1114,31 @@ does not necessarily mean that the parameter will be global, as the flag
 will apply to any existing parameter (even if unset) from an enclosing
 function\&.  This flag does not affect the parameter after creation, hence it
 has no effect when listing existing parameters, nor does the flag \fB+g\fP
-have any effect\&.
+have any effect except in combination with \fB\-m\fP (see below)\&.
 .PP
 If no \fIname\fP is present, the names and values of all parameters are
 printed\&.  In this case the attribute flags restrict the display to only
 those parameters that have the specified attributes, and using `\fB+\fP'
 rather than `\fB\-\fP' to introduce the flag suppresses printing of the values
-of parameters when there is no parameter name\&.  Also, if the option list
-ends with `\fB+\fP', values will not be printed\&.  If only the \fB\-m\fP
-flag is given the arguments are taken as patterns (which should be quoted)
-and all parameters (or functions with the \fB\-f\fP flag) with matching names
-are printed\&.  If no attribute flags and no \fB\-m\fP flag is present, the
-parameter names will be preceded by a list of any attributes (\fBarray\fP,
-\fBassociation\fP, \fBexported\fP, \fBinteger\fP, \fBreadonly\fP)\&.
+of parameters when there is no parameter name\&.  Also, if the last option
+is the word `\fB+\fP', then names are printed but values are not\&.
+.PP
+If the \fB\-m\fP flag is given the \fIname\fP arguments are taken as patterns
+(which should be quoted)\&.  With no attribute flags, all parameters (or
+functions with the \fB\-f\fP flag) with matching names are printed\&.  Note that
+\fB\-m\fP is ignored if no patterns are given\&.  If the \fB+g\fP flag is combined
+with \fB\-m\fP, a new local parameter is created for every matching parameter
+that is not already local\&.  Otherwise \fB\-m\fP applies all other flags or
+assignments to the existing parameters\&.  Except when assignments are made
+with \fIname\fP\fB=\fP\fIvalue\fP, using \fB+m\fP forces the matching parameters
+to be printed, even inside a function\&.
+.PP
+If no attribute flags are given and either no \fB\-m\fP flag is present or
+the \fB+m\fP form was used, each parameter name printed is preceded by a
+list of the attributes of that parameter (\fBarray\fP, \fBassociation\fP,
+\fBexported\fP, \fBinteger\fP, \fBreadonly\fP)\&.  If \fB+m\fP is used with attribute
+flags, and all those flags are introduced with \fB+\fP, the matching
+parameter names are printed but their values are not\&.
 .PP
 The following attribute flags may be specified:
 .PP
@@ -1166,8 +1208,18 @@ special \fBPATH\fP parameter is not altered in any way\&.  It is also possible
 to create a local parameter using `\fBtypeset +h \fP\fIspecial\fP', where the
 local copy of \fIspecial\fP will retain its special properties regardless of
 having the \fB\-h\fP attribute\&.  Global special parameters loaded from shell
-modules (currently those in \fBmapfile\fP and \fBparameter\fP) are
+modules (currently those in \fBzsh/mapfile\fP and \fBzsh/parameter\fP) are
 automatically given the \fB\-h\fP attribute to avoid name clashes\&.
+.TP
+\fB\-H\fP
+Hide value: specifies that \fBtypeset\fP will not display the value of the
+parameter when listing parameters; the display for such parameters is
+always as if the `\fB+\fP' flag had been given\&.  Use of the parameter is
+in other respects normal, and the option does not apply if the parameter is
+specified by name, or by pattern with the \fB\-m\fP option\&.  This is on by
+default for the parameters in the \fBzsh/parameter\fP and \fBzsh/mapfile\fP
+modules\&.  Note, however, that unlike the \fB\-h\fP flag this is also useful
+for non\-special parameters\&.
 .TP
 \fB\-i\fP
 Use an internal integer representation\&.  If \fIn\fP is nonzero it
@@ -1443,7 +1495,7 @@ files compiled into it are listed\&.  The first line of output shows
 the version of the shell which compiled the file and how the file
 will be used (i\&.e\&. by reading it directly or by mapping it into memory)\&.
 With arguments, nothing is output and the return value is set to zero if
-definitions for \fIall\fP \fIname\fPs name files were found in the wordcode
+definitions for \fIall\fP \fIname\fPs were found in the compiled
 file, and non\-zero if the definition for at least one \fIname\fP was not
 found\&.
 .PP
@@ -1487,14 +1539,11 @@ read, while if the \fB\-k\fP is given, the function will be loaded as if
 \fBKSH_AUTOLOAD\fP \fIis\fP set\&.  If neither of these options is given, the
 function will be loaded as determined by the setting of the
 \fBKSH_AUTOLOAD\fP option at the time the compiled file is read\&.
-.RS
-.PP
+ 
 These options may also appear as many times as necessary between the listed
 \fIname\fPs to specify the loading style of all following functions, up to
 the next \fB\-k\fP or \fB\-z\fP\&.
-.RE
-.RE
-.PP
+
 The created file always contains two versions of the compiled
 format, one for big\-endian machines and one for small\-endian
 machines\&.  The upshot of this is that the compiled file is machine
@@ -1515,13 +1564,19 @@ See the section `The zsh/zle Module' in \fIzshmodules\fP(1)\&.
 \fBzmodload\fP [ \fB\-dL\fP ] [ \&.\&.\&. ]
 .TP
 .PD 0
-\fBzmodload \-e\fP [ \&.\&.\&. ]
+\fBzmodload \-e\fP [ \fB\-A\fP ] [ \&.\&.\&. ]
 .TP
 .PD 0
 \fBzmodload\fP [ \fB\-a\fP [ \fB\-bcpf\fP [ \fB\-I\fP ] ] ] [ \fB\-iL\fP ] \&.\&.\&.
 .TP
-.PD
+.PD 0
 \fBzmodload\fP \fB\-u\fP [ \fB\-abcdpf\fP [ \fB\-I\fP ] ] [ \fB\-iL\fP ] \&.\&.\&.
+.TP
+.PD 0
+\fBzmodload\fP \fB\-A\fP [ \fB\-L\fP ] [ \fImodalias\fP[\fB=\fP\fImodule\fP] \&.\&.\&. ]
+.TP
+.PD
+\fBzmodload\fP \fB\-R\fP \fImodalias\fP \&.\&.\&. 
 Performs operations relating to zsh's loadable modules\&.
 Loading of modules while the shell is running (`dynamical loading') is not
 available on all operating systems, or on all installations on a particular
@@ -1666,13 +1721,55 @@ makes \fBzmodload\fP work on autoloaded math functions instead\&.
 \fBzmodload\fP \fB\-ua\fP [ \fB\-i\fP ] \fIbuiltin\fP \&.\&.\&.
 Equivalent to \fB\-ab\fP and \fB\-ub\fP\&.
 .TP
-\fBzmodload \-e\fP [ \fIstring\fP \&.\&.\&. ]
-The \fB\-e\fP option without arguments lists all loaded modules\&.
-With arguments only the return status is set to zero
+\fBzmodload \-e\fP [ \fB\-A\fP ] [ \fIstring\fP \&.\&.\&. ]
+The \fB\-e\fP option without arguments lists all loaded modules; if the \fB\-A\fP
+option is also given, module aliases corresponding to loaded modules are
+also shown\&.  With arguments only the return status is set to zero
 if all \fIstring\fPs given as arguments are names of loaded modules
 and to one if at least on \fIstring\fP is not the name of a
-loaded module\&. This can be used to test for the availability 
-of things implemented by modules\&.
+loaded module\&.  This can be used to test for the availability 
+of things implemented by modules\&.  In this case, any aliases are
+automatically resolved and the \fB\-A\fP flag is not used\&.
+.TP
+\fBzmodload\fP \fB\-A\fP [ \fB\-L\fP ] [ \fImodalias\fP[\fB=\fP\fImodule\fP] \&.\&.\&. ]
+For each argument, if both \fImodalias\fP and \fImodule\fP are given,
+define \fImodalias\fP to be an alias for the module \fImodule\fP\&.
+If the module \fImodalias\fP is ever subsequently requested, either via a
+call to \fBzmodload\fP or implicitly, the shell will attempt to load
+\fImodule\fP instead\&.  If \fImodule\fP is not given, show the definition of
+\fImodalias\fP\&.  If no arguments are given, list all defined module aliases\&.
+When listing, if the \fB\-L\fP flag was also given, list the definition as a
+\fBzmodload\fP command to recreate the alias\&.
+.RS
+.PP
+The existence of aliases for modules is completely independent of whether
+the name resolved is actually loaded as a module: while the alias exists,
+loading and unloading the module under any alias has exactly the same
+effect as using the resolved name, and does not affect the connection
+between the alias and the resolved name which can be removed either by
+\fBzmodload \-R\fP or by redefining the alias\&.  Chains of aliases (i\&.e\&. where
+the first resolved name is itself an alias) are valid so long as these are
+not circular\&.  As the aliases take the same format as module names, they
+may include path separators:  in this case, there is no requirement for any
+part of the path named to exist as the alias will be resolved first\&.  For
+example, `\fBany/old/alias\fP' is always a valid alias\&.
+.PP
+Dependencies added to aliased modules are actually added to the resolved
+module; these remain if the alias is removed\&.  It is valid to create an
+alias whose name is one of the standard shell modules and which resolves to
+a different module\&.  However, if a module has dependencies, it
+will not be possible to use the module name as an alias as the module will
+already be marked as a loadable module in its own right\&.
+.PP
+Apart from the above, aliases can be used in the \fBzmodload\fP command
+anywhere module names are required\&.  However, aliases will not be
+shown in lists of loaded modules with a bare `\fBzmodload\fP'\&.
+.RE
+.TP
+\fBzmodload\fP \fB\-R\fP \fImodalias\fP \&.\&.\&. 
+For each \fImodalias\fP argument that was previously defined as a module
+alias via \fBzmodload \-A\fP, delete the alias\&.  If any was not defined, an
+error is caused and the remainder of the line is ignored\&.
 .PP
 Note that \fBzsh\fP makes no distinction between modules that were linked 
 into the shell and modules that are loaded dynamically\&. In both cases

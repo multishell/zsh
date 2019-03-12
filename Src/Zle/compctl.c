@@ -1848,7 +1848,7 @@ ccmakehookfn(Hookdef dummy, struct ccmakedat *dat)
 	    amatches = lastmatches;
 	    lmatches = lastlmatches;
 	    if (pmatches) {
-		freematches(pmatches);
+		freematches(pmatches, 1);
 		pmatches = NULL;
 		hasperm = 0;
 	    }
@@ -1858,7 +1858,7 @@ ccmakehookfn(Hookdef dummy, struct ccmakedat *dat)
 	    return 0;
 	}
 	if (lastmatches) {
-	    freematches(lastmatches);
+	    freematches(lastmatches, 1);
 	    lastmatches = NULL;
 	}
 	permmatches(1);
@@ -2268,13 +2268,14 @@ static int cdepth = 0;
 static int
 makecomplistctl(int flags)
 {
+    Heap oldheap;
     int ret;
 
     if (cdepth == MAX_CDEPTH)
 	return 0;
 
     cdepth++;
-    SWITCHHEAPS(compheap) {
+    SWITCHHEAPS(oldheap, compheap) {
 	int ooffs = offs, lip, lp;
 	char *str = comp_str(&lip, &lp, 0), *t;
 	char *os = cmdstr, **ow = clwords, **p, **q, qc;
@@ -2333,7 +2334,7 @@ makecomplistctl(int flags)
 	clwords = ow;
 	clwnum = on;
 	clwpos = op;
-    } SWITCHBACKHEAPS;
+    } SWITCHBACKHEAPS(oldheap);
     cdepth--;
 
     return ret;
@@ -2469,7 +2470,7 @@ makecomplistcmd(char *os, int incmd, int flags)
     return ret;
 }
 
-/* This add the matches for the pattern compctls. */
+/* This adds the matches for the pattern compctls. */
 
 /**/
 static int
@@ -2477,8 +2478,11 @@ makecomplistpc(char *os, int incmd)
 {
     Patcomp pc;
     Patprog pat;
-    char *s = findcmd(cmdstr, 1);
+    char *s;
     int ret = 0;
+
+    s = ((shfunctab->getnode(shfunctab, cmdstr) ||
+	  builtintab->getnode(builtintab, cmdstr)) ? NULL : findcmd(cmdstr, 1));
 
     for (pc = patcomps; pc; pc = pc->next) {
 	if ((pat = patcompile(pc->pat, PAT_STATIC, NULL)) &&
@@ -2749,7 +2753,7 @@ sep_comp_string(char *ss, char *s, int noffs)
     LinkNode n;
     int owe = we, owb = wb, ocs = cs, swb, swe, scs, soffs, ne = noerrs;
     int sl = strlen(ss), tl, got = 0, i = 0, cur = -1, oll = ll, remq;
-    int ois = instring, oib = inbackt;
+    int ois = instring, oib = inbackt, ona = noaliases;
     char *tmp, *p, *ns, *ol = (char *) line, sav, *oaq = autoq, *qp, *qs;
     char *ts, qc = '\0';
 
@@ -2809,7 +2813,7 @@ sep_comp_string(char *ss, char *s, int noffs)
 	}
 	i++;
     } while (tok != ENDINPUT && tok != LEXERR);
-    noaliases = 0;
+    noaliases = ona;
     strinend();
     inpop();
     errflag = zleparse = 0;
@@ -3644,6 +3648,7 @@ makecomplistflags(Compctl cc, char *s, int incmd, int compadd)
 	LinkList foo = newlinklist();
 	LinkNode n;
 	int first = 1, ng = opts[NULLGLOB], oowe = we, oowb = wb;
+	int ona = noaliases;
 	char *tmpbuf;
 
 	opts[NULLGLOB] = 1;
@@ -3665,7 +3670,7 @@ makecomplistflags(Compctl cc, char *s, int incmd, int compadd)
 		addlinknode(foo, ztrdup(tokstr));
 	    first = 0;
 	} while (tok != ENDINPUT && tok != LEXERR);
-	noaliases = 0;
+	noaliases = ona;
 	strinend();
 	inpop();
 	errflag = zleparse = 0;
@@ -3745,7 +3750,10 @@ makecomplistflags(Compctl cc, char *s, int incmd, int compadd)
 	dumphashtable(aliastab, t | (cc->mask & (CC_DISCMDS|CC_EXCMDS)));
     if (keypm && cc == &cc_dummy) {
 	/* Add the keys of the parameter in keypm. */
-	scanhashtable(keypm->gets.hfn(keypm), 0, 0, PM_UNSET, addhnmatch, 0);
+	HashTable t = keypm->gets.hfn(keypm);
+
+	if (t)
+	    scanhashtable(t, 0, 0, PM_UNSET, addhnmatch, 0);
 	keypm = NULL;
 	cc_dummy.suffix = NULL;
     }

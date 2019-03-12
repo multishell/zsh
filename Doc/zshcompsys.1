@@ -1,4 +1,4 @@
-.TH "ZSHCOMPSYS" "1" "June 5, 2000" "zsh 3\&.1\&.9"
+.TH "ZSHCOMPSYS" "1" "June 1, 2001" "zsh 4\&.0\&.1"
 .SH "NAME"
 zshcompsys \- zsh completion system
 .\" Yodl file: Zsh/compsys.yo
@@ -36,9 +36,9 @@ immediately\&.  However, if \fBcompinstall\fP has removed definitions, you will
 need to restart the shell to see the changes\&.
 .PP
 To run \fBcompinstall\fP you will need to make sure it is in a directory
-mentioned in your \fB$fpath\fP parameter, which should already be the case if
+mentioned in your \fBfpath\fP parameter, which should already be the case if
 zsh was properly configured as long as your startup files do not remove the
-appropriate directories from \fB$fpath\fP\&.  Then it must be autoloaded
+appropriate directories from \fBfpath\fP\&.  Then it must be autoloaded
 (`\fBautoload \-U compinstall\fP' is recommended)\&.  You can abort the
 installation any time you are being prompted for information, and your
 \fB\&.zshrc\fP will not be altered at all; changes only take place right at the
@@ -51,19 +51,22 @@ the current session when run directly by the user; if you have run
 \fBcompinstall\fP it will be called automatically from your \fB\&.zshrc\fP\&.
 .PP
 To initialize the system, the function \fBcompinit\fP should be in a
-directory mentioned in the \fB$fpath\fP variable, and should be autoloaded
+directory mentioned in the \fBfpath\fP parameter, and should be autoloaded
 (`\fBautoload \-U compinit\fP' is recommended), and then run simply as
 `\fBcompinit\fP'\&.  This will define a
 few utility functions, arrange for all the necessary shell functions to be
-autoloaded, and will then re\-bind all keys that do completion to use the
+autoloaded, and will then re\-define all widgets that do completion to use the
 new system\&.  If you use the \fBmenu\-select\fP widget, which is part of the
 \fBzsh/complist\fP module, you should make sure that that module is loaded
-before the call to \fBcompinit\fP to make sure that that widget is also
-re\-bound\&.
+before the call to \fBcompinit\fP so that that widget is also
+re\-defined\&.  If completion styles (see below) are set up to perform
+expansion as well as completion by default, and the TAB key is bound to
+\fBexpand\-or\-complete\fP, \fBcompinit\fP will rebind it to \fBcomplete\-word\fP;
+this is necessary to use the correct form of expansion\&.
 .PP
 Should you need to use the original completion commands, you can still
-bind keys to the old functions by putting a `\fB\&.\fP' in front of the
-command name, e\&.g\&. `\fB\&.expand\-or\-complete\fP'\&.
+bind keys to the old widgets by putting a `\fB\&.\fP' in front of the
+widget name, e\&.g\&. `\fB\&.expand\-or\-complete\fP'\&.
 .PP
 To speed up the running of \fBcompinit\fP, it can be made to produce a dumped
 configuration which will be read in on future invocations; this is the
@@ -78,7 +81,10 @@ If the number of completion files changes, \fBcompinit\fP will recognise this
 and produce a new dump file\&.  However, if the name of a function or the
 arguments in the first line of a \fB#compdef\fP function (as described below)
 change, it is easiest to delete the dump file by hand so that
-\fBcompinit\fP will re\-create it the next time it is run\&.
+\fBcompinit\fP will re\-create it the next time it is run\&.  The check
+performed to see if there are new functions can be omitted by giving
+the option \fB\-C\fP\&.  In this case the dump file will only be created if
+there isn't one already\&.
 .PP
 The dumping is actually done by another function, \fBcompdump\fP, but you
 will only need to run this yourself if you change the configuration
@@ -88,6 +94,26 @@ the old dumped file will be remembered for this purpose\&.
 If the parameter \fB_compdir\fP is set, \fBcompinit\fP uses it as a directory
 where completion functions can be found; this is only necessary if they are
 not already in the function search path\&.
+.PP
+For security reasons \fBcompinit\fP also checks if the completion system
+would use files not owned by root or by the current user, or files in
+directories that are world\- or group\-writable or that are not owned by 
+root or by the current user\&.  If such files or directories are found,
+\fBcompinit\fP will ask if the completion system should really be used\&.  To
+avoid these tests and make all files found be used without asking, use the
+option \fB\-u\fP, and to make \fBcompinit\fP silently ignore all insecure files
+and directories use the option \fB\-i\fP\&.  This security check is skipped
+entirely when the \fB\-C\fP option is given\&.
+.PP
+The security check can be retried at any time by running the function
+\fBcompaudit\fP\&.  This is the same check used by \fBcompinit\fP, but when it
+is executed directly any changes to \fBfpath\fP are made local to the
+function so they do not persist\&.  The directories to be checked may be
+passed as arguments; if none are given, \fBcompaudit\fP uses \fBfpath\fP and
+\fB_compdir\fP to find completion system directories, adding missing ones
+to \fBfpath\fP as necessary\&.  To force a check of exactly the directories
+currently named in \fBfpath\fP, set \fB_compdir\fP to an empty string before
+calling \fBcompaudit\fP or \fBcompinit\fP\&.
 .PP
 .SS "Autoloaded files"
 .PP
@@ -100,9 +126,10 @@ contains the required directories for the standard functions\&.
 For incomplete installations, if \fBcompinit\fP does not find enough files
 beginning with an underscore (fewer than twenty) in the search path, it
 will try to find more by adding the directory \fB_compdir\fP to the search
-path\&.  Furthermore, if the directory in question ends in the path segment
-\fBCore\fP, or has a subdirectory named \fBCore\fP, \fBcompinit\fP will add all
-subdirectories of the directory where \fBCore\fP is to the path: this allows
+path\&.  If that directory has a subdirectory named \fBBase\fP, all
+subdirectories will be added to the path\&.  Furthermore, if the subdirectory
+\fBBase\fP has a subdirectory named \fBCore\fP, \fBcompinit\fP will add all
+subdirectories of the subdirectories is to the path: this allows
 the functions to be in the same format as in the \fBzsh\fP source
 distribution\&.
 .PP
@@ -123,6 +150,16 @@ in it will be called when completing \fInames\fP, each of which is
 either the name of a command whose arguments are to be completed or one of
 a number of special contexts in the form \fB\-\fP\fIcontext\fP\fB\-\fP described
 below for the \fB_complete\fP function\&.
+.RS
+.PP
+Each \fIname\fP may also be of the form `\fIcmd\fP\fB=\fP\fIservice\fP'\&.  This
+is used by functions that offer multiple services, i\&.e\&. different
+completion behaviour for multiple commands\&.  Such a string
+makes the completion system call the function when completing
+arguments for the command `\fBcmd\fP', setting the parameter \fB$service\fP 
+to the string `\fBservice\fP'\&.  The function can then use that parameter 
+to decide what to complete\&.
+.RE
 .TP
 \fB#compdef \-p\fP \fIpattern\fP
 The file will be made autoloadable and the function defined in it will be
@@ -155,7 +192,7 @@ can be bound to any other keys using \fBbindkey\fP as usual\&.
 .TP
 \fB#compdef \-K\fP \fIwidget\-name\fP \fIstyle\fP \fIkey\-sequences\fP \&.\&.\&.
 This is similar to \fB\-k\fP, with the same \fIstyle\fP and \fIkey\-sequences\fP
-arguments, preceeded by a string giving the name of a widget\&.
+arguments, preceded by a string giving the name of a widget\&.
 In this case only one \fIkey\-sequences\fP argument may be given, but the
 entire set of three arguments may be repeated with a different set of
 arguments\&.  In particular, the \fIwidget\-name\fP must be distinct in each
@@ -227,11 +264,19 @@ also be called directly by the user\&.
 \fBcompdef \-K\fP [ \fB\-an\fP ] \fIfunction name style key\-sequences \&.\&.\&.\fP
 The first form tells the completion system to call the given
 \fIfunction\fP when completing for the contexts or commands
-whose \fInames\fP are given:  this is like the \fB#compdef\fP tag\&.  If the
+whose \fInames\fP are given:  this is like the \fB#compdef\fP tag unless
+the first word contains an equal sign\&.  In this case all words have to 
+be of the form `\fIcmd\fP\fB=\fP\fIservice\fP' where \fIservice\fP is the
+name of a command or of a service defined by an autoloaded function
+with the \fB#compdef\fP tag and an argument of the form
+`\fIcmd\fP\fB=\fP\fIservice\fP'\&.  This kind of use makes the arguments of
+the \fIcmd\fPs be completed as those for the \fIservices\fP\&.
+.RS
+.PP
+If the
 \fB\-n\fP option is given, any existing completion behaviour for particular
 contexts or commands will not be altered\&.  These definitions can be deleted
 by giving the \fB\-d\fP option as in the second form\&.
-.RS
 .PP
 The form with \fB\-p\fP is similar to the first, but \fIfunction\fP will be
 called for all commands whose name matches the \fIpattern\fP; this is like
@@ -266,6 +311,24 @@ In each of the forms supporting it the \fB\-a\fP option makes the
 .RE
 .RE
 .PP
+The \fBcompdef\fP function is the place to turn to when one wants to
+define what the completion system should complete for a certain
+command\&.  The function named can of course be one of the functions
+supplied or one written by the user\&.  For example, if one has a
+command \fBfoo\fP that gets process identifiers as arguments, one could
+do:
+.PP
+.RS
+.nf
+\fBcompdef _pids foo\fP
+.fi
+.RE
+.PP
+using the \fB_pids\fP function from the distribution to generate the
+process identifiers\&.  Not also the \fB_gnu_generic\fP function described
+below, which can be used to complete options for commands that
+understand the `\fB\-\fP\fB\-help\fP' option\&.
+.PP
 .SH "COMPLETION SYSTEM CONFIGURATION"
 .PP
 This section gives a short overview of how the completion system works,
@@ -277,7 +340,7 @@ generated\&.
 When completion is attempted somewhere on a command line the
 completion system first tries to find out the context where completion 
 was tried\&.  The context depends on such things as the name of the
-command when completing an argument, and possibily also
+command when completing an argument, and possibly also
 the name of an option when completing an argument to that option\&.
 .PP
 The `context' of a completion is a string consisting of multiple fields\&. This
@@ -428,6 +491,34 @@ builtin command uses the tags \fBjobs\fP and \fBprocesses\fP, we can use:
 .fi
 .RE
 .PP
+To have more control over when certain values for styles are used one
+can use the special parameters available in completion widgets (see
+see \fIzshcompwid\fP(1))) and the \fB\-e\fP option to \fBzstyle\fP that makes the value be
+evaluated when looked up\&.  For example, to make the \fBcompleter\fP
+style have a different value when completing for the \fBcvs\fP command,
+one could use the \fBwords\fP special array:
+.PP
+.RS
+.nf
+\fBzstyle \-e ':completion:*' completer '
+    if [[ $words[1] = cvs ]]; then
+      reply=(_complete)
+    else
+      reply=(_complete _approximate)
+    fi'\fP
+.fi
+.RE
+.PP
+One should be careful not to use too complicated code with this
+option, at least for the styles that are looked up quite often\&.  These 
+are basically those that define some global completion behaviour but
+allow that to be different for all matches or groups of matches (such
+as the \fBmenu\fP and \fBlist\-rows\-first\fP styles)\&.  Alternatively one
+can always use a less general pattern for the context than in the
+example above and use a second call to \fBzstyle\fP with a generic
+pattern and without using the \fB\-e\fP option to define the default
+behaviour\&.
+.PP
 Note that the order in which styles are \fIdefined\fP does not matter; the
 style mechanism uses the most specific possible match for a particular
 style to determine the set of values\&.  More precisely, strings are
@@ -452,13 +543,13 @@ of match\&.
 \fBaccounts\fP
 used to look up the \fBusers\-hosts\fP style
 .TP
-\fBall\-files\fP
-for the names of all files (as distinct from a particular subset, see the
-\fBglobbed\-files\fP tag)\&.
-.TP
 \fBall\-expansions\fP
 used by the \fB_expand\fP completer when adding the single string containing
 all possible expansions
+.TP
+\fBall\-files\fP
+for the names of all files (as distinct from a particular subset, see the
+\fBglobbed\-files\fP tag)\&.
 .TP
 \fBarguments\fP
 when an argument of a command may be completed
@@ -480,12 +571,18 @@ for names of builtin commands
 used for commands like \fBstty\fP when completing characters; also used
 when completing character classes after a opening bracket
 .TP
+\fBcolormapids\fP
+for X colormap ids
+.TP
 \fBcolors\fP
 for color names
 .TP
 \fBcommands\fP
 for names of external commands and names of sub\-commands (used by some 
 commands like \fBcvs\fP)
+.TP
+\fBcontexts\fP
+for contexts used by the zstyle builtin command
 .TP
 \fBcorrections\fP
 used by the \fB_approximate\fP and \fB_correct\fP completers for the possible
@@ -525,6 +622,9 @@ from expansion of a word
 \fBextensions\fP
 for X server extensions
 .TP
+\fBfile\-descriptors\fP
+for the numbers of open file descriptors
+.TP
 \fBfiles\fP
 the generic file\-matching tag used by completion functions that can
 complete the names of some kind of file
@@ -561,15 +661,15 @@ for names of zsh keymaps
 \fBkeysyms\fP
 for names of X keysyms
 .TP
-\fBlocal\-directories\fP
-for names of directories which are subdirectories of the current working
-directory when completing for the \fBcd\fP and related builtin commands
-.TP
 \fBlibraries\fP
 for names of system libraries
 .TP
 \fBlimits\fP
 for system limits
+.TP
+\fBlocal\-directories\fP
+for names of directories which are subdirectories of the current working
+directory when completing for the \fBcd\fP and related builtin commands
 .TP
 \fBmanuals\fP
 for names of manual pages
@@ -629,17 +729,13 @@ for perl pods (documentation files)
 for communication ports
 .TP
 \fBprefixes\fP
-for prefixes (like those of an URL)
+for prefixes (like those of a URL)
 .TP
 \fBprinters\fP
 for printer names
 .TP
 \fBprocesses\fP
 for process identifiers
-.TP
-\fBprocesses\-list\fP
-used to look up the \fBcommand\fP style when generating the list to
-display for process identifiers
 .TP
 \fBprocesses\-names\fP
 used to look up the \fBcommand\fP style when generating the names of
@@ -658,6 +754,9 @@ for signal names
 for strings (e\&.g\&. the replacement strings for the \fBcd\fP builtin
 command)
 .TP
+\fBstyles\fP
+for styles used by the zstyle builtin command
+.TP
 \fBtags\fP
 for tags (e\&.g\&. \fBrpm\fP tags)
 .TP
@@ -668,7 +767,7 @@ for makefile targets
 for types of whatever (e\&.g\&. address types for the \fBxhost\fP command)
 .TP
 \fBurls\fP
-used to look up the \fBpath\fP and \fBlocal\fP styles when completing URLs
+used to look up the \fBurls\fP and \fBlocal\fP styles when completing URLs
 .TP
 \fBusers\fP
 for usernames
@@ -678,7 +777,7 @@ when completing a value out of a set of values (or a list of such
 values)
 .TP
 \fBversion\fP
-used by \fB_call\fP to look up the command to run to determine the installed
+used by \fB_call_program\fP to look up the command to run to determine the installed
 version of various other commands (such as \fBdiff\fP and \fBmake\fP)\&.
 .TP
 \fBwarnings\fP
@@ -726,15 +825,35 @@ This is tested for the default tag and the tags used when generating
 matches\&.  If it is set to `true' for at least one match which is the
 same as the string on the line, this match will immediately be
 accepted\&.
+.RS
+.PP
+When completing pathnames (where it is looked up for the \fBpaths\fP
+tag), this style also accepts any number of patterns as the value\&. If
+this is used, pathnames matching one of these patterns will be
+accepted immediately even if the command line contains some more
+partially typed pathname components and these match no file under the
+directory accepted\&.
+.PP
+Note that this is also used by the \fB_expand\fP completer to decide if
+words beginning with a tilde or parameter expansion should be
+expanded\&. This means that if, for example, there are parameters
+\fBfoo\fP and \fBfoobar\fP, the string `\fB$foo\fP' will only be expanded if 
+\fBaccept\-exact\fP is set to `true'\&.
+.RE
 .TP
 \fBadd\-space\fP
 This style is used by the \fB_expand\fP completer\&.  If it is `true' (the
 default), a space will be inserted after all words resulting from the 
-expansion (except for directory names which get a slash)\&.
+expansion (except for directory names which get a slash)\&.  The value
+may also be the string `\fBfile\fP' to make the completer add a space
+only to names of existing files\&.  Finally, the `true' values and
+`\fBfile\fP' may be combined with `\fBsubst\fP' to keep the completer from 
+adding a space when the resulting words were generated by expanding a
+substitution of the form `\fB$(\&.\&.\&.)\fP' or `\fB${\&.\&.\&.}\fP'\&.
 .RS
 .PP
-It is also used by the \fB_prefix\fP completer to decide if a space should
-be inserted before the suffix\&.
+It is also used by the \fB_prefix\fP completer as a simple boolean value
+to decide if a space should be inserted before the suffix\&.
 .RE
 .TP
 \fBambiguous\fP
@@ -743,7 +862,7 @@ If it is set, the cursor is left after the first ambiguous component, even
 if menu completion is in use\&.  It is tested with the \fBpaths\fP tag\&.
 .TP
 \fBassign\-list\fP
-When completing after an equal sign, the completion system normally
+When completing after an equals sign, the completion system normally
 completes only one filename\&.  In some cases, particularly for certain
 parameters such as \fBPATH\fP, a list of filenames separated by colons is
 required\&.  This style can be set to a list of patterns matching the names
@@ -762,12 +881,33 @@ the description for this argument\&.  Depending on personal preferences,
 it may be useful to set this style to something like `\fBspecify: %d\fP'\&. 
 Note that this may not work for some commands\&.
 .TP
-\fBbreak\-keys\fP
-This style is used by the \fBincremental\-complete\-word\fP widget (found
-in the \fBFunctions/Zle\fP directory of the distribution)\&. Its value
-should be a pattern and all keys matching this pattern will cause the
-widget to stop incremental completion without the key having any
-further effect\&.
+\fBavoid\-completer\fP
+This is used by the \fB_all_matches\fP completer to decide if the string 
+consisting of all matches should be added to the list currently being
+generated\&.  Its value is a list of names of completers\&.  If any of
+these is the name of the completer that generated the matches in this
+completion, the string will not be added\&.
+.RS
+.PP
+The default value for this style is `\fB_expand _old_list _correct
+_approximate\fP', i\&.e\&. it contains the completers for which a string
+with all matches will almost never be wanted\&.
+.RE
+.TP
+\fBcache\-path\fP
+This style defines the path where any cache files containing dumped
+completion data are stored\&.  Defaults to `\fB$ZDOTDIR/\&.zcompcache\fP', or
+`\fB$HOME/\&.zcompcache\fP' if \fB$ZDOTDIR\fP is not defined\&.  The completion
+layer will not be used unless the \fBuse\-cache\fP style is set\&.
+.TP
+\fBcall\-command\fP
+Currently this is only used by the function completing \fBmake\fP
+targets\&.  If it is set to `true' and the installed version of the
+\fBmake\fP command allows it, \fBmake\fP is called in a way to generate
+all possible targets\&.  The default value of this style is `false'
+because calling \fBmake\fP can potentially take a very long time and in
+some cases may even cause actions from the makefile be executed
+despite the options given to \fBmake\fP\&.
 .TP
 \fBcommand\fP
 In many places, completion functions need to call external commands to
@@ -782,12 +922,34 @@ command\&.
 .RS
 .PP
 As an example, the function generating process IDs as matches uses this
-style with the \fBprocesses\fP tag to generate the IDs to complete and when
-the \fBverbose\fP style is `true', it uses this style with the
-\fBprocesses\-list\fP tag to generate the strings to display\&.  When using
-different values for these two tags one should ensure that the process
-IDs appear in the same order in both lists\&.
+style with the \fBprocesses\fP tag to generate the IDs to complete and
+the list of processes to display (if the \fBverbose\fP style is `true')\&.
+The list produced by the command should look like the output of the
+\fBps\fP command\&.  The first line is not displayed, but is searched for
+the string `\fBPID\fP' (or `\fBpid\fP') to find the position of the
+process IDs in the following lines\&.  If the line does not contain
+`\fBPID\fP', the first numbers in each of the other lines are taken as the 
+process IDs to complete\&.
+.PP
+Note that the completion function generally has to call the command
+every time it is called\&.  Because of that care should be taken to
+specify only commands that take a short time to run (and that will
+eventually stop at all)\&.
 .RE
+.TP
+\fBcommands\fP
+This is used by the function completing sub\-commands for the system
+initialisation scripts (residing in \fB/etc/init\&.d\fP or somewhere not
+too far away from that)\&.  It's values give the default commands to
+complete for those commands for which the completion function isn't
+able to find them out automatically\&.  The default for this style are
+the two strings `\fBstart\fP' and `\fBstop\fP'\&.
+.TP
+\fBcomplete\fP
+This is used by the \fB_expand_alias\fP function when invoked as a
+bindable command\&.  If it set to `true' and the word on the command
+line is not the name of an alias, matching alias names will be
+completed\&.
 .TP
 \fBcompleter\fP
 The strings given as the value of this style provide the names of the
@@ -822,86 +984,21 @@ name will be the same in all calls to the completer; possible
 exceptions to this rule are the \fB_ignored\fP and \fB_prefix\fP
 completers\&.
 .PP
-Note that the widget functions from the distribution that call the
-completion code (namely, the \fBincremental\-complete\-word\fP and the
-\fBpredict\-on\fP widgets) set up their top\-level context name before
-calling completion\&.  This allows one to define different sets of
-completer functions for normal completion and for these widgets\&.  For
-example, to use completion, approximation and correction for normal
-completion, completion and correction for incremental completion and
-only completion for prediction one could use:
-.PP
-.RS
-.nf
-\fBzstyle ':completion:*' completer _complete _correct _approximate
-zstyle ':completion:incremental:*' completer _complete _correct
-zstyle ':completion:predict:*' completer _complete\fP
-.fi
-.RE
-.PP
 The default value for this style is \fB_complete _ignored\fP,
 i\&.e\&. normally only completion will be done, first using the
 \fBignored\-patterns\fP style and the \fB$fignore\fP array and then without 
 ignoring matches\&.
 .RE
 .TP
-\fBcompletions\fP
-This style is used by the \fB_expand\fP completer function\&.
-.RS
-.PP
-If this is set to an non\-empty string it should be an expression
-usable inside a `\fB$((\&.\&.\&.))\fP' arithmetical expression\&. The completer
-function evaluates this expression and if the result is `\fB1\fP', no
-expansions will be generated, but instead the completions will be
-generated as normal and all of them will be inserted into the command
-line\&.
-.RE
-.TP
 \fBcondition\fP
-This style is used by the \fB_list\fP completer function\&.
-.RS
-.PP
-If it is not set or set to the empty string, the insertion of
-matches will be delayed unconditionally\&.  If it is set, the value
-should be an expression usable inside a `\fB$((\&.\&.\&.))\fP'
-arithmetical expression\&.  In this case, delaying will be done if the
-expression evaluates to `\fB1\fP'\&. For example, with
-.PP
-.RS
-.nf
-\fBzstyle ':completion:*:list:::' condition '${NUMERIC:\-1} != 1'\fP
-.fi
-.RE
-.PP
-delaying will be done only if given an explicit numeric argument
-other than `\fB1\fP'\&.
-.RE
+This style is used by the \fB_list\fP completer function to decide if
+insertion of matches should be delayed unconditionally\&. The default is 
+`true'\&.
 .TP
-\fBcursor\fP
-The \fBpredict\-on\fP widget uses this style to decide where to place the 
-cursor after completion has been tried\&.  Values are:
-.RS
-.PP
-.PD 0
-.TP
-.PD
-\fBcomplete\fP
-The cursor is left where it was when completion finished, but only if
-it is after a character equal to the one just inserted by the user\&.  If 
-it is after another character, this value is the same as `\fBkey\fP'\&.
-.TP
-\fBkey\fP
-The cursor is left
-after the \fIn\fPth occurrence of the character just inserted, where
-\fIn\fP is the number of times that character appeared in the word
-before completion was attempted\&.  In short, this has the effect of
-leaving the cursor after the character just typed even if the
-completion code found out that no other characters need to be inserted 
-at that position\&.
-.PP
-Any other value for this style unconditionally leaves the cursor at the
-position where the completion code left it\&.
-.RE
+\fBdisabled\fP
+If this is set to `true', the \fB_expand_alias\fP completer and bindable 
+command will try to expand disabled aliases, too\&.  The default is
+`\fBfalse\fP'\&.
 .TP
 \fBdisable\-stat\fP
 This is used with an empty tag by the function completing for the
@@ -927,6 +1024,31 @@ possible, but if menu completion is started on the list of matches
 generated this way (e\&.g\&. due to the option \fBAUTO_MENU\fP being set),
 this will also cycle through the names of the files in pathname
 components after the first ambiguous one\&.
+.TP
+\fBfake\-files\fP
+This style is used when completing files and looked up 
+without a tag\&.  Its values are of the form
+`\fIdir\fP\fB:\fP\fInames\&.\&.\&.\fP'\&.  This will add the \fInames\fP (strings
+separated by spaces) as
+possible matches when completing in the directory \fIdir\fP, even if no 
+such files really exist\&.
+.RS
+.PP
+This can be useful on systems that support special filesystems whose
+top\-level pathnames can not be listed or generated with glob patterns\&.
+It can also be used for directories for which one does not have read
+permission\&.
+.RE
+.TP
+\fBfake\-parameters\fP
+This is used by the completion function generating parameter names as
+matches\&.  Its values are names of parameters which might not yet be
+set, but which should be completed nonetheless\&.  Each name may also be 
+followed by a colon and a string specifying the type of the parameter
+(like `\fBscalar\fP', `\fBarray\fP' or `\fBinteger\fP')\&.  If such a type is
+given, the name will only be completed if parameters of that type are
+requested in the particular context\&.  Names for which no type is
+specified will always be completed\&.
 .TP
 \fBfile\-patterns\fP
 In most places where filenames are completed, the function \fB_files\fP
@@ -988,6 +1110,10 @@ achieve this, one could do:
 .fi
 .RE
 .PP
+This works even for contexts in which all files would be completed,
+because \fB_files\fP will not try a pattern more than once and it stops
+when the pattern `\fB*\fP' was tried\&.
+.PP
 Note also that during the execution of completion functions, the
 \fBEXTENDED_GLOB\fP option is in effect, so the characters `\fB#\fP',
 `\fB~\fP' and `\fB^\fP' have special meanings in the patterns\&.
@@ -995,7 +1121,7 @@ Note also that during the execution of completion functions, the
 .TP
 \fBfile\-sort\fP
 The completion function that generates filenames as possible matches
-uses this style with the \fBfiles\fP tag to determine in which order the 
+uses this style without a tag to determine in which order the 
 names should be listed and completed when using menu completion\&.  The
 value may be one of `\fBsize\fP' to sort them by the size of the file,
 `\fBlinks\fP' to sort them by the number of links to the file,
@@ -1032,44 +1158,41 @@ specify output attributes, such as `\fB%B\fP', `\fB%S\fP' and
 `\fB%{\fP\&.\&.\&.\fB%}\fP'\&.
 .RS
 .PP
-For the same purpose, this style is also tested with the tags used
-when matches are generated before it is tested for the
-\fBdescriptions\fP tag\&.  This gives the possibility to define different
-format strings for different types of matches\&.
+For the same purpose, this style is also tested with the tags used when
+matches are generated before it is tested for the \fBdescriptions\fP
+tag\&.  This provides the possibility of defining different format
+strings for different types of matches\&.
 .PP
 Note also that some completer functions define additional
 `\fB%\fP'\-sequences\&.  These are described for the completer functions that 
 make use of them\&.
 .PP
-For the \fBmessages\fP tag, this defines a string used by some
+For the \fBmessages\fP tag, this style defines a string used by some
 completion functions to display messages\&.  Here, the `\fB%d\fP' is
-replaced with the message given by the completion function\&.
+replaced with a message given by the completion function\&.
 .PP
-Finally, when set with the \fBwarnings\fP tag, the format string is printed
-when no matches could be generated at all\&.  In this case the `\fB%d\fP' is
-replaced with the descriptions for the matches that were expected\&.  If the
-value does not contain a `\fB%d\fP', then those descriptions are added in the
-same way as matches are added, i\&.e\&. they appear below the value for the
-\fBformat\fP style laid out in columns\&.  The descriptions are added as if for
-the tag \fBwarnings\fP so that you can use the \fBlist\-colors\fP style for that
-tag to highlight them\&.
+Finally, when set with the \fBwarnings\fP tag, the format string is
+printed when no matches could be generated at all\&.  In this case the
+`\fB%d\fP' is replaced with the descriptions for the matches that were
+expected separated by spaces and the sequence `\fB%D\fP' is replaced with
+those descriptions separated by newlines\&.
 .PP
 The `\fB%\fP' for the sequences that are replaced by strings provided by 
 the completion functions like the `\fB%d\fP' may be followed by field
 width specifications as  described for the \fBzformat\fP builtin command
-from the \fBzutil\fP module, see
+from the \fBzsh/zutil\fP module, see
 \fIzshmodules\fP(1)\&.
 .RE
 .TP
 \fBglob\fP
-Like \fBcompletions\fP, this is used by the \fB_expand\fP completer\&.
-.RS
-.PP
-The value is used like the one for \fBcompletions\fP and if it evaluates to 
-`\fB1\fP', globbing will be attempted on the words resulting from
-substitution (see the \fBsubstitute\fP style) or the original string
-from the line\&.
-.RE
+This is used by the \fB_expand\fP completer\&.  If
+it is set to `true' (the default), globbing will be attempted on the
+words resulting from substitution (see the \fBsubstitute\fP style) or
+the original string from the line\&.
+.TP
+\fBglobal\fP
+If this is set to `true' (the default), the \fB_expand_alias\fP
+completer and bindable command will try to expand global aliases\&.
 .TP
 \fBgroup\-name\fP
 The completion system can put different types of matches in different
@@ -1165,17 +1288,29 @@ host will be completed\&.  Multiple ports for the same host may appear\&.
 \fBignore\-line\fP
 This style is tested for the tags used when generating matches\&.  If it
 is set to `true', then none of the words that are already on the line
-will be considered possible completions\&.
+will be considered possible completions\&.  If it is set to
+`\fBcurrent\fP', the word the cursor is on will not be considered a
+possible completion\&.  The same happens if the value is
+`\fBcurrent\-shown\fP', but only if the list of completions is currently
+shown on the screen\&.  Finally, if it is set to `\fBother\fP' all words
+except the current one will not be considered to be a possible
+completion\&.
 .RS
 .PP
-Note that you almost certainly don't want to set this for a general
+The values `\fBcurrent\fP' and `\fBcurrent\-shown\fP' are a bit like the
+opposite of \fBaccept\-exact\fP\&. They mean that only strings with
+missing characters will be completed\&.
+.PP
+Note that you almost certainly don't want to set this to `true' or
+`\fBother\fP' for a general
 context such as `\fB:completion:*\fP'\&.  This is because it would disallow
 completion of, for example, options multiple times even if the command
 in question accepts the option more than once\&.
 .RE
 .TP
 \fBignore\-parents\fP
-The style is tested for the \fBfiles\fP tag to determine whether to ignore
+The style is tested by the function completing pathnames without a tag to
+determine whether to ignore
 the names of directories already mentioned in the current word, or the
 name of the current working directory\&.  The value must include one or both
 of the following strings:
@@ -1248,6 +1383,16 @@ of performing completion when there is no non\-blank character to the left
 of the cursor\&.  If set to `false', completion will be done even there\&.
 .RS
 .PP
+The value may also contain the substrings `\fBpending\fP' or
+`\fBpending=\fP\fIval\fP' to make the character typed to start completion 
+be inserted instead of completion being tried when there is input
+pending which has not yet been processed by the shell\&. If a \fIval\fP
+is given, completion will not be done if there are at least that many
+characters of unprocessed input\&. This is often useful to have set when 
+pasting characters into a terminal\&. Note however, that it relies on
+the \fB$PENDING\fP special parameter from the \fBzsh/zle\fP module being set
+properly which is not guaranteed on all platforms\&.
+.PP
 The default value of this style is `true' unless when completing
 inside the \fBvared\fP builtin command, where it defaults to `false'\&.
 .RE
@@ -1263,6 +1408,29 @@ least as long as the original string typed by the user\&.  Note that the
 in the context name to one of \fBcorrect\-\fP\fInum\fP or
 \fBapproximate\-\fP\fInum\fP, where \fInum\fP is the number of errors that
 were accepted\&.
+.RS
+.PP
+When used for the \fB_match\fP completer, the style may also be set to
+the string `\fBpattern\fP'\&.  This makes the pattern on the line be left
+unchanged if it didn't match unambiguously\&.
+.RE
+.TP
+\fBkeep\-prefix\fP
+This style is used by the \fB_expand\fP completer\&.  If it is `true', the
+completer will try to keep a prefix containing a tilde or parameter
+expansion\&.  I\&.e\&., the string `\fB~/f*\fP' would be expanded to
+`\fB~/foo\fP' instead of `\fB/home/user/foo\fP'\&.  If the style is set to
+`\fBchanged\fP' (the default), the prefix will only be left unchanged if
+there were other changes between the expanded words and the original
+word from the command line\&.  Any other value makes the prefix be
+expanded unconditionally\&.
+.RS
+.PP
+Note that with one of the `true' values, the \fB_expand\fP completer
+returns if there is only one expansion and that is, after restoring
+the original prefix, the same as the original word\&.  This means that
+other completers will be called immediately after \fB_expand\fP\&.
+.RE
 .TP
 \fBlast\-prompt\fP
 This is used to determine if the completion code should try to put the
@@ -1275,41 +1443,30 @@ also that this is independent of the numeric argument, unlike the
 \fBALWAYS_LAST_PROMPT\fP option\&.
 .TP
 \fBlist\fP
-This style is used by the \fB_history_complete_word\fP bindable command
-(using the context prefix `\fB:completion:history\-words\fP') and by the
-\fBincremental\-complete\-word\fP widget (using the context prefix
-`\fB:completion:incremental\fP)\&.
-.RS
-.PP
-The \fB_history_complete_word\fP bindable command uses this style to
-decide if the available matches should be shown\&.
-.PP
-When using the \fBincremental\-complete\-word\fP widget, this style says
-if the matches should be listed on every key press (if they fit on the 
-screen)\&.
-.PP
-The \fBpredict\-on\fP widget uses this style to decide if the completion
-should be shown even if there is only one possible completion\&. This is 
-done if the value of this style is the string \fBalways\fP\&.
-.RE
+This style is used by the \fB_history_complete_word\fP bindable command\&.
+If it is set to `true' it has no effect, but if it is set to `false'
+the matches will not be listed, overriding the setting of the options
+that control listing behaviour, especially \fBAUTO_LIST\fP\&. Use the
+context prefix `\fB:completion:history\-words\fP'\&.
 .TP
 \fBlist\-colors\fP
 If the \fBzsh/complist\fP module is used, this style can be used to set
 color specifications as with the \fBZLS_COLORS\fP and \fBZLS_COLOURS\fP
-parameters (see
+parameters, which will not be honored under this completion system (see
 the section `The zsh/complist Module' in \fIzshmodules\fP(1))\&.
 .RS
 .PP
 If this style is set for the \fBdefault\fP tag, the strings in the value 
 are taken as specifications that are to be used everywhere\&.  If it is
 set for other tags, the specifications are used only for matches of
-the type described by the tag\&.  For this to work, the \fBgroup\-name\fP
+the type described by the tag\&.  For this to work best, the \fBgroup\-name\fP
 style must be set to an empty string\&.  If the \fBgroup\-name\fP tag
 specifies other names for the groups the matches in these groups can
 be colored by using these names together with the `\fB(group)\&.\&.\&.\fP'
 syntax described for the \fBZLS_COLORS\fP and \fBZLS_COLOURS\fP parameters 
 and adding the specifications to the value for this style with the
-\fBdefault\fP tag\&.
+\fBdefault\fP tag (although in most cases it should work by setting this 
+style for the appropriate tags)\&.
 .PP
 It is possible to use the same specifications set up for the GNU
 version of the \fBls\fP command:
@@ -1335,7 +1492,8 @@ they are listed normally\&.
 If this style is set for the \fBdefault\fP tag,
 completion lists that don't fit on the screen can be scrolled (see
 the description of the \fBzsh/complist\fP module in \fIzshmodules\fP(1))\&.  The value, if not the empty string, will be displayed after every
-screenful and the shell will prompt for a key press; if the style is unset,
+screenful and the shell will prompt for a key press; if the style is
+set to the empty string,
 a default prompt will be used\&.  The value may contain the escape sequences
 `\fB%l\fP' or `\fB%L\fP', which will be replaced by the number of the last line
 displayed and the total number of lines; `\fB%m\fP' or `\fB%M\fP', which will
@@ -1348,16 +1506,18 @@ width, padded to the  right with spaces\&.  As in other prompt strings, the
 escape sequences `\fB%S\fP', `\fB%s\fP', `\fB%B\fP', `\fB%b\fP', `\fB%U\fP',
 `\fB%u\fP', and `\fB%{\fP\&.\&.\&.\fB%}\fP' for entering and leaving the display modes
 standout, bold and underline are also available\&.
-.RS
-.PP
-Note that this style has a default value\&.  If you don't want to use
-scrolling, set this style to an empty string\&.
-.RE
 .TP
 \fBlist\-rows\-first\fP
 This style is tested in the same way as the \fBlist\-packed\fP style and
 determines if matches are to be listed in a rows\-first fashion, as for the
 \fBLIST_ROWS_FIRST\fP option\&.
+.TP
+\fBlist\-suffixes\fP
+This style is used by the function used to complete filenames\&.  If
+completion is attempted on a string containing multiple partially
+typed pathname components and this style is set to `true', all
+components starting with the first one for which more than one match
+could be generated will be shown\&.
 .TP
 \fBlocal\fP
 This style is used by completion functions which generate URLs as
@@ -1401,6 +1561,17 @@ completion one would do:
 .fi
 .RE
 .PP
+By default every specification replaces previous ones\&. If specification
+is prefixed with \fB+\fP, it is added to the existing list\&. This allows
+testing more general patterns without repeating the whole list every
+time, as in:
+.PP
+.RS
+.nf
+\fBzstyle ':completion:*' matcher\-list '' '+m{a\-Z}={A\-Z}' '+m{A\-Z}={a\-z}'\fP
+.fi
+.RE
+.PP
 The style allows even finer control by specifying a particular completer,
 without the leading underscore, in the third field of the completion
 context\&.  For example, if one uses the completers \fB_complete\fP and
@@ -1441,13 +1612,19 @@ use the match specifications at all\&.  However, it is always safe
 to use the simple form for this style (as in the first example above),
 since any completers which do not use match specifications will only ever
 be called once, rather than once per specification\&.
+.PP
+Since the specification\-strings in this style have to be tried one after
+another, it is a good idea to keep their number low\&.  In most cases
+one to three strings (each of which may, without to large a performance 
+hit, consist of more than one single match specification) will give
+acceptable performance\&.
 .RE
 .TP
 \fBmax\-errors\fP
 This is used by the \fB_approximate\fP and \fB_correct\fP completer functions
 to determine the maximum number of errors to allow\&.  The completer will try
 to generate completions by first allowing one error, then two errors, and
-so on, until either a match or matches wer found or the maximum number of
+so on, until either a match or matches were found or the maximum number of
 errors given by this style has been reached\&.
 .RS
 .PP
@@ -1488,21 +1665,39 @@ completion will be turned off even if it would otherwise be active (for
 example, with the \fBMENU_COMPLETE\fP option)\&.
 .RS
 .PP
+Using the form `\fByes=\fP\fInum\fP', where `\fByes\fP' may be any of the
+true values (`\fByes\fP', `\fBtrue\fP', `\fBon\fP' and `\fB1\fP') turns on
+menu completion if there at least \fInum\fP matches\&.  Using this for one
+of the `false' values (as in `\fBno=10\fP') makes menu completion
+\fInot\fP be used if there are \fInum\fP or more matches\&.  Of course,
+this is only useful when menu completion is normally used, e\&.g\&. by
+setting the \fBMENU_COMPLETE\fP option\&.  The `true' values may also be
+used in the form `\fByes=long\fP' to turn on menu completion
+if the list does not fit onto the screen\&.  This will start menu
+completion only if normal completion was attempted, not when only the
+list of possible completions was requested\&.  To start menu completion
+even then, the value `\fByes=long\-list\fP' can be used\&.
+.PP
 In addition to (or instead of) the above possibilities, the value may
-contain the string `\fBselect\fP', optionally followed by an equal sign and a
-number\&.  In this case menu\-selection (as defined by the \fBzsh/complist\fP
+contain the string `\fBselect\fP', optionally followed by an equals sign and a
+number\&.  In this case menu selection (as defined by the \fBzsh/complist\fP
 module) will be started\&.  Without the optional number, it will be started
 unconditionally and with a number it will be started only if at least that
 many matches are generated; if the values for more than one tag provide a
 number, the smallest number is taken\&.  Menu selection can be turned off
 explicitly by defining a value containing the string `\fBno\-select\fP'\&.
 .PP
-It is also possible to start menu\-selection only if the list of
+It is also possible to start menu selection only if the list of
 matches does not fit on the screen by using the value
-`\fBselect=long\fP'\&.  This will only start menu\-selection if the widget
+`\fBselect=long\fP'\&.  This will only start menu selection if the widget
 invoked does completion, not simply listing as done by
-\fBdelete\-char\-or\-list\fP; to start menu\-selection even here, use the value
+\fBdelete\-char\-or\-list\fP; to start menu selection even here, use the value
 `\fBselect=long\-list\fP'\&.
+.PP
+To turn on menu completion or menu selection when a certain number of
+matches is generated \fIor\fP the list of matches does not fit onto the
+screen, both of `\fByes=\fP' and `\fBselect=\fP' can be given twice, once
+with a number and once with `\fBlong\fP' or `\fBlong\-list\fP'\&.
 .RE
 .TP
 \fBnumbers\fP
@@ -1542,6 +1737,14 @@ first attempt\&.  By using the \fB_oldlist\fP completer and setting this style
 to \fB_match\fP, the list of matches generated on the first attempt will be
 used again\&.
 .RE
+.TP
+\fBold\-matches\fP
+This is used by the \fB_all_matches\fP completer to decide if an old
+list of matches should be used if one exists\&.  It may be set to one of 
+the `true' values or to the string `\fBonly\fP' to use such a list\&.  If
+it is set to `\fBonly\fP', \fB_all_matches\fP will only use an old list
+and won't have any effect on the list of matches currently being
+generated\&.
 .TP
 \fBold\-menu\fP
 This is used by the \fB_oldlist\fP completer\&.  It controls how menu
@@ -1589,23 +1792,11 @@ to be completed for `dpkg \-\-status'\&.
 .RE
 .TP
 \fBpath\fP
-This is used together with the the \fBurls\fP tag by completion
-functions that generate URLs as possible matches\&.  It should be set to
-the path of a directory containing sub\-directories named after the
-retrieval methods which occur as the first part of a URL, i\&.e\&.
-`\fBhttp\fP', `\fBftp\fP', `\fBbookmark\fP', and so on\&.  These
-sub\-directories should contain files and other sub\-directories whose
-pathnames are possible completions after the initial `\fBhttp://\fP',
-`\fBftp://\fP', etc\&. See the description in the file \fB_urls\fP in the
-\fBUser\fP sub\-directory of the completion system for more information\&.
-.RS
-.PP
-The function that completes color names also uses this style with the 
-\fBcolors\fP tag\&.  Here, the value should be the pathname of a file
+The function that completes color names uses this style with the 
+\fBcolors\fP tag\&.  The value should be the pathname of a file
 containing color names in the format of an X11 \fBrgb\&.txt\fP file\&.  If
 the style is not set but this file is found in one of various standard
 locations it will be used as the default\&.
-.RE
 .TP
 \fBports\fP
 A style holding the service names of ports to complete\&.  If this is
@@ -1632,39 +1823,25 @@ all\&.
 The default style for this style is `true'\&.
 .RE
 .TP
-\fBprompt\fP
-The \fBincremental\-complete\-word\fP widget shows the value of this
-style in the status line during incremental completion\&.  The string
-value may contain any of the following substrings in the manner of
-the \fBPS1\fP and other prompt parameters:
-.RS
-.PP
-.PD 0
+\fBrange\fP
+This is used by the \fB_history\fP completer and the
+\fB_history_complete_word\fP bindable command to decide which words
+should be completed\&.  It may be set to a number, \fIN\fP, to say that
+only the last \fIN\fP words from the history should be completed\&.  The
+value may also be of the form `\fImax\fP\fB:\fP\fIslice\fP'\&.  This means
+that first the last \fIslice\fP words will be completed\&.  If that
+yields no matches, the \fIslice\fP words before those will be tried and 
+so on, until either at least one match is generated or \fImax\fP words
+have been tried\&.  The default is to complete all words from the
+history at once\&.
 .TP
-.PD
-\fB%c\fP
-Replaced by the name of the completer function that generated the
-matches (without the leading underscore)\&.
-.TP
-\fB%l\fP
-When the \fBlist\fP style is set,
-replaced by `\fB\&.\&.\&.\fP' if the list of matches is too long to fit on the
-screen and with an empty string otherwise\&.  If the \fBlist\fP style is
-`false' or not set, `\fB%l\fP' is always removed\&.
-.TP
-\fB%n\fP
-Replaced by the number of matches generated\&.
-.TP
-\fB%s\fP
-Replaced by `\fB\-no match\-\fP', `\fB\-no prefix\-\fP', or an empty string
-if there is no completion matching the word on the line, if the
-matches have no common prefix different from the word on the line, or
-if there is such a common prefix, respectively\&.
-.TP
-\fB%u\fP
-Replaced by the unambiguous part of all matches, if there
-is any, and if it is different from the word on the line\&.
-.RE
+\fBregular\fP
+This style is used by the \fB_expand_alias\fP completer and bindable 
+command\&.  If set to `true' (the default), regular aliases will be
+expanded but only in command position\&.  If it is set to `false', regular
+aliases will never be expanded and if it is set to the string
+`\fBalways\fP', regular aliases will be expanded even if not in command
+position\&.
 .TP
 \fBremove\-all\-dups\fP
 The \fB_history_complete_word\fP bindable command and the \fB_history\fP
@@ -1673,7 +1850,7 @@ removed, rather than just consecutive duplicates\&.
 .TP
 \fBselect\-prompt\fP
 If this is set for the \fBdefault\fP tag, its
-value will be displayed during menu\-selection (see the \fBmenu\fP style
+value will be displayed during menu selection (see the \fBmenu\fP style
 above) when the completion list does not fit on the screen as a
 whole\&.  The same escapes as for the \fBlist\-prompt\fP style are
 understood, but give the number of the match or line the mark is
@@ -1681,7 +1858,7 @@ on\&.  A default prompt is used when the value is the empty string\&.
 .TP
 \fBselect\-scroll\fP
 This style is tested for the \fBdefault\fP tag and determines how a
-completion list is scrolled during a menu\-selection (see the \fBmenu\fP
+completion list is scrolled during a menu selection (see the \fBmenu\fP
 style above) when the completion list does not fit on the screen as a
 whole\&.  Its value should be `\fB0\fP' (zero) to scroll by
 half\-screenfuls, a positive integer to scroll by that many lines and a
@@ -1726,44 +1903,39 @@ the slashes\&.
 .TP
 \fBstop\fP
 If set to `true', the \fB_history_complete_word\fP bindable
-command will always insert matches as if menu completion were started
-and will stop when the last match is inserted\&.  If this style is set
-to `\fBverbose\fP' a message will be displayed when the last match is
-reached\&.
-.TP
-\fBstop\-keys\fP
-This style is used by the \fBincremental\-complete\-word\fP
-widget\&.  Its value is treated similarly to the one for the \fBbreak\-keys\fP
-style\&.  However, in this case all keys matching the pattern given as its
-value will stop incremental completion and will then execute their usual
-function\&.
+command will stop once when reaching the beginning or end of the
+history\&.  Invoking \fB_history_complete_word\fP will then wrap around to 
+the opposite end of the history\&.  If this style is set to `false' (the 
+default), \fB_history_complete_word\fP will loop immediately as in a
+menu completion\&.
 .TP
 \fBsubst\-globs\-only\fP
-This is used by the \fB_expand\fP completer\&.  As for the \fBglob\fP style,
-the value should be a value usable in a `\fB$((\&.\&.\&.))\fP' arithmetical
-expression\&.  If it evaluates to `\fB1\fP', the expansion will only be
-used if it resulted from globbing; hence, if expansions resulted
-from the use of the \fBsubstitute\fP style described below, but these
-were not further changed by globbing, the expansions will be rejected\&.
+This is used by the \fB_expand\fP completer\&.  If it is set to `true',
+the expansion will only be used if it resulted from globbing; hence,
+if expansions resulted from the use of the \fBsubstitute\fP style
+described below, but these were not further changed by globbing, the
+expansions will be rejected\&.
+.RS
+.PP
+The default for this style is `false'\&.
+.RE
 .TP
 \fBsubstitute\fP
-This style controls whether the \fB_expand\fP completer will first try to
-expand all substitutions in the string (such as `\fB$(\&.\&.\&.)\fP'
-and `\fB${\&.\&.\&.}\fP')\&.  It should be set to a number or an non\-empty string
-which is an expression usable inside a `\fB$((\&.\&.\&.))\fP' arithmetical
-expression\&.  Expansion of substitutions will be done if the expression
-evaluates to `\fB1\fP'\&. For example, with
+This boolean style controls whether the \fB_expand\fP completer will
+first try to expand all substitutions in the string (such as
+`\fB$(\&.\&.\&.)\fP' and `\fB${\&.\&.\&.}\fP')\&.
 .RS
 .PP
-.RS
-.nf
-\fBzstyle ':completion:*:expand:::' substitute '${NUMERIC:\-1} != 1'\fP
-.fi
+The default is `true'\&.
 .RE
-.PP
-substitution will be performed only if given an explicit numeric
-argument other than `\fB1\fP', as by typing `\fBESC 2 TAB\fP'\&.
-.RE
+.TP
+\fBsuffix\fP
+This is used by the \fB_expand\fP completer if the word starts with a
+tilde or contains a parameter expansion\&. If it is set to `true', the word will
+only be expanded if it doesn't have a suffix, i\&.e\&. if it is something
+like `\fB~foo\fP' or `\fB$foo\fP', but not if it is `\fB~foo/\fP' or
+`\fB$foo/bar\fP', unless that suffix itself contains characters eligible
+for expansion\&.  The default for this style is `true'\&.
 .TP
 \fBtag\-order\fP
 This provides a mechanism for sorting how the tags available in a
@@ -1817,23 +1989,9 @@ of the tag in the context names used to look up styles\&.  If the
 \fIlabel\fP starts with a hyphen, the \fItag\fP is prepended to the
 \fIlabel\fP to form the name used for lookup\&.  This can be
 used to make the completion system try a certain tag more than once,
-supplying different style settings for each attempt\&.  For example,
+supplying different style settings for each attempt, see below for an
+example\&.
 .RS
-.PP
-.RS
-.nf
-\fBzstyle ':completion:*:*:\-command\-:*' \e 
-    tag\-order 'functions:\-non\-comp'
-zstyle ':completion:*:functions\-non\-comp' \e 
-    ignored\-patterns '_*'\fP
-.fi
-.RE
-.PP
-This makes completion in command position first try only names of shell
-functions that don't match the pattern `\fB_*\fP'\&. If that generates no
-matches, the default of trying all the other things that can be
-completed in command position is used, including the names of all
-shell functions\&.
 .PP
 The \fIlabel\fP may optionally be followed by a second colon and a
 description\&.  This description will then be used for the `\fB%d\fP' in
@@ -1842,30 +2000,6 @@ supplied by the completion function\&.  Spaces in the description have to
 be quoted by preceding them with a backslash and a `\fB%d\fP' appearing
 in the description is replaced with the description given by the
 completion function\&.
-.RE
-.TP
-\fIfunc\fP\fB()\fP
-The function \fIfunc\fP is called, which can then define the order
-in which tags are to be used based on additional context
-information\&.  See the \fB_sort_tags\fP function below for a description
-of how such functions can be implemented\&.  The return value of the
-function is used to decide if the following values for the style
-should be used\&.  If it is zero, they are used and if it is non\-zero,
-they are not used\&.  For example:
-.RS
-.PP
-.RS
-.nf
-\fBnon\-empty() { [[ \-n $PREFIX ]] }
-zstyle ':completion:*:*:\-command\-:*' tag\-order 'non\-empty()'\fP
-.fi
-.RE
-.PP
-Makes completion in command position happen only if the string on the
-line is not empty\&.  This is tested using the \fBPREFIX\fP
-parameter which is special in completion widgets; see
-zshcompwid
-for a description of these special parameters\&.
 .RE
 .RE
 .PP
@@ -1942,6 +2076,31 @@ each has \fB\-case\fP appended to its name for lookup of styles\&.  Hence this
 time the value for the \fBmatcher\fP style from the second call to \fBzstyle\fP
 in the example is used to make completion case\-insensitive\&.
 .PP
+Using the \fB\-e\fP option of the \fBzstyle\fP builtin command, it is
+possible to specify conditions saying when certain tags are to be
+used\&. For example:
+.PP
+.RS
+.nf
+\fBzstyle \-e '*:\-command\-:*' tag\-order '
+    if [[ \-n $PREFIX ]]; then
+      reply=( )
+    else
+      reply=( \- )
+    fi'\fP
+.fi
+.RE
+.PP
+Makes completion in command position happen only if the string on 
+the line is not empty\&.  This is tested using the \fBPREFIX\fP
+parameter which is special in completion widgets; see
+zshcompwid
+for a description of these special parameters\&.
+Setting \fBreply\fP to an empty array ensures that only the default
+behaviour of trying all tags at once is used and setting it to an
+array containing only a hyphen disables that default behaviour \-\- thus 
+keeping all tags from being tried\&.
+.PP
 If no style has been defined for a context, the strings
 `\fB(|*\-)argument\-* (|*\-)option\-* values\fP' and `\fBoptions\fP' plus all
 tags offered by the completion function will be used to provide a
@@ -1949,6 +2108,33 @@ sensible default behavior that causes arguments (whether normal command
 arguments or arguments of options) to be completed before option names for
 most commands\&.
 .RE
+.TP
+\fBurls\fP
+This is used together with the the \fBurls\fP tag by completion
+functions that generate URLs as possible matches\&.  If the value
+consists of more than one string or if the only string does not name a 
+file or directory, the strings are used as the URLs to complete\&.
+.RS
+.PP
+If the value contains only one string and that is the name of a normal 
+file, the URLs are taken from that file (where the URLs may be
+separated by white space or newlines)\&.
+.PP
+Finally, if the only string in the value names a directory, that
+should contain sub\-directories named after the
+retrieval methods which occur as the first part of a URL, i\&.e\&.
+`\fBhttp\fP', `\fBftp\fP', `\fBbookmark\fP', and so on\&.  These
+sub\-directories should contain files and other sub\-directories whose
+pathnames are possible completions after the initial `\fBhttp://\fP',
+`\fBftp://\fP', etc\&. See the description in the file \fB_urls\fP in the
+\fBUser\fP sub\-directory of the completion system for more information\&.
+.RE
+.TP
+\fBuse\-cache\fP
+If this is set, the completion caching layer is activated for any completions
+which use it (via the \fB_store_cache\fP, \fB_retrieve_cache\fP, and
+\fB_cache_invalid\fP functions)\&.  The directory containing the cache
+files can be changed with the \fBcache\-path\fP style\&.
 .TP
 \fBuse\-compctl\fP
 If this style is set to a string \fInot\fP equal to \fBfalse\fP, \fB0\fP,
@@ -2045,7 +2231,7 @@ function returns\&.
 If the first argument to \fB_main_complete\fP is a single hyphen, the
 arguments will not be taken as names of completers\&. Instead, the
 second argument gives a name to use in the \fIcompleter\fP field of the 
-context and the other arguments give a command anme and arguments to
+context and the other arguments give a command name and arguments to
 call to generate the matches\&.
 .PP
 The following completer functions are contained in the distribution (users
@@ -2054,6 +2240,39 @@ may write their own):
 .PD 0
 .TP
 .PD
+\fB_all_matches\fP
+This completer can be used to add a string consisting of all other
+matches\&.  To ensure, that this string is always added, this completer
+has to be used as the first completer in the list\&.  The
+\fBavoid\-completer\fP style is used to decide if the string should be
+added\&.  This will only be done if the matches were generated by a
+completer not named by one of the values of the style\&.
+.RS
+.PP
+This function also uses the style \fBold\-matches\fP\&.  If it is set to
+`true' or to the string `\fBonly\fP' and there is a list of matches from 
+a previous completion, those matches will be inserted in the command
+line\&.  If it is set to the the string `\fBonly\fP', it will only insert
+an old list and won't add the string for all matches of the list
+currently being generated\&.
+.PP
+With the \fBold\-matches\fP style set, this completer should probably not 
+be called unconditionally\&.  Instead one could use the \fB\-e\fP option of 
+the \fBzstyle\fP builtin command to add a condition to the \fBcompleter\fP 
+or to the \fBold\-matches\fP style\&.  Alternatively, one could use the
+\fB_generic\fP function to bind \fB_all_matches\fP to a separate key
+binding, for example:
+.PP
+.RS
+.nf
+\fBzle \-C all\-matches complete\-word _generic
+bindkey '^Xa' all\-matches
+zstyle ':completion:all\-matches:*' old\-matches only
+zstyle ':completion:all\-matches:*' completer _all_matches\fP
+.fi
+.RE
+.RE
+.TP
 \fB_approximate\fP
 This completer function uses the \fB_complete\fP completer to generate
 a list of strings for the context the cursor is currently in, allowing 
@@ -2092,9 +2311,35 @@ limit on the number of errors set by the \fBmax\-errors\fP style\&.
 Hence on the first try the completer field of the context contains
 `\fBapproximate\-1\fP', on the second try `\fBapproximate\-2\fP', and so on\&.
 .PP
-When \fB_approximate\fP is called from another function, the number of errors
-to accept may be given with the \fB\-a\fP option\&.  Its argument should be
-the same as the value of the \fBmax\-errors\fP style, all in one string\&.
+When \fB_approximate\fP is called from another function, the number of
+errors to accept may be given with the \fB\-a\fP option\&.  Its argument
+should be the same as the value of the \fBmax\-errors\fP style, all in one
+string\&.
+.PP
+Note that this completer (and the \fB_correct\fP completer mentioned
+below) can be quite expensive to call, especially when a large number
+of errors are allowed\&.  One way to avoid this is to set up the
+\fBcompleter\fP style using the \fB\-e\fP option to zstyle so that some
+completers are only used when completion is attempted a second time on 
+the same string, e\&.g\&.:
+.PP
+.RS
+.nf
+\fBzstyle ':completion:*' completer '
+  if [[ $_last_try != "$HISTNO$BUFFER$CURSOR" ]]; then
+    _last_try="$HISTNO$BUFFER$CURSOR"
+    reply=(_complete _match _prefix)
+  else
+    reply=(_ignored _correct _approximate)
+  fi'\fP
+.fi
+.RE
+.PP
+This uses the \fBHISTNO\fP parameter and the \fBBUFFER\fP and \fBCURSOR\fP
+special parameters that are available inside zle and completion
+widgets to find out if the command line hasn't changed since the last
+time completion was tried\&.  Only then are the \fB_ignored\fP,
+\fB_correct\fP and \fB_approximate\fP completers called\&.
 .RE
 .TP
 \fB_complete\fP
@@ -2131,7 +2376,7 @@ for completion inside conditions (`\fB[[\&.\&.\&.]]\fP')\&.
 for generating completions when no special completion function is used\&.
 .TP
 \fB\-equal\-\fP
-for completion of words beginning with an equal sign
+for completion of words beginning with an equals sign
 .TP
 \fB\-first\-\fP
 for adding completions before any other completion functions are
@@ -2168,13 +2413,24 @@ contexts, in most cases named after the context itself
 named `\fB_tilde\fP')\&.
 .PP
 Before trying to find a function for a specific context, \fB_complete\fP 
-checks if the parameter `\fBcompcontext\fP' is set to a non\-empty
-value\&.  If it is, the value is taken as the name of the context to use
-and the function defined for that context will be called\&.  For this
-purpose, there is a special context named \fB\-command\-line\-\fP that
-completes whole command lines (commands and their arguments) and is
-not used by the completion system itself, but has a function handling
-completion for it\&.
+checks if the parameter `\fBcompcontext\fP' is set\&.  If it is set to an
+array, the elements are taken to be the possible matches which will be
+completed using the tag `\fBvalues\fP' and the description
+`\fBvalue\fP'\&.   If it is set to an associative array, the keys are used
+as the possible completions and the values (if non\-empty) are used as
+descriptions for the matches\&.  If `\fBcompcontext\fP' is set to a string
+containing colons, it should be of
+the form `\fItag\fP\fB:\fP\fIdescr\fP\fB:\fP\fIaction\fP'\&.  In this case the
+\fItag\fP and \fIdescr\fP give the tag and description to use and the
+\fIaction\fP says what should be completed in one of the forms
+described for the \fB_arguments\fP utility function below\&.
+.PP
+Finally, if `\fBcompcontext\fP' is set to a string without colons, the
+value is taken as the name of the context to use and the function
+defined for that context will be called\&.  For this purpose, there is a
+special context named \fB\-command\-line\-\fP that completes whole command
+lines (commands and their arguments) and is not used by the completion
+system itself, but has a function handling completion for it\&.
 .RE
 .TP
 \fB_correct\fP
@@ -2237,19 +2493,22 @@ contain the sequence `\fB%o\fP' which will be replaced by the original
 string from the line\&.
 .PP
 Which kind of expansion is tried is controlled by the \fBsubstitute\fP,
-\fBglob\fP and \fBsubts\-globs\-only\fP styles\&.  Note that none of these
-has a default value so that they have to be set to make \fB_expand\fP
-generate any expansions at all\&.
-.PP
-There is another style, \fBcompletions\fP, which allows \fB_expand\fP to
-display or insert all \fIcompletions\fP generated for the string\&.  The use of
-this is that the tags \fBexpansions\fP and \fBall\-expansions\fP are available,
-unlike with \fB_complete\fP\&.
+\fBglob\fP and \fBsubst\-globs\-only\fP styles\&.
 .PP
 When \fB_expand\fP is called as a function, the different modes may be
-selected with options\&.  The \fB\-c\fP corresponds to the \fBcompletions\fP
-style, \fB\-s\fP to \fBsubstitute\fP, \fB\-g\fP to \fBglob\fP and \fB\-o\fP to
-\fBsubst\-globs\-only\fP\&.
+selected with options\&.  The \fB\-s\fP to \fBsubstitute\fP, \fB\-g\fP to
+\fBglob\fP and \fB\-o\fP to \fBsubst\-globs\-only\fP\&.
+.RE
+.TP
+\fB_expand_alias\fP
+If the word the cursor is on is an alias, it is expanded and no other
+completers are called\&.  The types of aliases which are to be expanded can
+be controlled with the \fBregular\fP, \fBglobal\fP and \fBdisabled\fP
+styles\&.
+.RS
+.PP
+This function is also a bindable command, see
+the section `Bindable Commands' below\&.
 .RE
 .TP
 \fB_history\fP
@@ -2304,6 +2563,9 @@ The generated matches will be offered in a menu completion unless the
 \fBinsert\-unambiguous\fP style is set to `true'\&.  In
 this case menu completion will only be started if no unambiguous string
 could be generated that is at least as long as the original string\&.
+The style may also be set to the string `\fBpattern\fP'\&.  This will keep 
+the pattern on the line intact as long as there isn't an unambiguous
+completion with which it could be replaced\&.
 .PP
 Note that the matcher specifications defined globally or used by the
 completion functions will not be used\&.
@@ -2394,7 +2656,7 @@ This function is used by two widgets, \fB_bash_complete\-word\fP and
 completion bindings in bash\&.  The last character of the binding determines
 what is completed: `\fB!\fP', command names; `\fB$\fP', environment variables;
 `\fB@\fP', host names; `\fB/\fP', file names; `\fB~\fP' user names\&.  In bash, the
-binding preceeded by `\fB\ee\fP' gives completion, and preceeded by `\fB^X\fP'
+binding preceded by `\fB\ee\fP' gives completion, and preceded by `\fB^X\fP'
 lists options\&.  As some of these bindings clash with standard zsh
 bindings, only `\fB\ee~\fP' and `\fB^X~\fP' are bound by default\&.  To add the
 rest, the following should be added to \fB\&.zshrc\fP after \fBcompinit\fP has
@@ -2426,15 +2688,43 @@ completions as possible choices\&. This stores the string
 `\fBcorrect\-word\fP' in the \fIfunction\fP field of the context name and
 then calls the \fB_correct\fP completer\&.
 .TP
+\fB_expand_alias (^Xa)\fP
+This function can be used as a completer and as a bindable command\&.
+It expands the word the cursor is on if it is an alias\&.  The types of
+aliases expanded can be controlled with the \fBregular\fP, \fBglobal\fP and
+\fBdisabled\fP styles\&.
+.RS
+.PP
+When used as a bindable command there is one additional feature that
+can be selected by setting the \fBcomplete\fP style to `true'\&.  In this
+case, if the word isn't the name of an alias, \fB_expand_alias\fP tries
+to complete the word to a full alias name without expanding it (but
+leaving the cursor directly after the completed word so that invoking
+\fB_expand_alias\fP once more will expand the now\-complete alias name)\&.
+.RE
+.TP
 \fB_expand_word (^Xe)\fP
 Performs expansion on the current word:  equivalent to the standard
 \fBexpand\-word\fP command, but using the \fB_expand\fP completer\&.  Before
 calling it, the \fIfunction\fP field is set to `\fBexpand\-word\fP'\&.
+.TP
+\fB_generic\fP
+This function is not defined as a widget and not bound by
+default\&. However, it can be used to define a widget and will then
+store the name of the widget in the \fIfunction\fP field of the context 
+and call the completion system\&. This allows custom completion widgets
+with their own set of style settings to be easily defined\&. For example, 
+to define a widget that does normal completion and starts
+menu selection, one could do:
 .RS
 .PP
-Unlike \fB_expand\fP this uses a `\fB1\fP' (one) as the default
-value for the \fBsubstitute\fP and \fBglob\fP styles, so both types of
-expansion will normally be performed\&.
+.RS
+.nf
+\fBzle \-C foo complete\-word _generic
+bindkey '\&.\&.\&.' foo
+zstyle ':completion:foo:*' menu yes select=1\fP
+.fi
+.RE
 .RE
 .TP
 \fB_history_complete_word\fP (\ee/)
@@ -2479,6 +2769,12 @@ existing string instead of reading a new one\&.  To force a new string to be
 read, call \fB_read_comp\fP with a numeric argument\&.
 .RE
 .TP
+\fB_complete_debug (^X?)\fP
+This widget performs ordinary completion, but captures in a temporary file
+a trace of the shell commands executed by the completion system\&.  Each
+completion attempt gets its own file\&.  A command to view each of these
+files is pushed onto the editor buffer stack\&.
+.TP
 \fB_complete_help (^Xh)\fP
 This widget displays information about the context names, 
 the tags, and the completion functions used 
@@ -2491,12 +2787,6 @@ Note that the information about styles may be incomplete; it depends on the
 information available from the completion functions called, which in turn
 is determined by the user's own styles and other settings\&.
 .RE
-.TP
-\fB_complete_debug (^X?)\fP
-This widget performs ordinary completion, but captures in a temporary file
-a trace of the shell commands executed by the completion system\&.  Each
-completion attempt gets its own file\&.  A command to view each of these
-files is pushed onto the editor buffer stack\&.
 .TP
 \fB_complete_tag (^Xt)\fP
 This widget completes symbol tags created by the \fBetags\fP or \fBctags\fP
@@ -2513,7 +2803,7 @@ emacs and vi respectively\&.
 .PP
 Descriptions follow for utility functions that may be
 useful when writing completion functions\&.  Most of these reside in the
-\fBCore\fP subdirectory\&. Like the example 
+\fBBase\fP subdirectory\&. Like the example 
 functions for commands in the distribution, the utility functions
 generating matches all follow the convention of returning zero if they
 generated completions and non\-zero if no matching completions could be 
@@ -2539,7 +2829,7 @@ into the \fIargs\fP given to the \fIcommand\fP\&.  Normally, they are put
 directly after the \fIcommand\fP, but if one of the \fIargs\fP is a single
 hyphen, they are inserted directly before that\&. If the hyphen is the last
 argument, that will be removed from the argument list before the
-\fIcommand\fP is called\&. This allows to use \fB_all_labels\fP in almost all
+\fIcommand\fP is called\&. This allows \fB_all_labels\fP to be used in almost all
 cases where the matches can be generated by a single call to the
 \fBcompadd\fP builtin command or by a call to one of the utility functions\&.
 .RS
@@ -2617,7 +2907,9 @@ argument of the command\&.  The forms of \fIspec\fP understood are:
 This describes the \fIn\fP'th normal argument\&.  The \fImessage\fP will be 
 printed above the matches generated and the \fIaction\fP says what can
 be completed in this position (see below)\&.  If there are two colons
-before the \fImessage\fP, this describes an optional argument\&.
+before the \fImessage\fP, this describes an optional argument\&.  If the
+\fImessage\fP contains only white space, nothing will be printed above
+the matches unless the action adds an explanation string itself\&.
 .TP
 .PD 0
 \fB:\fP\fImessage\fP\fB:\fP\fIaction\fP
@@ -2670,6 +2962,26 @@ two hyphens (like `\fB\-\fP\fB\-prefix\fP') are still considered to contain only
 one option name\&.  This allows the use of the `\fB\-s\fP' option to describe
 single\-letter options together with such long option names\&.
 .PP
+The \fB\-s\fP option may be combined with the option \fB\-w\fP to say that more
+option characters are to be expected even after an option that takes an
+argument\&.  For example, if a command takes the options `\fBa\fP' and `\fBb\fP',
+where `\fBa\fP' takes an argument in the next word, \fB_arguments\fP would
+normally not complete the other option directly after `\fB\-a\fP', but it would
+allow that if given the \fB\-w\fP option\&.
+.PP
+Similarly, the option \fB\-W\fP may be given together with \fB\-s\fP to force
+completion of single\-letter options even after options that get an
+argument in the same word\&.  For example, if a command takes the options
+`\fBa\fP' and `\fBb\fP', where `\fBa\fP' needs an argument in the same word,
+directly after the option character, \fB_arguments\fP would normally only
+execute the action for that argument and not offer other single\-letter
+options as possible completions\&.  If given the \fB\-W\fP option, it will
+offer other options as possible completions after executing the action
+for the argument\&.  Note that, depending on the action, this may mean
+that the other options can't really be completed, but at least they will
+be listed\&.  For more control, use an utility function like \fB_guard\fP in
+the argument's action\&.
+.PP
 The forms of \fIoptspec\fP are:
 .PP
 .PD 0
@@ -2710,10 +3022,10 @@ word, or may instead appear as a separate word after the option\&.
 .TP
 \fB\-\fP\fIoptname\fP\fB=\fP
 The argument may appear as the next word, or in same word as the option
-name provided that it is separated from it by an equal sign\&.
+name provided that it is separated from it by an equals sign\&.
 .TP
 \fB\-\fP\fIoptname\fP\fB=\-\fP
-The argument to the option must appear after an equal sign in the same
+The argument to the option must appear after an equals sign in the same
 word, and may not be given in the next argument\&.
 .TP
 \fIoptspec\fP\fB[\fP\fIexplanation\fP\fB]\fP
@@ -2749,7 +3061,8 @@ following forms:
 \fB::\fP\fImessage\fP\fB:\fP\fIaction\fP
 Describes a mandatory argument with one colon, or an optional argument
 with two colons\&.  As in other forms of \fIspec\fP, the \fImessage\fP will be
-printed above the matches generated and the \fIaction\fP says what can be
+printed above the matches generated (unless it contains only white
+space, see above) and the \fIaction\fP says what can be
 completed in this position\&.
 .TP
 .PD 0
@@ -2801,6 +3114,17 @@ that the descriptions for all normal (non\-option\-) arguments should not be
 used and a hyphen (\fB\-\fP) to specify that the descriptions for all options
 should not be used\&.  This paragraph desperately needs rewriting\&.
 .PP
+To simplify writing writing functions that call \fB_arguments\fP more
+than once, the \fIspecs\fP may also start with the character `\fB!\fP'
+(exclamation mark) to make the spec \fInot\fP be completed\&.  However, if
+this is used with one of the forms describing options, the option (and 
+its arguments, if it takes any) will be understood and skipped if they 
+appear on the command line\&.  It's just that the option itself will not
+be completed\&. This is intended to be used with an array containing the 
+options used in the first call to \fBarguments\fP\&.  The second call can
+then use `\fB\e!${^global_options}\fP' to ignore those options and
+complete only the ones understood in the current context\&.
+.PP
 In every case above, the \fIaction\fP determines how the possible
 completions should be generated\&.  In places where no sensible matches can
 be generated, the action should consist of only a space\&. This will make
@@ -2838,12 +3162,18 @@ The matches will be listed together with their descriptions if the
 An \fIaction\fP of the form `\fB\->\fP\fIstring\fP' is used by functions
 that implement a state machine\&. In this case, the `\fIstring\fP's (with
 all leading and trailing spaces and tabs removed) of all actions that
-have to be used will be stored in
-the global array \fBstate\fP and the function returns with a return
+have to be used will be stored in the global array \fBstate\fP\&.  The
+function returns with a non\-zero return value if the cursor is not in
+a position where options can be completed or if the current word could 
+not be completed to an option\&.  But if the \fB\-R\fP option is given to
+\fB_arguments\fP, the function will instead return with a return
 value of 300 (to make it distinguishable from other return values)
 after setting the global `\fBcontext\fP', `\fBline\fP' and `\fBopt_args\fP'
 parameters as described below, and without resetting any changes made
-to the special parameters such as \fBPREFIX\fP and \fBwords\fP\&.
+to the special parameters such as \fBPREFIX\fP and \fBwords\fP\&.  This
+enables wrapper functions around \fB_arguments\fP to be able to find out
+if they have to make sure that the special completion parameters are
+not reset when they return\&.
 .PP
 Note that this means that a function calling \fB_arguments\fP with at least
 one action containing such a `\fB\->\fP\fIstring\fP' has to declare
@@ -2867,11 +3197,11 @@ otherwise it will be invoked with some extra strings placed after the
 first word which can be given as arguments to the \fBcompadd\fP builtin
 command and which make sure that the \fImessage\fP given
 in the description will be shown above the matches\&. These arguments
-are taken from the array parameter \fBexpl\fP which will be set up
+are taken from the array parameter `\fBexpl\fP' which will be set up
 before executing the \fIaction\fP and hence may be used in it (normally 
 in an expansion like `\fB$expl[@]\fP')\&.
 .PP
-If the \fIaction\fP starts with `\fB= \fP' (an equal sign followed by a
+If the \fIaction\fP starts with `\fB= \fP' (an equals sign followed by a
 space), \fB_arguments\fP will insert the contents of the \fIargument\fP
 field of the current context as the new first element in the \fBwords\fP 
 special array and increments the value of the \fBCURRENT\fP special
@@ -2959,18 +3289,23 @@ exclusive and in which the options are aliases for each other\&. E\&.g\&.:
 .fi
 .RE
 .PP
-To simplify the specifications for commands with standard option
-parsing, the options \fB\-A\fP and \fB\-S\fP may be given\&. With \fB\-A\fP no
-options will be completed after the first non\-option argument on the
-line\&. With \fB\-S\fP, no option will be completed after a `\fB\-\fP\fB\-\fP' on 
-the line and this argument will otherwise be ignored\&.
-.PP
 Note that using multiple sets will be slower than using only one set
 because the completion code has to parse the command line once for
 every set\&. So more than one set should only be used if the command
-syntax is too complicated\&. Note also that a option specification with
-rest\-arguments (as in `\fB\-foo:*:\&.\&.\&.\fP') often allows to avoid the use
-of multiple sets\&.
+syntax is too complicated\&. Note also that an option specification with
+rest\-arguments (as in `\fB\-foo:*:\&.\&.\&.\fP') often allows the use of
+multiple sets to be avoided\&.
+.PP
+To simplify the specifications for commands with standard option
+parsing, the options \fB\-S\fP and \fB\-A\fP may be given\&.  With \fB\-S\fP, no
+option will be completed after a `\fB\-\fP\fB\-\fP' on the line and this
+argument will otherwise be ignored\&. With \fB\-A\fP, no options will be
+completed after the first non\-option argument on the line\&.  The \fB\-A\fP 
+has to be followed by a pattern matching all strings which are not to
+be taken as arguments\&. For example, to make \fB_arguments\fP stop
+completing options after the first normal argument, but ignoring all
+strings starting with a hyphen even if they are not described by one
+of the \fIoptspec\fPs, one would use: `\fB\-A "\-*"\fP'\&.
 .PP
 Another option supported is `\fB\-O\fP \fIname\fP'\&. The \fIname\fP will be
 taken as the name of an array and its elements will be given to
@@ -2984,7 +3319,7 @@ when completing option names and values instead of the default
 `\fBr:|[_\-]=* r:|=*\fP'\&. 
 .PP
 Finally, the option \fB\-C\fP can be given to make \fB_arguments\fP modify
-the \fBcurcontext\fP parameter when a action of the form
+the \fBcurcontext\fP parameter when an action of the form
 `\fB\->\fP\fIstate\fP' is used\&. This parameter is used to keep track of
 the current context and in this case it (and not the parameter
 \fBcontext\fP as explained above) has to be made local to make sure that 
@@ -3007,7 +3342,7 @@ possible option names\&. Note that this means that you should be careful
 to make sure that this feature is not used for a command that does not
 support this option\&.
 .PP
-For such automatically found options that get an argument after a
+For such automatically found options that get an argument after an
 `\fB=\fP', the function also tries
 to automatically find out what should be completed as the argument\&.
 The possible completions for option\-arguments can be described with
@@ -3045,7 +3380,7 @@ it about this as described for the normal option descriptions above\&.
 If the \fIpattern\fP ends in `\fB(\-)\fP', this will removed from the
 pattern and the \fIaction\fP will be used only directly after the
 `\fB=\fP', not in the next word\&. I\&.e\&., this is like a normal
-specification as descrobed above using `\fB=\-\fP'\&.
+specification as described above using `\fB=\-\fP'\&.
 .PP
 The option `\fB\-i\fP \fIpatterns\fP' (which must be given after the
 `\fB\-\fP\fB\-\fP') can be used to give patterns for options which should not be
@@ -3093,14 +3428,43 @@ be completed\&. The last description says that all other arguments are
 `\fIpage numbers\fP' but does not give possible completions\&.
 .RE
 .TP
-\fB_call\fP \fItag\fP \fIstring\fP \&.\&.\&.
+\fB_cache_invalid\fP \fIcache_identifier\fP
+This function returns 0 if the completions cache corresponding to the
+given cache identifier needs rebuilding\&.  It determines this by
+looking up the \fBcache\-policy\fP style for the current context, and
+if it exists, runs the function of the same name, supplying the full
+path to the relevant cache file as the only argument\&.
+.RS
+.PP
+Example:
+.PP
+.RS
+.nf
+\fB_example_caching_policy () {
+    # rebuild if cache is more than a week old
+    oldp=( "$1"(Nmw+1) )
+    (( $#oldp ))
+}\fP
+.fi
+.RE
+.RE
+.TP
+\fB_call_function\fP \fIreturn\fP \fIname\fP [ \fIargs\fP \&.\&.\&. ]
+If a function \fIname\fP exists, it is called with the arguments
+\fIargs\fP\&. Unless it is the empty string or a single hyphen,
+\fIreturn\fP is taken as the name of a parameter and the return status
+from the called function is stored in it\&.
+The return value of \fB_call_function\fP itself is zero if the function
+\fIname\fP exists and was called and non\-zero otherwise\&.
+.TP
+\fB_call_program\fP \fItag\fP \fIstring\fP \&.\&.\&.
 This function is used in places where a command is called, making it
 possible for the user to override the default command call\&.  It looks up
 the \fBcommand\fP style with the supplied \fItag\fP\&.  If the style is set, its
 value is used as the command to execute\&.
 .RS
 .PP
-In any case, the \fIstring\fPs from the call to \fB_call\fP or from the
+In any case, the \fIstring\fPs from the call to \fB_call_program\fP or from the
 style are concatenated with spaces between them and the resulting
 string is evaluated\&.  The return value is the return value of the
 command called\&.
@@ -3116,7 +3480,7 @@ is the \fItag\fP to use to do the lookup\&.
 The style name should consist of multiple parts separated by
 hyphens which are then used as field names\&.  Known values for such
 fields can be given after the second argument in arguments of the form 
-`\fIfield\fP\fB=\fP\fIpattern\fP'\&.  The first argument without a equal sign 
+`\fIfield\fP\fB=\fP\fIpattern\fP'\&.  The first argument without an equals sign 
 is taken as the name of the field for which completions should be
 generated\&.
 .PP
@@ -3147,12 +3511,12 @@ All arguments after the requested field name are passed to
 the functions for the fields if they are called\&.
 .RE
 .TP
-\fB_compalso\fP \fInames\fP \&.\&.\&.
+\fB_contexts\fP \fInames\fP \&.\&.\&.
 This function looks up the definitions for the context and command
 names given as arguments and calls the handler functions for them if
 there is a definition (given with the \fBcompdef\fP function)\&.  For
 example, the function completing inside subscripts might use
-`\fB_compalso \-math\-\fP' to include the completions generated for
+`\fB_contexts \-math\-\fP' to include the completions generated for
 mathematical environments\&.
 .TP
 \fB_describe\fP [ \fB\-o\fP ] \fIdescr\fP \fIname1\fP [ \fIname2\fP ] \fIopts\fP \&.\&.\&. \fB\-\fP\fB\-\fP \&.\&.\&.
@@ -3200,7 +3564,11 @@ function which tests some more styles\&.
 .PP
 The string returned by the \fBformat\fP style (if any) will be modified so
 that the sequence `\fB%d\fP' is replaced by the \fIdescr\fP given as the third
-argument\&.  If \fB_description\fP is called with more than three arguments,
+argument without any leading or trailing white space\&.  If, after
+removing the white space, the \fIdescr\fP is the empty string, the format
+style will not be used and the options put into the \fIname\fP array will
+not contain an explanation string to be displayed above the matches\&.  If
+\fB_description\fP is called with more than three arguments,
 the additional \fIspecs\fP should be of the form `\fIchar\fP\fB:\fP\fIstr\fP'
 and every appearance of `\fB%\fP\fIchar\fP' in the format string will be
 replaced by \fIstring\fP\&.
@@ -3208,7 +3576,7 @@ replaced by \fIstring\fP\&.
 The options placed in the array will also make sure that the matches
 are placed in a separate group, depending on the value of the
 \fBgroup\-name\fP style\&.  Normally a sorted group will be used for this
-(with the `\fB\-J\fP' option), but if a option starting with `\fB\-V\fP',
+(with the `\fB\-J\fP' option), but if an option starting with `\fB\-V\fP',
 `\fB\-J\fP', `\fB\-1\fP', or `\fB\-2\fP' is given, that option will be included
 in the array, so that it is possible to make the group unsorted by
 giving the option `\fB\-V\fP', `\fB\-1V\fP', or `\fB\-2V\fP'\&. 
@@ -3229,13 +3597,81 @@ a similar format; this ensures that user\-specified styles are correctly
 passed down to the builtins which implement the internals of completion\&.
 .RE
 .TP
-\fB_funcall\fP \fIreturn\fP \fIname\fP [ \fIargs\fP \&.\&.\&. ]
-If a function \fIname\fP exists, it is called with the arguments
-\fIargs\fP\&. Unless it is the empty string or a single hyphen,
-\fIreturn\fP is taken as the name of a parameter and the return status
-from the called function is stored in it\&.
-The return value of \fB_funcall\fP itself is zero if the function
-\fIname\fP exists and was called and non\-zero otherwise\&.
+\fB_files\fP
+The function \fB_files\fP uses the \fBfile\-patterns\fP style and calls
+\fB_path_files\fP with all the arguments it was passed except for \fB\-g\fP 
+and \fB\-/\fP\&.  These two options are used depending on the setting of the 
+\fBfile\-patterns\fP style\&.
+.RS
+.PP
+See \fB_path_files\fP below for a description of the full set of options
+accepted by \fB_files\fP\&.
+.RE
+.TP
+\fB_gnu_generic\fP
+This function is a simple wrapper around the \fB_arguments\fP function
+described above\&.  It can be used to automatically complete long
+options for commands that understand the `\fB\-\fP\fB\-help\fP' option\&.
+It is not intended to be used from completion functions but as a
+top\-level completion function in its own right\&.  For example, to
+enable option completion for the commands \fBfoo\fP and \fBbar\fP, one
+would call:
+.RS
+.PP
+.RS
+.nf
+\fBcompdef _gnu_generic foo bar\fP
+.fi
+.RE
+.PP
+in one of the initialization files after the call to \fBcompinit\fP\&.
+.PP
+The default installation uses this function only to generate
+completions for some GNU\-commands because to complete the options, the 
+command has to be called and hence it shouldn't be used if one can't
+be sure that the command understands the `\fB\-\fP\fB\-help\fP' option\&.
+.RE
+.TP
+\fB_guard\fP [ \fIoptions\fP ] \fIpattern\fP [ \fIdescr\fP ]
+This function is intended to be used in an action of functions like
+\fB_arguments\fP\&.  It returns immediately with a non\-zero return value if
+the string to be completed does not match the \fIpattern\fP\&.  If the
+pattern matches, the \fIdescr\fP is displayed and the function returns
+zero if the word to complete is not empty and non\-zero otherwise\&.
+.RS
+.PP
+The \fIpattern\fP may be preceded by those options understood by
+\fBcompadd\fP that are passed down from \fB_description\fP, namely \fB\-M\fP,
+\fB\-J\fP, \fB\-V\fP, \fB\-1\fP, \fB\-2\fP, \fB\-n\fP, \fB\-F\fP and \fB\-X\fP\&.  All of these
+options, except \fB\-X\fP, will be ignored\&.  If the \fB\-X\fP option appears,
+the description following it will be used as the string to display if
+the \fIpattern\fP matches, unless the option \fIdescr\fP is given to
+\fB_guard\fP itself, which will then take precedence\&.
+.PP
+As an example, consider a command taking the options \fB\-n\fP and
+\fB\-none\fP, where \fB\-n\fP has to be followed by a numeric value in the
+same word\&.  By using either of:
+.PP
+.RS
+.nf
+\fB_argument '\-n\-:numeric value:_guard "[0\-9]#"' '\-none'\fP
+.fi
+.RE
+.PP
+or
+.PP
+.RS
+.nf
+\fB_argument '\-n\-: :_guard "[0\-9]#" "numeric value"' '\-none'\fP
+.fi
+.RE
+.PP
+\fB_arguments\fP can be made to both display the message `\fBnumeric
+value\fP' and complete options after `\fB\-n<TAB>\fP'\&.  If the `\fB\-n\fP' is
+already followed by one or more digits (matching the pattern given to
+\fB_guard\fP), only the message will be displayed and if the `\fB\-n\fP' is
+followed by another character, only options are completed\&.
+.RE
 .TP
 \fB_message\fP [ \-r ] \fIdescr\fP
 The \fIdescr\fP is used like the third
@@ -3346,21 +3782,39 @@ the same effect here as in the \fB\-first\-\fP context: if it is set, no more
 completion functions are called even if there are no matches so far\&.
 .RE
 .TP
-\fB_parameters\fP
-This should be used to complete parameter names\&.  All arguments are
-passed unchanged to the \fBcompadd\fP builtin\&.
+\fB_options\fP
+This can be used to complete option names\&.  It uses a matching
+specification that ignores a leading `\fBno\fP', ignores underscores and 
+allows the user to type upper\-case letters which will match their
+lower\-case counterparts\&.  All arguments passed to this function are
+propagated unchanged to the \fBcompadd\fP builtin\&.
 .TP
-\fB_path_files\fP and \fB_files\fP
+\fB_options_set\fP and \fB_options_unset\fP
+These functions complete only set or unset options, with the same
+matching specification used in the \fB_options\fP function\&.
+.RS
+.PP
+Note that you need to uncomment a few lines in the \fB_main_complete\fP
+function for these functions to work properly\&.  The lines in question
+are used to store the option settings in effect before the completion
+widget locally sets the options it needs\&.  Hence these options are not
+generally used by the completion system\&.
+.RE
+.TP
+\fB_parameters\fP
+This should be used to complete parameter names\&.  \fB_parameters\fP can
+take a \fB\-g \fIpattern\fP\fP option which specifies that only parameters
+whose type matches the \fIpattern\fP should be completed\&.  Strings of
+the same form as those returned by the \fBt\fP parameter expansion flag
+are used here when matching the type\&.  All other arguments are passed
+unchanged to the \fBcompadd\fP builtin\&.
+.TP
+\fB_path_files\fP
 The function \fB_path_files\fP is used throughout the completion system
 to complete filenames\&.  It allows completion of partial paths\&.  For
 example, the string `\fB/u/i/s/sig\fP' may be completed to
 `\fB/usr/include/sys/signal\&.h\fP'\&.
 .RS
-.PP
-The function \fB_files\fP uses the \fBfile\-patterns\fP style and calls
-\fB_path_files\fP with all the arguments it was passed except for \fB\-g\fP 
-and \fB\-/\fP\&.  These two options are used depending on the setting of the 
-\fBfile\-patterns\fP style\&.
 .PP
 The options accepted by both \fB_path_files\fP and \fB_files\fP are:
 .PP
@@ -3393,25 +3847,18 @@ These functions also accept the `\fB\-J\fP', `\fB\-V\fP', `\fB\-1\fP',
 `\fB\-r\fP', and `\fB\-R\fP' options from the \fBcompadd\fP builtin\&.
 .PP
 Finally, the \fB_path_files\fP function  uses the styles \fBexpand\fP,
-\fBambiguous\fP and \fBspecial\-dirs\fP and \fBfile\-sort\fP\&.
+\fBambiguous\fP, \fBspecial\-dirs\fP, \fBlist\-suffixes\fP and \fBfile\-sort\fP\&.
 .RE
-.TP
-\fB_options\fP
-This can be used to complete option names\&.  It uses a matching
-specification that ignores a leading `\fBno\fP', ignores underscores and 
-allows the user to type upper\-case letters which will match their
-lower\-case counterparts\&.  All arguments passed to this function are
-propagated unchanged to the \fBcompadd\fP builtin\&.
 .TP
 \fB_regex_arguments\fP \fIname\fP \fIspecs\fP \&.\&.\&.
 This function is a compiler to generate a completion function\&.  The
 first argument specifies the name of the generated function while the
 remaining arguments specify a completion as a set of regular
 expressions with actions\&.  The generated function has the structure of a
-finite\-state machine whose states corresponds to the state (i\&.e\&. the
+finite\-state machine whose states correspond to the state (i\&.e\&. the
 context) of the completion\&. This state machine uses a command line,
-which comes from concatenating the \fBwords\fP array up to the current
-cursor position using null characters as separators with no extra
+which comes from the concatenation of the \fBwords\fP array up to the
+current cursor position using null characters as separators with no extra
 quotation\&.  This is analysed and at the end the appropriate action is
 executed\&.
 .RS
@@ -3427,9 +3874,9 @@ should be quoted\&.
 This is a primitive element, corresponding to one
 state of the compiled state machine\&.  The state is entered if
 `\fB(#b)((#B)\fP\fIpattern\fP\fB)(#B)\fP\fIlookahead\fP\fB*\fP' matches
-the command line string\&.  If it is matched, `\fIguard\fP' is evaluated and
+the command line string\&.  If it matches, `\fIguard\fP' is evaluated and
 its return status is examined; if this is successful, the state is entered,
-else the test fails and other candidates are tried\&.  The \fIpattern\fP
+otherwise the test fails and other candidates are tried\&.  The \fIpattern\fP
 string `\fB[]\fP' is guaranteed never to match\&.
 .RS
 .PP
@@ -3444,13 +3891,13 @@ command line string and \fIaction\fPs for the target are executed\&.
 In this case, nothing is actually removed from the command line string
 so that any previous or neighbouring state may also have \fIactions\fPs\&.
 \fIactions\fPs evaluation are ordered by the \fBtag\-order\fP style and specified
-\fItag\fP by \fB_alternative\fP\&.  So, various format supported by \fB_alternative\fP
-can be used in \fIaction\fP\&.  \fIdescr\fP is used for set up the array parameter
-\fBexpl\fP\&.
+\fItag\fP by \fB_alternative\fP\&.  So, the various formats supported by
+\fB_alternative\fP can be used in \fIaction\fP\&.  \fIdescr\fP is used for
+setting up the array parameter \fBexpl\fP\&.
 .RE
 .TP
 \fB/\fP\fIpattern\fP\fB/+\fP [\fB%\fP\fIlookahead\fP\fB%\fP] [\fB\-\fP\fIguard\fP] [\fB:\fP\fItag\fP\fB:\fP\fIdescr\fP\fB:\fP\fIaction\fP]
-This is similar to `\fB/\fP\fIpattern\fP\fB/\fP \&.\&.\&.' but the left part of
+This is similar to `\fB/\fP\fIpattern\fP\fB/\fP \&.\&.\&.' but the left part of the
 command line string is also considered as part of the completion target\&.
 .TP
 \fB/\fP\fIpattern\fP\fB/\-\fP [\fB%\fP\fIlookahead\fP\fB%\fP] [\fB\-\fP\fIguard\fP] [\fB:\fP\fItag\fP\fB:\fP\fIdescr\fP\fB:\fP\fIaction\fP]
@@ -3474,7 +3921,7 @@ Either of the two \fIspec\fPs can be matched\&.
 \fB_requested\fP [ \fB\-12VJ\fP ] \fItag\fP [ \fIname\fP \fIdescr\fP [ \fIcommand\fP \fIargs\fP \&.\&.\&. ] ]
 This function is called to decide whether a tag already registered by a
 call to \fB_tags\fP (see below) is requested and hence completion should be
-performed for it; it returns status zero if the tags is requested and
+performed for it; it returns status zero if the tag is requested and
 non\-zero otherwise\&.  This will usually be done in a loop such as the
 following:
 .RS
@@ -3519,6 +3966,19 @@ done\fP
 .RE
 .RE
 .TP
+\fB_retrieve_cache\fP \fIcache_identifier\fP
+This function retrieves completion information from the file given by
+\fIcache_identifier\fP, stored in a directory specified by the
+\fBcache\-path\fP style (defaults to \fB~/\&.zsh/cache\fP)\&.  The return value
+is zero if retrieval was successful\&.  It will only attempt retrieval
+if the \fBuse\-cache\fP style is set, so you can call this function
+without worrying about whether the user wanted to use the caching
+layer\&.
+.RS
+.PP
+See \fB_store_cache\fP below for more details\&.
+.RE
+.TP
 \fB_sep_parts\fP
 This function is passed alternating arrays and separators as arguments\&.
 The arrays specify completions for parts of strings to be separated by the
@@ -3535,122 +3995,49 @@ and `\fB\-q\fP' options and their arguments to the \fBcompadd\fP builtin
 used to add the matches\&.
 .RE
 .TP
-\fB_set_options\fP and \fB_unset_options\fP
-These functions complete only set or unset options, with the same
-matching specification used in the \fB_options\fP function\&.
-.RS
-.PP
-Note that you need to uncomment a few lines in the \fB_main_complete\fP
-function for these functions to work properly\&.  The lines in question
-are used to store the option settings in effect before the completion
-widget locally sets the options it needs\&.  Hence these options are not
-generally used by the completion system\&.
-.RE
-.TP
-\fB_setup\fP \fItag\fP
+\fB_setup\fP \fItag\fP [ \fIgroup\fP ]
 This function expects a tag as its argument and sets up the special
 parameters used by the completion system appropriately for the tag,
 using styles such as \fBlist\-colors\fP and \fBlast\-prompt\fP\&.
 .RS
 .PP
+The optional \fIgroup\fP gives the name of the group in which the
+matches will be placed\&. If it is not given, the \fItag\fP is used as
+the group name\&.
+.PP
 Note that this function is called automatically from \fB_description\fP
 so that one normally doesn't have to call it explicitly\&.
 .RE
 .TP
-\fB_sort_tags\fP \fItag\fP \&.\&.\&.
-No such function is actually used by the completion system; as mentioned
-above for the \fBtag\-order\fP style, it is only provided to show how
-functions that sort tags can be implemented\&.
+\fB_store_cache\fP \fIcache_identifier\fP \fIvars\fP \&.\&.\&.
+This function, when combined with \fB_retrieve_cache\fP and
+\fB_cache_invalid\fP, makes it easy to implement a caching layer for
+your completion functions\&.  If a completion function needs to perform
+a costly operation in order to generate data which is used to
+calculate completions, you can store that data in variables, and use
+this function to dump the values of those variables to a file\&.  Then,
+if they are needed in subsequent shell invocations, they can be
+retrieved quickly from that file via \fB_retrieve_cache\fP, avoiding the
+needly for repeating the costly operation\&.
 .RS
 .PP
-Inside such functions the name of the current context can
-be accessed using the \fBcurcontext\fP parameter\&.  For example, the
-function used in command position (called \fB_command_names\fP) in the
-completion can generate names of external and builtin commands, names
-of shell functions, aliases and parameters and reserved words\&.
+The \fIcache_identifier\fP specifies the file which the data should be
+dumped to, and is stored in a directory specified by the
+\fBcache\-path\fP style (defaults to \fB~/\&.zsh/cache\fP)\&.  The remaining
+\fIvars\fP arguments are the variables to dump to the file\&.
 .PP
-Example:
+The return value is zero if storage was successful\&.  The function will
+only attempt storage if the \fBuse\-cache\fP style is set, so you can
+call this function without worrying about whether the user wanted to
+use the caching layer\&.
 .PP
-.RS
-.nf
-\fB_sort_tags() {
-  case $curcontext in
-  (*:\-command\-:*)
-    comptry commands functions
-    comptry builtins aliases
-    ;;
-  (*)
-    \&.comptry "$@"
-    ;;
-  esac
-  return 1
-}\fP
-.fi
-.RE
+If your completion function avoids calling _retrieve_cache when it
+already has the completion data in the environment, it should probably
+at least call \fB_cache_invalid\fP to check whether this data and the
+data cached on disk is still valid\&.
 .PP
-Every call to the \fBcomptry\fP builtin command gives a
-set of tags to use; as soon as the completion system produces
-matches for one set, subsequent sets have no effect\&.  Hence in
-the example this means that in command position on the first attempt
-only names of external commands and shell functions will be generated
-(the first call to \fBcomptry\fP)\&.  If none of those names match the string
-from the command line the completion function will generate names of
-builtin commands and aliases as possible matches (the second call to
-\fBcomptry\fP)\&.
-.PP
-For all other context names the second case\-pattern matches, so that
-normally the completion functions will try all tags offered\&. The
-return value means that the calling function, \fB_tags\fP, will not use
-all offered tags as a default, so in the first case names or
-parameters and reserved words will never be completed\&.
-.PP
-In any context the function may call \fBcomptry\fP as often as necessary\&.
-Also, any string may be given as an argument, even if no tag
-with that name was offered by the completion function\&.  This allows
-one to give a preferred ordering for some common tag sets without
-having to worry about sensible patterns for context names\&.  For
-example, many completion functions can generate both arguments and
-option names for commands\&.  These functions normally use the tags
-like \fBargument\-\fP\fInum\fP, \fBoption\-\fP\fIname\fP\fB\-\fP\fInum\fP and
-\fBoptions\fP\&.  Depending on your preference you may write in your
-sorting function:
-.PP
-.RS
-.nf
-\fB_sort_tags() {
-  comptry \-m '(|*\-)argument\-* (|*\-)option\-* options'
-  case $curcontext in
-  \&.\&.\&.
-  esac
-}\fP
-.fi
-.RE
-.PP
-or
-.PP
-.RS
-.nf
-\fB_sort_tags() {
-  comptry \-m '(|*\-)argument\-* (|*\-)option\-*'
-  comptry options
-  case $curcontext in
-  \&.\&.\&.
-  esac
-}\fP
-.fi
-.RE
-.PP
-The former always adds both the matches for the argument and the option
-names as possible matches\&.  The latter forces matches for the arguments to
-be preferred\&.  In this case option names are only generated as matches if
-the string on the line produces no possible completion for arguments;
-normally you would have to type the hyphen the option names start with
-yourself in order to see the list of option names that can be completed\&.
-.PP
-With the \fB\-s\fP option, each tag given to \fBcomptry\fP will be put in a 
-separate set\&. With the \fB\-m\fP option, the arguments are treated in the 
-same way as the the values for the \fBtag\-order\fP style (except for the 
-`\fB!\&.\&.\&.\fP', `\fB\-\fP' and `\fBfoo()\fP' forms)\&.
+See the _perl_modules completion function for a simple example of
+usage of this caching layer\&.
 .RE
 .TP
 \fB_tags\fP [ \fB\-C\fP \fIname\fP [ \fItags\fP \&.\&.\&. ] ]
@@ -3670,38 +4057,9 @@ non\-zero otherwise\&.
 This function also accepts the \fB\-C\fP option followed by a
 \fIname\fP\&. This name is temporarily (i\&.e\&. not visible outside
 \fB_tags\fP) stored in the argument field of the context name in the
-\fBcurcontext\fP parameter\&. This allows to make \fB_tags\fP use a more
+\fBcurcontext\fP parameter\&. This allows \fB_tags\fP to be made to use a more
 specific context name without having to change and reset the
 \fBcurcontext\fP parameter (which would otherwise have the same effect)\&.
-.RE
-.TP
-\fB_wanted\fP [ \fB\-C\fP \fIname\fP ]  [ \fB\-12VJ\fP ] \fItag\fP \fIname\fP \fIdescr\fP \fIcommand\fP \fIargs\fP \&.\&.\&.
-In many contexts, completion will one generate one particular set of
-matches (usually corresponding to a single tag); however, it is
-still necessary to decide whether the user requires matches of this type\&.
-This function is useful in such a case\&.
-.RS
-.PP
-Like \fB_requested\fP, it should be passed arguments as for \fB_description\fP\&.
-It calls \fB_tags\fP with the given \fItag\fP and if that returns zero 
-(so that the \fItag\fP is requested by the user) it calls
-\fB_description\fP\&.  Hence to offer only one tag and immediately
-use the description generated:
-.PP
-.RS
-.nf
-\fB_wanted tag expl 'description' \e 
-    compadd matches\&.\&.\&.\fP
-.fi
-.RE
-.PP
-Unlike \fB_requested\fP, however, \fB_wanted\fP cannot be called without
-the \fIcommand\fP\&.  This is because \fB_wanted\fP also implements the loop
-over the tags, not just the one for the labels; conversely, it should not
-be called in the middle of a \fB_tags\fP loop\&.
-.PP
-Like \fB_tags\fP this function supports the \fB\-C\fP option to give a
-different name for the argument context field\&.
 .RE
 .TP
 \fB_values\fP \fIspecs\fP \&.\&.\&.
@@ -3727,8 +4085,14 @@ listing the values\&.
 All other arguments describe the possible values and their
 arguments in the same format used for the description of options by
 the \fB_arguments\fP function (see above)\&.  The only differences are that
-no minus or plus sign is required at the beginning and that
-values can have only one argument\&.
+no minus or plus sign is required at the beginning, that
+values can have only one argument and that those forms of actions
+beginning with an equal sign are not supported\&.
+.PP
+The character separating a value from its argument can be set using the
+option \fB\-S\fP (like \fB\-s\fP, followed by the character to use as the
+separator in the next argument)\&.  If this option is not used, the equal
+sign will be used as the separator\&.
 .PP
 Example:
 .PP
@@ -3782,9 +4146,48 @@ when using an action of the form `\fB\->\fP\fIstring\fP'\&.  With this
 function the \fBcontext\fP parameter will be set to the name of the
 value whose argument is to be completed\&.
 .PP
+Note also that \fB_values\fP normally adds the character used as the
+separator between values as a auto\-removable suffix so that users don't
+have to type it themselves\&.  But when using a `\fB\->\fP\fIstring\fP' action
+\fB_values\fP can't do that because the matches for the argument will be
+generated by the calling function\&.  To get the usual behaviour, the
+implementor of the calling function has to add the suffix directly by
+passing the options `\fB\-qS\fP \fIx\fP' (where \fIx\fP is the separator
+character specified with the \fB\-s\fP option of \fB_values\fP) to the
+function generating the matches or to the \fBcompadd\fP builtin\&.
+.PP
 Like \fB_arguments\fP, \fB_values\fP supports the \fB\-C\fP option in
 which case you have to make the parameter \fBcurcontext\fP local instead 
 of \fBcontext\fP (as described above)\&.
+.RE
+.TP
+\fB_wanted\fP [ \fB\-C\fP \fIname\fP ]  [ \fB\-12VJ\fP ] \fItag\fP \fIname\fP \fIdescr\fP \fIcommand\fP \fIargs\fP \&.\&.\&.
+In many contexts, completion will generate one particular set of
+matches (usually corresponding to a single tag); however, it is
+still necessary to decide whether the user requires matches of this type\&.
+This function is useful in such a case\&.
+.RS
+.PP
+Like \fB_requested\fP, it should be passed arguments as for \fB_description\fP\&.
+It calls \fB_tags\fP with the given \fItag\fP and if that returns zero 
+(so that the \fItag\fP is requested by the user) it calls
+\fB_description\fP\&.  Hence to offer only one tag and immediately
+use the description generated:
+.PP
+.RS
+.nf
+\fB_wanted tag expl 'description' \e 
+    compadd matches\&.\&.\&.\fP
+.fi
+.RE
+.PP
+Unlike \fB_requested\fP, however, \fB_wanted\fP cannot be called without
+the \fIcommand\fP\&.  This is because \fB_wanted\fP also implements the loop
+over the tags, not just the one for the labels; conversely, it should not
+be called in the middle of a \fB_tags\fP loop\&.
+.PP
+Like \fB_tags\fP this function supports the \fB\-C\fP option to give a
+different name for the argument context field\&.
 .RE
 .RE
 .PP
@@ -3801,21 +4204,17 @@ standard directory where it appears\&.
 .PD 0
 .TP
 .PD
-\fBCore\fP
-The core scripts and functions\&.  You will certainly need these, though will
+\fBBase\fP
+The core functions and special completion widgets automatically bound
+to keys\&.  You will certainly need most of these, though will
 probably not need to alter them\&.  Many of these are documented above\&.
 .TP
-\fBBase\fP
-Other functions you will almost certainly want if you are going to use
-any of the standard completion functions\&.  You may want to edit some of
-these files\&.
-.TP
-\fBBuiltins\fP
+\fBZsh\fP
 Functions for completing arguments of shell builtin commands and
 utility functions for this\&.  Some of these are also used by functions from
-the \fBUser\fP directory\&.
+the \fBUnix\fP directory\&.
 .TP
-\fBUser\fP
+\fBUnix\fP
 Functions for completing arguments of external commands and suites of
 commands\&.  They may need modifying for your system, although in many cases
 some attempt is made to decide which version of a command is present\&.  For
@@ -3824,6 +4223,5 @@ it is running on, while completion for many other utilities try to decide
 whether the GNU version of the command is in use, and hence whether the
 \fB\-\-help\fP option is supported\&.\&.
 .TP
-\fBCommands\fP
-Functions which implement special types of completion to be bound to
-keystrokes rather than called by context\&.
+\fBX\fP, \fBAIX\fP, \fBBSD\fP, \&.\&.\&.
+Completion and utility function for commands available only on some systems\&.

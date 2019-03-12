@@ -128,6 +128,9 @@ forekill(int ct, int dir)
 void
 cut(int i, int ct, int dir)
 {
+    if (!ct)
+	return;
+
     if (zmod.flags & MOD_VIBUF) {
 	struct cutbuffer *b = &vibuf[zmod.vibuf];
 
@@ -379,7 +382,7 @@ printbind(char *str, FILE *stream)
  * The message must be metafied.                              */
 
 /**/
-void
+void mod_export
 showmsg(char const *msg)
 {
     char const *p;
@@ -472,7 +475,7 @@ freechanges(struct change *p)
 /* register pending changes in the undo system */
 
 /**/
-void
+mod_export void
 handleundo(void)
 {
     mkundoent();

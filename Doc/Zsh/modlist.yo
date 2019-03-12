@@ -42,6 +42,12 @@ A builtin that provides a timed execution facility within the shell.
 item(tt(zsh/stat))(
 A builtin command interface to the tt(stat) system call.
 )
+item(tt(zsh/termcap))(
+Interface to the termcap database.
+)
+item(tt(zsh/terminfo))(
+Interface to the terminfo database.
+)
 item(tt(zsh/zftp))(
 A builtin FTP client.
 )
@@ -51,15 +57,15 @@ The Zsh Line Editor, including the tt(bindkey) and tt(vared) builtins.
 item(tt(zsh/zleparameter))(
 Access to internals of the Zsh Line Editor via parameters.
 )
-item(tt(zsh/zutil))(
-Some utility builtins, e.g. the one for supporting configuration via 
-styles.
-)
 item(tt(zsh/zprof))(
 A module allowing profiling for shell functions.
 )
 item(tt(zsh/zpty))(
 A builtin for starting a command in a pseudo-terminal.
+)
+item(tt(zsh/zutil))(
+Some utility builtins, e.g. the one for supporting configuration via 
+styles.
 )
 enditem()
 includefile(Zsh/modmenu.yo)
@@ -102,24 +108,30 @@ includefile(Zsh/mod_parameter.yo)
 texinode(The zsh/sched Module)(The zsh/stat Module)(The zsh/parameter Module)(Zsh Modules)
 sect(The zsh/sched Module)
 includefile(Zsh/mod_sched.yo)
-texinode(The zsh/stat Module)(The zsh/zftp Module)(The zsh/sched Module)(Zsh Modules)
+texinode(The zsh/stat Module)(The zsh/termcap Module)(The zsh/sched Module)(Zsh Modules)
 sect(The zsh/stat Module)
 includefile(Zsh/mod_stat.yo)
-texinode(The zsh/zftp Module)(The zsh/zle Module)(The zsh/stat Module)(Zsh Modules)
+texinode(The zsh/termcap Module)(The zsh/terminfo Module)(The zsh/stat Module)(Zsh Modules)
+sect(The zsh/termcap Module)
+includefile(Zsh/mod_termcap.yo)
+texinode(The zsh/terminfo Module)(The zsh/zftp Module)(The zsh/termcap Module)(Zsh Modules)
+sect(The zsh/terminfo Module)
+includefile(Zsh/mod_terminfo.yo)
+texinode(The zsh/zftp Module)(The zsh/zle Module)(The zsh/terminfo Module)(Zsh Modules)
 sect(The zsh/zftp Module)
 includefile(Zsh/mod_zftp.yo)
 texinode(The zsh/zle Module)(The zsh/zleparameter Module)(The zsh/zftp Module)(Zsh Modules)
 sect(The zsh/zle Module)
 includefile(Zsh/mod_zle.yo)
-texinode(The zsh/zleparameter Module)(The zsh/zutil Module)(The zsh/zle Module)(Zsh Modules)
+texinode(The zsh/zleparameter Module)(The zsh/zprof Module)(The zsh/zle Module)(Zsh Modules)
 sect(The zsh/zleparameter Module)
 includefile(Zsh/mod_zleparameter.yo)
-texinode(The zsh/zutil Module)(The zsh/zprof Module)(The zsh/zleparameter Module)(Zsh Modules)
-sect(The zsh/zutil Module)
-includefile(Zsh/mod_zutil.yo)
-texinode(The zsh/zprof Module)(The zsh/zpty Module)(The zsh/zutil Module)(Zsh Modules)
+texinode(The zsh/zprof Module)(The zsh/zpty Module)(The zsh/zleparameter Module)(Zsh Modules)
 sect(The zsh/zprof Module)
 includefile(Zsh/mod_zprof.yo)
-texinode(The zsh/zpty Module)()(The zsh/zprof Module)(Zsh Modules)
+texinode(The zsh/zpty Module)(The zsh/zutil Module)(The zsh/zprof Module)(Zsh Modules)
 sect(The zsh/zpty Module)
 includefile(Zsh/mod_zpty.yo)
+texinode(The zsh/zutil Module)()(The zsh/zpty Module)(Zsh Modules)
+sect(The zsh/zutil Module)
+includefile(Zsh/mod_zutil.yo)

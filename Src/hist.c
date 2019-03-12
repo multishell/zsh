@@ -55,12 +55,7 @@ void (*addtoline) _((int));
  
 /**/
 mod_export int stophist;
- 
-/* this line began with a space, so junk it if HISTIGNORESPACE is on */
- 
-/**/
-int spaceflag;
- 
+
 /* if != 0, we are expanding the current line */
 
 /**/
@@ -131,8 +126,7 @@ mod_export int hist_skip_flags;
 /* Bits of histactive variable */
 #define HA_ACTIVE	(1<<0)	/* History mechanism is active */
 #define HA_NOSTORE	(1<<1)	/* Don't store the line when finished */
-#define HA_JUNKED	(1<<2)	/* Last history line was already junked */
-#define HA_NOINC	(1<<3)	/* Don't store, curhist not incremented */
+#define HA_NOINC	(1<<2)	/* Don't store, curhist not incremented */
 
 /* Array of word beginnings and endings in current history line. */
 
@@ -388,6 +382,7 @@ histsubchar(int c)
 
 	/* get event number */
 
+	queue_signals();
 	if (c == '?') {
 	    for (;;) {
 		c = ingetc();
@@ -403,6 +398,7 @@ histsubchar(int c)
 	    evset = 0;
 	    if (ev == -1) {
 		herrflush();
+		unqueue_signals();
 		zerr("no such event: %s", buf, 0);
 		return -1;
 	    }
@@ -456,6 +452,7 @@ histsubchar(int c)
 		evset = 1;
 	    } else if ((ev = hcomsearch(buf)) == -1) {
 		herrflush();
+		unqueue_signals();
 		zerr("event not found: %s", buf, 0);
 		return -1;
 	    } else
@@ -464,9 +461,10 @@ histsubchar(int c)
 
 	/* get the event */
 
-	if (!(ehist = gethist(defev = ev)))
+	if (!(ehist = gethist(defev = ev))) {
+	    unqueue_signals();
 	    return -1;
-
+	}
 	/* extract the relevant arguments */
 
 	argc = getargc(ehist);
@@ -479,6 +477,7 @@ histsubchar(int c)
 		    argc = getargc(ehist);
 		} else {
 		    herrflush();
+		    unqueue_signals();
 		    zerr("Ambiguous history reference", NULL, 0);
 		    return -1;
 		}
@@ -492,8 +491,10 @@ histsubchar(int c)
 	} else {
 	    inungetc(c);
 	    larg = farg = getargspec(argc, marg, evset);
-	    if (larg == -2)
+	    if (larg == -2) {
+		unqueue_signals();
 		return -1;
+	    }
 	    if (farg != -1)
 		cflag = 0;
 	    c = ingetc();
@@ -503,8 +504,10 @@ histsubchar(int c)
 	    } else if (c == '-') {
 		cflag = 0;
 		larg = getargspec(argc, marg, evset);
-		if (larg == -2)
+		if (larg == -2) {
+		    unqueue_signals();
 		    return -1;
+		}
 		if (larg == -1)
 		    larg = argc - 1;
 	    } else
@@ -514,8 +517,11 @@ histsubchar(int c)
 	    farg = 0;
 	if (larg == -1)
 	    larg = argc;
-	if (!(sline = getargs(ehist, farg, larg)))
+	if (!(sline = getargs(ehist, farg, larg))) {
+	    unqueue_signals();
 	    return -1;
+	}
+	unqueue_signals();
     }
 
     /* do the modifiers */
@@ -684,7 +690,7 @@ strinbeg(int dohist)
 mod_export void
 strinend(void)
 {
-    hend();
+    hend(NULL);
     DPUTS(!strin, "BUG: strinend() called without strinbeg()");
     strin--;
     isfirstch = 1;
@@ -741,8 +747,13 @@ mod_export void
 hbegin(int dohist)
 {
     isfirstln = isfirstch = 1;
-    errflag = histdone = spaceflag = 0;
-    stophist = (!dohist || !interact || unset(SHINSTDIN)) ? 2 : 0;
+    errflag = histdone = 0;
+    if (!dohist)
+	stophist = 2;
+    else if (dohist != 2)
+	stophist = (!interact || unset(SHINSTDIN)) ? 2 : 0;
+    else
+	stophist = 0;
     if (stophist == 2 || (inbufflags & INP_ALIAS)) {
 	chline = hptr = NULL;
 	hlinesz = 0;
@@ -768,11 +779,9 @@ hbegin(int dohist)
     }
     chwordpos = 0;
 
-    if (histactive & HA_JUNKED)
-	curhist--;
     if (hist_ring && !hist_ring->ftim)
 	hist_ring->ftim = time(NULL);
-    if (interact && isset(SHINSTDIN) && !strin) {
+    if ((dohist == 2 || (interact && isset(SHINSTDIN))) && !strin) {
 	histactive = HA_ACTIVE;
 	attachtty(mypgrp);
 	linkcurline();
@@ -785,16 +794,19 @@ hbegin(int dohist)
 void
 histreduceblanks(void)
 {
-    int i, len, pos, needblank;
+    int i, len, pos, needblank, spacecount = 0;
 
-    for (i = 0, len = 0; i < chwordpos; i += 2) {
+    if (isset(HISTIGNORESPACE))
+	while (chline[spacecount] == ' ') spacecount++;
+
+    for (i = 0, len = spacecount; i < chwordpos; i += 2) {
 	len += chwords[i+1] - chwords[i]
 	     + (i > 0 && chwords[i] > chwords[i-1]);
     }
     if (chline[len] == '\0')
 	return;
 
-    for (i = 0, pos = 0; i < chwordpos; i += 2) {
+    for (i = 0, pos = spacecount; i < chwordpos; i += 2) {
 	len = chwords[i+1] - chwords[i];
 	needblank = (i < chwordpos-2 && chwords[i+2] > chwords[i+1]);
 	if (pos != chwords[i]) {
@@ -882,21 +894,19 @@ gethistent(int ev, int nearmatch)
 
     if (ev - hist_ring->down->histnum < hist_ring->histnum - ev) {
 	for (he = hist_ring->down; he->histnum < ev; he = he->down) ;
-	if (nearmatch == 0) {
-	    if (he->histnum != ev)
+	if (he->histnum != ev) {
+	    if (nearmatch == 0
+	     || (nearmatch < 0 && (he = up_histent(he)) == NULL))
 		return NULL;
 	}
-	else if (nearmatch < 0 && (he = up_histent(he)) == NULL)
-	    return NULL;
     }
     else {
 	for (he = hist_ring; he->histnum > ev; he = he->up) ;
-	if (nearmatch == 0) {
-	    if (he->histnum != ev)
+	if (he->histnum != ev) {
+	    if (nearmatch == 0
+	     || (nearmatch > 0 && (he = down_histent(he)) == NULL))
 		return NULL;
 	}
-	else if (nearmatch > 0 && (he = down_histent(he)) == NULL)
-	    return NULL;
     }
 
     checkcurline(he);
@@ -952,17 +962,58 @@ prepnexthistent(void)
     return he;
 }
 
+/* A helper function for hend() */
+
+static int
+should_ignore_line(Eprog prog)
+{
+    if (!prog)
+	return 0;
+
+    if (isset(HISTIGNORESPACE)) {
+	if (*chline == ' ' || aliasspaceflag)
+	    return 1;
+    }
+
+    if (isset(HISTNOFUNCTIONS)) {
+	Wordcode pc = prog->prog;
+	wordcode code = *pc;
+	if (wc_code(code) == WC_LIST && WC_LIST_TYPE(code) & Z_SIMPLE
+	 && wc_code(pc[2]) == WC_FUNCDEF)
+	    return 1;
+    }
+
+    if (isset(HISTNOSTORE)) {
+	char *b = getjobtext(prog, NULL);
+	if (*b == 'b' && strncmp(b, "builtin ", 8) == 0)
+	    b += 8;
+	if (*b == 'h' && strncmp(b, "history", 7) == 0
+	 && (!b[7] || b[7] == ' '))
+	    return 1;
+	if (*b == 'f' && b[1] == 'c' && b[2] == ' ' && b[3] == '-') {
+	    b += 3;
+	    do {
+		if (*++b == 'l')
+		    return 1;
+	    } while (ialpha(*b));
+	}
+    }
+
+    return 0;
+}
+
 /* say we're done using the history mechanism */
 
 /**/
 mod_export int
-hend(void)
+hend(Eprog prog)
 {
     int flag, save = 1;
-    char *hf = getsparam("HISTFILE");
+    char *hf;
 
     DPUTS(stophist != 2 && !(inbufflags & INP_ALIAS) && !chline,
 	  "BUG: chline is NULL in hend()");
+    queue_signals();
     if (histdone & HISTFLAG_SETTY)
 	settyinfo(&shttyinfo);
     if (!(histactive & HA_NOINC))
@@ -972,14 +1023,18 @@ hend(void)
 	zfree(chwords, chwordlen*sizeof(short));
 	chline = NULL;
 	histactive = 0;
+	unqueue_signals();
 	return 1;
     }
     if (hist_ignore_all_dups != isset(HISTIGNOREALLDUPS)
      && (hist_ignore_all_dups = isset(HISTIGNOREALLDUPS)) != 0)
 	histremovedups();
     /* For history sharing, lock history file once for both read and write */
-    if (isset(SHAREHISTORY) && lockhistfile(hf, 0))
+    hf = getsparam("HISTFILE");
+    if (isset(SHAREHISTORY) && lockhistfile(hf, 0)) {
 	readhistfile(hf, 0, HFILE_USE_OPTIONS | HFILE_FAST);
+	curline.histnum = curhist+1;
+    }
     flag = histdone;
     histdone = 0;
     if (hptr < chline + 1)
@@ -992,9 +1047,10 @@ hend(void)
 	    } else
 		save = 0;
 	}
-	if (!*chline || !strcmp(chline, "\n") ||
-	    (isset(HISTIGNORESPACE) && spaceflag))
+	if (chwordpos <= 2)
 	    save = 0;
+	else if (should_ignore_line(prog))
+	    save = -1;
     }
     if (flag & (HISTFLAG_DONE | HISTFLAG_RECALL)) {
 	char *ptr;
@@ -1007,17 +1063,24 @@ hend(void)
 	}
 	if (flag & HISTFLAG_RECALL) {
 	    zpushnode(bufstack, ptr);
-
 	    save = 0;
 	} else
 	    zsfree(ptr);
     }
+    if (save || *chline == ' ') {
+	Histent he;
+	for (he = hist_ring; he && he->flags & HIST_FOREIGN;
+	     he = up_histent(he)) ;
+	if (he && he->flags & HIST_TMPSTORE) {
+	    if (he == hist_ring)
+		curline.histnum = curhist--;
+	    freehistnode((HashNode)he);
+	}
+    }
     if (save) {
 	Histent he;
-	int keepflags;
+	int newflags;
 
-	for (he = hist_ring; he && he->flags & hist_skip_flags;
-	     he = up_histent(he)) ;
 #ifdef DEBUG
 	/* debugging only */
 	if (chwordpos%2) {
@@ -1026,62 +1089,48 @@ hend(void)
 	}
 #endif
 	/* get rid of pesky \n which we've already nulled out */
-	if (chwordpos > 1 && !chline[chwords[chwordpos-2]])
+	if (chwordpos > 1 && !chline[chwords[chwordpos-2]]) {
 	    chwordpos -= 2;
-	/* strip superfluous blanks, if desired */
-	if (isset(HISTREDUCEBLANKS))
-	    histreduceblanks();
-	if ((isset(HISTIGNOREDUPS) || isset(HISTIGNOREALLDUPS)) && he
-	 && histstrcmp(chline, he->text) == 0) {
+	    /* strip superfluous blanks, if desired */
+	    if (isset(HISTREDUCEBLANKS))
+		histreduceblanks();
+	}
+	newflags = save > 0? 0 : HIST_OLD | HIST_TMPSTORE;
+	if ((isset(HISTIGNOREDUPS) || isset(HISTIGNOREALLDUPS)) && save > 0
+	 && hist_ring && histstrcmp(chline, hist_ring->text) == 0) {
 	    /* This history entry compares the same as the previous.
 	     * In case minor changes were made, we overwrite the
 	     * previous one with the current one.  This also gets the
 	     * timestamp right.  Perhaps, preserve the HIST_OLD flag.
 	     */
-	    keepflags = he->flags & HIST_OLD; /* Avoid re-saving */
+	    he = hist_ring;
+	    newflags |= he->flags & HIST_OLD; /* Avoid re-saving */
 	    freehistdata(he, 0);
-	} else {
-	    keepflags = 0;
+	    curline.histnum = curhist;
+	} else
 	    he = prepnexthistent();
-	}
 
 	he->text = ztrdup(chline);
 	he->stim = time(NULL);
 	he->ftim = 0L;
-	he->flags = keepflags;
+	he->flags = newflags;
 
 	if ((he->nwords = chwordpos/2)) {
 	    he->words = (short *)zalloc(chwordpos * sizeof(short));
 	    memcpy(he->words, chwords, chwordpos * sizeof(short));
 	}
-	addhistnode(histtab, he->text, he);
+	if (!(newflags & HIST_TMPSTORE))
+	    addhistnode(histtab, he->text, he);
     }
     zfree(chline, hlinesz);
     zfree(chwords, chwordlen*sizeof(short));
     chline = NULL;
     histactive = 0;
-    if (isset(SHAREHISTORY) || isset(INCAPPENDHISTORY))
+    if (isset(SHAREHISTORY)? histfileIsLocked() : isset(INCAPPENDHISTORY))
 	savehistfile(hf, 0, HFILE_USE_OPTIONS | HFILE_FAST);
     unlockhistfile(hf); /* It's OK to call this even if we aren't locked */
+    unqueue_signals();
     return !(flag & HISTFLAG_NOEXEC || errflag);
-}
-
-/* remove the current line from the history List */
-
-/**/
-void
-remhist(void)
-{
-    if (hist_ring == &curline)
-	return;
-    if (!(histactive & HA_ACTIVE)) {
-	if (!(histactive & HA_JUNKED)) {
-	    freehistnode((HashNode)hist_ring);
-	    histactive |= HA_JUNKED;
-	    /* curhist-- is delayed until the next hbegin() */
-	}
-    } else
-	histactive |= HA_NOSTORE;
 }
 
 /* Gives current expansion word if not last word before chwordpos. */
@@ -1308,28 +1357,45 @@ hcomsearch(char *str)
 int
 remtpath(char **junkptr)
 {
-    char *str = *junkptr, *remcut;
+    char *str = strend(*junkptr);
 
-    if ((remcut = strrchr(str, '/'))) {
-	if (str != remcut)
-	    *remcut = '\0';
-	else
-	    str[1] = '\0';
-	return 1;
+    /* ignore trailing slashes */
+    while (str >= *junkptr && IS_DIRSEP(*str))
+	--str;
+    /* skip filename */
+    while (str >= *junkptr && !IS_DIRSEP(*str))
+	--str;
+    if (str < *junkptr) {
+	*junkptr = dupstring (".");
+	return 0;
     }
-    return 0;
+    /* repeated slashes are considered like a single slash */
+    while (str > *junkptr && IS_DIRSEP(str[-1]))
+	--str;
+    /* never erase the root slash */
+    if (str == *junkptr) {
+	++str;
+	/* Leading doubled slashes (`//') have a special meaning on cygwin
+	   and some old flavor of UNIX, so we do not assimilate them to
+	   a single slash.  However a greater number is ok to squeeze. */
+	if (IS_DIRSEP(*str) && !IS_DIRSEP(str[1]))
+	    ++str;
+    }
+    *str = '\0';
+    return 1;
 }
 
 /**/
 int
 remtext(char **junkptr)
 {
-    char *str = *junkptr, *remcut;
+    char *str;
 
-    if ((remcut = strrchr(str, '.')) && remcut != str) {
-	*remcut = '\0';
-	return 1;
-    }
+    for (str = strend(*junkptr); str >= *junkptr && !IS_DIRSEP(*str); --str)
+	if (*str == '.') {
+	    *str = '\0';
+	    return 1;
+	}
     return 0;
 }
 
@@ -1337,12 +1403,15 @@ remtext(char **junkptr)
 int
 rembutext(char **junkptr)
 {
-    char *str = *junkptr, *remcut;
+    char *str;
 
-    if ((remcut = strrchr(str, '.')) && remcut != str) {
-	*junkptr = dupstring(remcut + 1);	/* .xx or xx? */
-	return 1;
-    }
+    for (str = strend(*junkptr); str >= *junkptr && !IS_DIRSEP(*str); --str)
+	if (*str == '.') {
+	    *junkptr = dupstring(str + 1); /* .xx or xx? */
+	    return 1;
+	}
+    /* no extension */
+    *junkptr = dupstring ("");
     return 0;
 }
 
@@ -1350,13 +1419,20 @@ rembutext(char **junkptr)
 mod_export int
 remlpaths(char **junkptr)
 {
-    char *str = *junkptr, *remcut;
+    char *str = strend(*junkptr);
 
-    if ((remcut = strrchr(str, '/'))) {
-	*remcut = '\0';
-	*junkptr = dupstring(remcut + 1);
-	return 1;
+    if (IS_DIRSEP(*str)) {
+	/* remove trailing slashes */
+	while (str >= *junkptr && IS_DIRSEP(*str))
+	    --str;
+	str[1] = '\0';
     }
+    for (; str >= *junkptr; --str)
+	if (IS_DIRSEP(*str)) {
+	    *str = '\0';
+	    *junkptr = dupstring(str + 1);
+	    return 1;
+	}
     return 0;
 }
 
@@ -1695,7 +1771,7 @@ readhistfile(char *fn, int err, int readflags)
     if (!fn && !(fn = getsparam("HISTFILE")))
 	return;
     if (readflags & HFILE_FAST) {
-	if (stat(fn, &sb) < 0
+	if (stat(unmeta(fn), &sb) < 0
 	 || (lasthist.fsiz == sb.st_size && lasthist.mtim == sb.st_mtime)
 	 || !lockhistfile(fn, 0))
 	    return;
@@ -1831,8 +1907,10 @@ readhistfile(char *fn, int err, int readflags)
 	    } else
 		he->words = (short *)NULL;
 	    addhistnode(histtab, he->text, he);
-	    if (hist_ring != he)
-		curhist--; /* We discarded a foreign duplicate */
+	    if (he->flags & HIST_DUP) {
+		freehistnode((HashNode)he);
+		curhist--;
+	    }
 	}
 	if (start && readflags & HFILE_USE_OPTIONS) {
 	    zsfree(lasthist.text);
@@ -1900,7 +1978,8 @@ savehistfile(char *fn, int err, int writeflags)
     if (out) {
 	for (; he && he->histnum <= xcurhist; he = down_histent(he)) {
 	    if ((writeflags & HFILE_SKIPDUPS && he->flags & HIST_DUP)
-	     || (writeflags & HFILE_SKIPFOREIGN && he->flags & HIST_FOREIGN))
+	     || (writeflags & HFILE_SKIPFOREIGN && he->flags & HIST_FOREIGN)
+	     || he->flags & HIST_TMPSTORE)
 		continue;
 	    if (writeflags & HFILE_SKIPOLD) {
 		if (he->flags & HIST_OLD)
@@ -1980,17 +2059,23 @@ lockhistfile(char *fn, int keep_trying)
 	return 0;
     if (!lockhistct++) {
 	struct stat sb;
-	int fd, len = strlen(fn);
-	char *tmpfile, *lockfile;
+	int fd, len;
+	char *lockfile;
+#ifdef HAVE_LINK
+	char *tmpfile;
+#endif
 
+	fn = unmeta(fn);
+	len = strlen(fn);
+	lockfile = zalloc(len + 5 + 1);
+	sprintf(lockfile, "%s.LOCK", fn);
 #ifdef HAVE_LINK
 	tmpfile = zalloc(len + 10 + 1);
 	sprintf(tmpfile, "%s.%ld", fn, (long)mypid);
-	if ((fd = open(tmpfile, O_RDWR|O_CREAT|O_EXCL, 0644)) >= 0) {
-	    write(fd, "0\n", 2);
+	unlink(tmpfile); /* NFS's O_EXCL is often broken... */
+	if ((fd = open(tmpfile, O_WRONLY|O_CREAT|O_EXCL, 0644)) >= 0) {
+	    write(fd, tmpfile+len+1, strlen(tmpfile+len+1));
 	    close(fd);
-	    lockfile = zalloc(len + 5 + 1);
-	    sprintf(lockfile, "%s.LOCK", fn);
 	    while (link(tmpfile, lockfile) < 0) {
 		if (stat(lockfile, &sb) < 0) {
 		    if (errno == ENOENT)
@@ -2006,25 +2091,33 @@ lockhistfile(char *fn, int keep_trying)
 		lockhistct--;
 		break;
 	    }
-	    free(lockfile);
+	    unlink(tmpfile);
 	}
-	unlink(tmpfile);
 	free(tmpfile);
 #else /* not HAVE_LINK */
-	lockfile = zalloc(len + 5 + 1);
-	sprintf(lockfile, "%s.LOCK", fn);
-	while ((fd = open(lockfile, O_CREAT|O_EXCL, 0644)) < 0) {
-		if (errno == EEXIST) continue;
-		else if (keep_trying) {
-		    if (time(NULL) - sb.st_mtime < 10)
-			sleep(1);
-		    continue;
-		}
-		lockhistct--;
+	while ((fd = open(lockfile, O_WRONLY|O_CREAT|O_EXCL, 0644)) < 0) {
+	    if (errno != EEXIST || !keep_trying)
 		break;
+	    if (stat(lockfile, &sb) < 0) {
+		if (errno == ENOENT)
+		    continue;
+		break;
+	    }
+	    if (time(NULL) - sb.st_mtime < 10)
+		sleep(1);
+	    else
+		unlink(lockfile);
 	}
+	if (fd < 0)
+	    lockhistct--;
+	else {
+	    char buf[16];
+	    sprintf(buf, "%ld", (long)mypid);
+	    write(fd, buf, strlen(buf));
+	    close(fd);
+	}
+#endif /* not HAVE_LINK */
 	free(lockfile);
-#endif /* HAVE_LINK */
     }
     return ct != lockhistct;
 }
@@ -2044,11 +2137,20 @@ unlockhistfile(char *fn)
 	    lockhistct = 0;
     }
     else {
-	char *lockfile = zalloc(strlen(fn) + 5 + 1);
+	char *lockfile;
+	fn = unmeta(fn);
+	lockfile = zalloc(strlen(fn) + 5 + 1);
 	sprintf(lockfile, "%s.LOCK", fn);
 	unlink(lockfile);
 	free(lockfile);
     }
+}
+
+/**/
+int
+histfileIsLocked(void)
+{
+    return lockhistct > 0;
 }
 
 /* Get the words in the current buffer. Using the lexer. */
@@ -2057,8 +2159,9 @@ unlockhistfile(char *fn)
 mod_export LinkList
 bufferwords(LinkList list, char *buf, int *index)
 {
-    int num = 0, cur = -1, got = 0, ne = noerrs, ocs = cs;
-    int owb = wb, owe = we, oadx = addedx, ozp = zleparse;
+    int num = 0, cur = -1, got = 0, ne = noerrs, ocs = cs, oll = ll;
+    int owb = wb, owe = we, oadx = addedx, ozp = zleparse, onc = nocomments;
+    int ona = noaliases;
     char *p;
 
     if (!list)
@@ -2076,7 +2179,8 @@ bufferwords(LinkList list, char *buf, int *index)
 	p[l] = ' ';
 	p[l + 1] = '\0';
 	inpush(p, 0, NULL);
-	cs = 0;
+	cs = strlen(p) + 1;
+	nocomments = 1;
     } else if (!isfirstln && chline) {
 	p = (char *) zhalloc(hptr - chline + ll + 2);
 	memcpy(p, chline, hptr - chline);
@@ -2092,11 +2196,16 @@ bufferwords(LinkList list, char *buf, int *index)
 	p[ll + 1] = '\0';
 	inpush(p, 0, NULL);
     }
+    ll = strlen(p);
     if (cs)
 	cs--;
     strinbeg(0);
     noaliases = 1;
     do {
+	if (incond)
+	    incond = 1 + (tok != DINBRACK && tok != INPAR &&
+			  tok != DBAR && tok != DAMPER &&
+			  tok != BANG);
 	ctxtlex();
 	if (tok == ENDINPUT || tok == LEXERR)
 	    break;
@@ -2128,14 +2237,16 @@ bufferwords(LinkList list, char *buf, int *index)
     }
     if (cur < 0 && num)
 	cur = num - 1;
-    noaliases = 0;
+    noaliases = ona;
     strinend();
     inpop();
     errflag = 0;
     zleparse = ozp;
+    nocomments = onc;
     noerrs = ne;
     lexrestore();
     cs = ocs;
+    ll = oll;
     wb = owb;
     we = owe;
     addedx = oadx;

@@ -58,7 +58,7 @@ contain the definitions for all functions in the directory named
 var(element).  The file is treated in the same manner as a directory
 containing files for functions and is searched for the definition of the
 function.   If the definition is not found, the search for a definition
-proceeds with the the other two possibilities described below.
+proceeds with the other two possibilities described below.
 
 If var(element) already includes a tt(.zwc) extension (i.e. the extension
 was explicitly given by the user), var(element) is searched for the
@@ -172,8 +172,14 @@ Executed before each prompt.
 findex(preexec)
 item(tt(preexec))(
 Executed just after a command has been read and is about to be
-executed.  If the history mechanism is active, the string to be
-executed is passed as an argument.
+executed.  If the history mechanism is active (and the line was not
+discarded from the history buffer), the string that the user typed is
+passed as the first argument, otherwise it is an empty string.  The
+actual command that will be executed (including expanded aliases) is
+passed in two different forms: the second argument is a single-line,
+size-limited version of the command (with things like function bodies
+elided); the third argument contains the full text what what is being
+executed.
 )
 item(tt(TRAP)var(NAL))(
 cindex(signals, trapping)

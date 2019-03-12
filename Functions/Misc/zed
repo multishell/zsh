@@ -19,6 +19,11 @@ integer TMOUT=0
 
 [[ -z "$1" ]] && echo 'Usage: "zed filename" or "zed -f function"' && return 1
 
+local curcontext=zed:::
+
+zstyle -m ":completion:zed:*" insert-tab '*' ||
+    zstyle ":completion:zed:*" insert-tab yes
+
 # catch interrupts
 cleanup="$(bindkey -L "^M"; bindkey -L -M emacs "^X^W"; bindkey -aL "ZZ"
     echo "trap - INT EXIT"; trap)"
@@ -36,7 +41,7 @@ bindkey -a "ZZ" accept-line
 if ((fun)) then
   var="$(functions $1)"
   # If function is undefined but autoloadable, load it
-  if [[ $var = undefined* ]] then
+  if [[ $var = *\#\ undefined* ]] then
     local dir
     for dir in $fpath; do
       if [[ -f $dir/$1 ]] then
@@ -50,7 +55,7 @@ $(<$dir/$1)
     var="$1() {
 }"
   fi
-  vared var && eval function "$var"
+  vared var && eval "$cleanup ;" function "$var"
 else
   [[ -f $1 ]] && var="$(<$1)"
   while vared var

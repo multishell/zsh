@@ -30,6 +30,12 @@
 #include "complete.mdh"
 #include "compresult.pro"
 
+/* This counts how often the list of completions was invalidated.
+ * Can be used to detect if we have a new list.  */
+
+/**/
+mod_export int invcount;
+
 #define inststr(X) inststrlen((X),1,-1)
 
 /* This cuts the cline list before the stuff that isn't worth
@@ -148,22 +154,25 @@ cut_cline(Cline l)
     return l;
 }
 
-/* This builds the unambiguous string. If ins is non-zero, it is
- * immediatly inserted in the line. Otherwise csp is used to return
- * the relative cursor position in the string returned. */
+/* This builds the unambiguous string. If ins is one, it is immediately
+ * inserted into the line. Otherwise csp is used to return the relative
+ * cursor position in the string returned and posl contains all 
+ * positions with missing or ambiguous characters. If ins is two, csp
+ * and posl contain real command line positions (including braces). */
 
 /**/
 static char *
-cline_str(Cline l, int ins, int *csp)
+cline_str(Cline l, int ins, int *csp, LinkList posl)
 {
     Cline s;
-    int ocs = cs, ncs, pcs, scs, pm, pmax, pmm, sm, smax, smm, d, dm, mid;
-    int i, j, li = 0, cbr;
+    int ocs = cs, ncs, pcs, scs, opos = -1, npos;
+    int pm, pmax, pmm, pma, sm, smax, smm, sma, d, dm, mid;
+    int i, j, li = 0, cbr, padd = (ins ? wb - ocs : -ocs);
     Brinfo brp, brs;
 
     l = cut_cline(l);
 
-    pmm = smm = dm = pcs = scs = 0;
+    pmm = pma = smm = sma = dm = pcs = scs = 0;
     pm = pmax = sm = smax = d = mid = cbr = -1;
     brp = brs = NULL;
 
@@ -215,6 +224,10 @@ cline_str(Cline l, int ins, int *csp)
 
 		if ((s->flags & CLF_DIFF) && (!dm || (s->flags & CLF_MATCHED))) {
 		    d = cs; dm = s->flags & CLF_MATCHED;
+		    if (posl && (npos = cs + padd) != opos) {
+			opos = npos;
+			addlinknode(posl, (void *) ((long) npos));
+		    }
 		}
 		li += s->llen;
 	    }
@@ -235,10 +248,17 @@ cline_str(Cline l, int ins, int *csp)
 	}
 	/* Remember the position if this is the first prefix with
 	 * missing characters. */
-	if ((l->flags & CLF_MISS) && !(l->flags & CLF_SUF) &&
-	    ((pmax < (l->min - l->max) && (!pmm || (l->flags & CLF_MATCHED))) ||
-	     ((l->flags & CLF_MATCHED) && !pmm))) {
-	    pm = cs; pmax = l->min - l->max; pmm = l->flags & CLF_MATCHED;
+	if ((l->flags & CLF_MISS) && !(l->flags & CLF_SUF)) {
+	    if (posl && (npos = cs + padd) != opos) {
+		opos = npos;
+		addlinknode(posl, (void *) ((long) npos));
+	    }
+	    if (((pmax <= (l->max - l->min) || (pma && l->max != l->min)) &&
+		 (!pmm || (l->flags & CLF_MATCHED))) ||
+		((l->flags & CLF_MATCHED) && !pmm)) {
+		pm = cs; pmax = l->max - l->min; pmm = l->flags & CLF_MATCHED;
+		pma = ((l->prefix || l->suffix) && l->min == cline_sublen(l));
+	    }
 	}
 	if (ins) {
 	    int ocs, bl;
@@ -282,11 +302,17 @@ cline_str(Cline l, int ins, int *csp)
 	if (l->flags & CLF_MISS) {
 	    if (l->flags & CLF_MID)
 		mid = cs;
-	    else if ((l->flags & CLF_SUF) && 
-		     ((smax < (l->min - l->max) &&
-		       (!smm || (l->flags & CLF_MATCHED))) ||
-		      ((l->flags & CLF_MATCHED) && !smm))) {
-		sm = cs; smax = l->min - l->max; smm = l->flags & CLF_MATCHED;
+	    else if (l->flags & CLF_SUF) {
+		if (posl && (npos = cs + padd) != opos) {
+		    opos = npos;
+		    addlinknode(posl, (void *) ((long) npos));
+		}
+		if (((smax <= (l->min - l->max) || (sma && l->max != l->min)) &&
+		     (!smm || (l->flags & CLF_MATCHED))) ||
+		    ((l->flags & CLF_MATCHED) && !smm)) {
+		    sm = cs; smax = l->min - l->max; smm = l->flags & CLF_MATCHED;
+		    sma = ((l->prefix || l->suffix) && l->min == cline_sublen(l));
+		}
 	    }
 	}
 	if (ins) {
@@ -379,10 +405,22 @@ cline_str(Cline l, int ins, int *csp)
 	    cs += i;
 	    if (j >= 0 && (!dm || (js->flags & CLF_MATCHED))) {
 		d = cs - j; dm = js->flags & CLF_MATCHED;
+		if (posl && (npos = cs - j + padd) != opos) {
+		    opos = npos;
+		    addlinknode(posl, (void *) ((long) npos));
+		}
 	    }
 	}
 	l = l->next;
     }
+    if (posl && (npos = cs + padd) != opos)
+#if 0
+	/* This could be used to put an extra colon before the end-of-word
+	 * position if there is nothing missing. */
+	addlinknode(posl, (void *) ((long) -npos));
+#endif
+	addlinknode(posl, (void *) ((long) npos));
+
     if (ins) {
 	int ocs = cs;
 
@@ -401,16 +439,27 @@ cline_str(Cline l, int ins, int *csp)
 	    sm += cs - ocs;
 	if (d >= ocs)
 	    d += cs - ocs;
+
+	if (posl) {
+	    LinkNode node;
+	    long p;
+
+	    for (node = firstnode(posl); node; incnode(node)) {
+		p = (long) getdata(node);
+		if (p >= ocs)
+		    setdata(node, (void *) (p + cs - ocs));
+	    }
+	}
     }
     /* This calculates the new cursor position. If we had a mid cline
      * with missing characters, we take this, otherwise if we have a
      * prefix with missing characters, we take that, the same for a
      * suffix, and finally a place where the matches differ. */
-    ncs = (cbr >= 0 ? cbr :
-	   (mid >= 0 ? mid :
+    ncs = (mid >= 0 ? mid :
+	   (cbr >= 0 ? cbr :
 	    (pm >= 0 ? pm : (sm >= 0 ? sm : (d >= 0 ? d : cs)))));
 
-    if (!ins) {
+    if (ins != 1) {
 	/* We always inserted the string in the line. If that was not
 	 * requested, we copy it and remove from the line. */
 	char *r = zalloc((i = cs - ocs) + 1);
@@ -420,7 +469,8 @@ cline_str(Cline l, int ins, int *csp)
 	cs = ocs;
 	foredel(i);
 
-	*csp = ncs - ocs;
+	if (csp)
+	    *csp = ncs - ocs;
 
 	return r;
     }
@@ -430,31 +480,90 @@ cline_str(Cline l, int ins, int *csp)
     return NULL;
 }
 
+/* Small utility function turning a list of positions into a colon
+ * separated string. */
+
+static char *
+build_pos_string(LinkList list)
+{
+    LinkNode node;
+    int l;
+    char buf[40], *s;
+    long p;
+
+    for (node = firstnode(list), l = 0; node; incnode(node)) {
+	p = (long) getdata(node);
+#if 0
+	/* This could be used to put an extra colon before the end-of-word
+	 * position if there is nothing missing. */
+	if (p < 0)
+	    sprintf(buf, ":%ld", -p);
+	else
+#endif
+	    sprintf(buf, "%ld", p);
+	setdata(node, dupstring(buf));
+	l += 1 + strlen(buf);
+    }
+    s = (char *) zalloc(l * sizeof(char));
+    *s = 0;
+    for (node = firstnode(list); node;) {
+	strcat(s, (char *) getdata(node));
+	incnode(node);
+	if (node)
+	    strcat(s, ":");
+    }
+    return s;
+}
+
 /* This is a utility function using the function above to allow access
  * to the unambiguous string and cursor position via compstate. */
 
 /**/
 char *
-unambig_data(int *cp)
+unambig_data(int *cp, char **pp, char **ip)
 {
-    static char *scache = NULL;
+    static char *scache = NULL, *pcache = NULL, *icache = NULL;
     static int ccache;
 
     if (mnum && ainfo) {
 	if (mnum != unambig_mnum) {
+	    LinkList list = newlinklist();
+
 	    zsfree(scache);
 	    scache = cline_str((ainfo->count ? ainfo->line : fainfo->line),
-			       0, &ccache);
+			       0, &ccache, list);
+	    zsfree(pcache);
+	    if (empty(list))
+		pcache = ztrdup("");
+	    else
+		pcache = build_pos_string(list);
+
+	    zsfree(icache);
+
+	    list = newlinklist();
+	    zsfree(cline_str((ainfo->count ? ainfo->line : fainfo->line),
+			     2, NULL, list));
+	    if (empty(list))
+		icache = ztrdup("");
+	    else
+		icache = build_pos_string(list);
 	}
     } else if (mnum != unambig_mnum || !ainfo || !scache) {
 	zsfree(scache);
 	scache = ztrdup("");
+	zsfree(pcache);
+	pcache = ztrdup("");
+	zsfree(icache);
+	icache = ztrdup("");
 	ccache = 0;
     }
     unambig_mnum = mnum;
     if (cp)
 	*cp = ccache + 1;
-
+    if (pp)
+	*pp = pcache;
+    if (ip)
+	*ip = icache;
     return scache;
 }
 
@@ -570,36 +679,40 @@ instmatch(Cmatch m, int *scs)
 mod_export int
 hasbrpsfx(Cmatch m, char *pre, char *suf)
 {
-    char *op = lastprebr, *os = lastpostbr;
-    VARARR(char, oline, ll);
-    int oll = ll, ocs = cs, ole = lastend, opcs = brpcs, oscs = brscs, ret;
+    if (m->flags & CMF_ALL)
+	return 1;
+    else {
+	char *op = lastprebr, *os = lastpostbr;
+	VARARR(char, oline, ll);
+	int oll = ll, ocs = cs, ole = lastend, opcs = brpcs, oscs = brscs, ret;
 
-    memcpy(oline, line, ll);
+	memcpy(oline, line, ll);
 
-    lastprebr = lastpostbr = NULL;
+	lastprebr = lastpostbr = NULL;
 
-    instmatch(m, NULL);
+	instmatch(m, NULL);
 
-    cs = 0;
-    foredel(ll);
-    spaceinline(oll);
-    memcpy(line, oline, oll);
-    cs = ocs;
-    lastend = ole;
-    brpcs = opcs;
-    brscs = oscs;
+	cs = 0;
+	foredel(ll);
+	spaceinline(oll);
+	memcpy(line, oline, oll);
+	cs = ocs;
+	lastend = ole;
+	brpcs = opcs;
+	brscs = oscs;
 
-    ret = (((!pre && !lastprebr) ||
-	    (pre && lastprebr && !strcmp(pre, lastprebr))) &&
-	   ((!suf && !lastpostbr) ||
-	    (suf && lastpostbr && !strcmp(suf, lastpostbr))));
+	ret = (((!pre && !lastprebr) ||
+		(pre && lastprebr && !strcmp(pre, lastprebr))) &&
+	       ((!suf && !lastpostbr) ||
+		(suf && lastpostbr && !strcmp(suf, lastpostbr))));
 
-    zsfree(lastprebr);
-    zsfree(lastpostbr);
-    lastprebr = op;
-    lastpostbr = os;
+	zsfree(lastprebr);
+	zsfree(lastpostbr);
+	lastprebr = op;
+	lastpostbr = os;
 
-    return ret;
+	return ret;
+    }
 }
 
 /* Handle the case were we found more than one match. */
@@ -651,7 +764,7 @@ do_ambiguous(void)
 	foredel(we - wb);
 
 	/* Now get the unambiguous string and insert it into the line. */
-	cline_str(ainfo->line, 1, NULL);
+	cline_str(ainfo->line, 1, NULL, NULL);
 
 	/* Sometimes the different match specs used may result in a cline
 	 * that gives an empty string. If that happened, we re-insert the
@@ -709,7 +822,7 @@ do_ambiguous(void)
 
     /* At this point, we might want a completion listing.  Show the listing *
      * if it is needed.                                                     */
-    if (isset(LISTBEEP))
+    if (isset(LISTBEEP) && !oldlist)
 	ret = 1;
 
     if (uselist && (usemenu != 2 || (!listshown && !oldlist)) &&
@@ -731,19 +844,80 @@ do_ambiguous(void)
 mod_export int
 ztat(char *nam, struct stat *buf, int ls)
 {
-    char b[PATH_MAX], *p;
-
     if (!(ls ? lstat(nam, buf) : stat(nam, buf)))
 	return 0;
+    else {
+	char *p;
+	VARARR(char, b, strlen(nam) + 1);
 
-    for (p = b; p < b + sizeof(b) - 1 && *nam; nam++)
-	if (*nam == '\\' && nam[1])
-	    *p++ = *++nam;
-	else
-	    *p++ = *nam;
-    *p = '\0';
+	for (p = b; *nam; nam++)
+	    if (*nam == '\\' && nam[1])
+		*p++ = *++nam;
+	    else
+		*p++ = *nam;
+	*p = '\0';
+	
+	return ls ? lstat(b, buf) : stat(b, buf);
+    }
+}
 
-    return ls ? lstat(b, buf) : stat(b, buf);
+/* Insert all matches in the command line. */
+
+/**/
+void
+do_allmatches(int end)
+{
+    int first = 1, nm = nmatches - 1, omc = menucmp, oma = menuacc, e;
+    Cmatch *mc;
+    struct menuinfo mi;
+    char *p = (brbeg ? ztrdup(lastbrbeg->str) : NULL);
+
+    memcpy(&mi, &minfo, sizeof(struct menuinfo));
+    menucmp = 1;
+    menuacc = 0;
+
+    for (minfo.group = amatches;
+	 minfo.group && !(minfo.group)->mcount;
+	 minfo.group = (minfo.group)->next);
+
+    mc = (minfo.group)->matches;
+
+    while (1) {
+	if (!((*mc)->flags & CMF_ALL)) {
+	    if (!first)
+		accept_last();
+	    first = 0;
+
+	    if (!omc && !--nm)
+		menucmp = 0;
+
+	    do_single(*mc);
+	}
+	minfo.cur = mc;
+
+	if (!*++(minfo.cur)) {
+	    do {
+		if (!(minfo.group = (minfo.group)->next))
+		    break;
+	    } while (!(minfo.group)->mcount);
+	    if (!minfo.group)
+		break;
+	    minfo.cur = minfo.group->matches;
+	}
+	mc = minfo.cur;
+    }
+    menucmp = omc;
+    menuacc = oma;
+
+    e = minfo.end;
+    memcpy(&minfo, &mi, sizeof(struct menuinfo));
+    minfo.end = e;
+    minfo.len = e - minfo.pos;
+
+    if (p) {
+	zsfree(lastbrbeg->str);
+	lastbrbeg->str = p;
+    }
 }
 
 /* Insert a single match in the command line. */
@@ -782,6 +956,10 @@ do_single(Cmatch m)
     minfo.insc = 0;
     cs = minfo.pos;
     foredel(l);
+
+    if (m->flags & CMF_ALL)
+	do_allmatches(0);
+    else {
 
     /* And then we insert the new string. */
     minfo.len = instmatch(m, &scs);
@@ -954,6 +1132,7 @@ do_single(Cmatch m)
 	runhookdef(INSERTMATCHHOOK, (void *) &dat);
 	minfo.cur = om;
     }
+    }
 }
 
 /* Do completion, given that we are in the middle of a menu completion.  We *
@@ -1093,7 +1272,7 @@ comp_mod(int v, int m)
 /* This handles the beginning of menu-completion. */
 
 /**/
-static void
+void
 do_ambig_menu(void)
 {
     Cmatch *mc;
@@ -1194,6 +1373,8 @@ skipnolist(Cmatch *p, int showall)
 mod_export int
 calclist(int showall)
 {
+    static int lastinvcount = -1;
+
     Cmgroup g;
     Cmatch *p, m;
     Cexpl *e;
@@ -1201,10 +1382,12 @@ calclist(int showall)
     int max = 0, i;
     VARARR(int, mlens, nmatches + 1);
 
-    if (listdat.valid && onlyexpl == listdat.onlyexpl &&
+    if (lastinvcount == invcount &&
+	listdat.valid && onlyexpl == listdat.onlyexpl &&
 	menuacc == listdat.menuacc && showall == listdat.showall &&
 	lines == listdat.lines && columns == listdat.columns)
 	return 0;
+    lastinvcount = invcount;
 
     for (g = amatches; g; g = g->next) {
 	char **pp = g->ylist;
@@ -1215,9 +1398,12 @@ calclist(int showall)
 	if (!onlyexpl && pp) {
 	    /* We have an ylist, lets see, if it contains newlines. */
 	    hidden = 1;
-	    while (!nl && *pp)
-		nl = !!strchr(*pp++, '\n');
-
+	    while (!nl && *pp) {
+                if (ztrlen(*pp) >= columns)
+                    nl = 1;
+                else
+                    nl = !!strchr(*pp++, '\n');
+            }
 	    pp = g->ylist;
 	    if (nl || !pp[1]) {
 		/* Yup, there are newlines, count lines. */
@@ -1228,17 +1414,17 @@ calclist(int showall)
 		while ((sptr = *pp)) {
 		    while (sptr && *sptr) {
 			nlines += (nlptr = strchr(sptr, '\n'))
-			    ? 1 + (nlptr-sptr) / columns
-			    : strlen(sptr) / columns;
+			    ? 1 + (nlptr - sptr - 1) / columns
+			    : (ztrlen(sptr) - 1) / columns;
 			sptr = nlptr ? nlptr+1 : NULL;
 		    }
 		    nlines++;
 		    pp++;
 		}
-		nlines--;
+		/*** nlines--; */
 	    } else {
 		while (*pp) {
-		    l = strlen(*pp);
+		    l = ztrlen(*pp);
 		    ndisp++;
 		    if (l > glong)
 			glong = l;
@@ -1341,7 +1527,7 @@ calclist(int showall)
 			g->width = 1;
 			
 			while (*pp)
-			    glines += 1 + (strlen(*pp++) / columns);
+			    glines += 1 + (ztrlen(*pp++) / columns);
 		    }
 		}
 	    } else {
@@ -1383,7 +1569,7 @@ calclist(int showall)
 		    VARARR(int, ylens, yl);
 
 		    for (i = 0; *pp; i++, pp++)
-			ylens[i] = strlen(*pp) + add;
+			ylens[i] = ztrlen(*pp) + add;
 
 		    if (g->flags & CGF_ROWS) {
 			int count, tcol, first, maxlines = 0, llines;
@@ -1415,7 +1601,7 @@ calclist(int showall)
 				ws[tcol++] = maxlen;
 				width += maxlen;
 			    }
-			    if (!count && width < columns &&
+			    if (!count && width <= columns &&
 				(tcols <= 0 || beg == end))
 				break;
 
@@ -1456,7 +1642,7 @@ calclist(int showall)
 				ws[tcols++] = maxlen;
 				width += maxlen;
 			    }
-			    if (nth == yl && width < columns &&
+			    if (nth == yl && width <= columns &&
 				(beg == end || tlines >= g->lins))
 				break;
 
@@ -1513,7 +1699,7 @@ calclist(int showall)
 			    ws[tcol++] = maxlen;
 			    width += maxlen;
 			}
-			if (!count && width < columns &&
+			if (!count && width <= columns &&
 			    (tcols <= 0 || beg == end))
 			    break;
 
@@ -1562,7 +1748,7 @@ calclist(int showall)
 			    ws[tcols++] = maxlen;
 			    width += maxlen;
 			}
-			if (nth == g->dcount && width < columns &&
+			if (nth == g->dcount && width <= columns &&
 			    (beg == end || tlines >= g->lins))
 			    break;
 
@@ -1730,10 +1916,16 @@ printlist(int over, CLPrintFunc printm, int showall)
 		}
 	    }
 	    if (g->flags & CGF_LINES) {
-		while (*pp) {
-		    zputs(*pp, shout);
-		    if (*++pp)
-			putc('\n', shout);
+                char *p;
+
+		while ((p = *pp++)) {
+		    zputs(p, shout);
+		    if (*pp) {
+                        if (ztrlen(p) % columns)
+                            putc('\n', shout);
+                        else
+                            fputs(" \010", shout);
+                    }
 		}
 	    } else {
 		int n = g->lcount, nl, nc, i, a;
@@ -1816,7 +2008,8 @@ printlist(int over, CLPrintFunc printm, int showall)
 			printm(g, NULL, mc, ml, (!i), wid, NULL, NULL);
 			break;
 		    }
-		    if (!m->disp && (m->flags & CMF_FILE)) {
+		    if (!m->disp && (m->flags & CMF_FILE) &&
+			m->str[0] && m->str[strlen(m->str) - 1] != '/') {
 			struct stat buf;
 			char *pb;
 
@@ -1884,6 +2077,54 @@ printlist(int over, CLPrintFunc printm, int showall)
 }
 
 /**/
+mod_export void
+bld_all_str(Cmatch all)
+{
+    Cmgroup g;
+    Cmatch *mp, m;
+    int len = columns - 5, t, add = 0;
+    VARARR(char, buf, columns + 1);
+
+    buf[0] = '\0';
+
+    for (g = amatches; g && !g->mcount; g = g->next);
+
+    mp = g->matches;
+    while (1) {
+	m = *mp;
+	if (!(m->flags & (CMF_ALL | CMF_HIDE)) && m->str) {
+	    t = strlen(m->str) + add;
+	    if (len >= t) {
+		if (add)
+		    strcat(buf, " ");
+		strcat(buf, m->str);
+		len -= t;
+		add = 1;
+	    } else {
+		if (len > add + 2) {
+		    if (add)
+			strcat(buf, " ");
+		    strncat(buf, m->str, len);
+		}
+		strcat(buf, " ...");
+		break;
+	    }
+	}
+	if (!*++mp) {
+	    do {
+		if (!(g = g->next))
+		    break;
+	    } while (!g->mcount);
+	    if (!g)
+		break;
+	    mp = g->matches;
+	}
+    }
+    zsfree(all->disp);
+    all->disp = ztrdup(buf);
+}
+
+/**/
 static void
 iprintm(Cmgroup g, Cmatch *mp, int mc, int ml, int lastc, int width,
 	char *path, struct stat *buf)
@@ -1895,6 +2136,8 @@ iprintm(Cmgroup g, Cmatch *mp, int mc, int ml, int lastc, int width,
 	return;
 
     m = *mp;
+    if ((m->flags & CMF_ALL) && (!m->disp || !m->disp[0]))
+	bld_all_str(m);
     if (m->disp) {
 	if (m->flags & CMF_DISPLINE) {
 	    printfmt(m->disp, 0, 1, 0);
@@ -1968,10 +2211,11 @@ list_matches(Hookdef dummy, void *dummy2)
 mod_export int
 invalidate_list(void)
 {
+    invcount++;
     if (validlist) {
 	if (showinglist == -2)
 	    zrefresh();
-	freematches(lastmatches);
+	freematches(lastmatches, 1);
 	lastmatches = NULL;
 	hasoldlist = 0;
     }

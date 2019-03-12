@@ -51,6 +51,7 @@ prefork(LinkList list, int flags)
 {
     LinkNode node;
 
+    queue_signals();
     for (node = firstnode(list); node; incnode(node)) {
 	char *str, c;
 
@@ -61,14 +62,18 @@ prefork(LinkList list, int flags)
 		setdata(node, (void *) getproc(str));	/* <(...) or >(...) */
 	    else
 		setdata(node, (void *) getoutputfile(str));	/* =(...) */
-	    if (!getdata(node))
+	    if (!getdata(node)) {
+		unqueue_signals();
 		return;
+	    }
 	} else {
 	    if (isset(SHFILEEXPANSION))
 		filesub((char **)getaddrdata(node),
 			flags & (PF_TYPESET|PF_ASSIGN));
-	    if (!(node = stringsubst(list, node, flags & PF_SINGLE)))
+	    if (!(node = stringsubst(list, node, flags & PF_SINGLE))) {
+		unqueue_signals();
 		return;
+	    }
 	}
     }
     for (node = firstnode(list); node; incnode(node)) {
@@ -82,9 +87,12 @@ prefork(LinkList list, int flags)
 			flags & (PF_TYPESET|PF_ASSIGN));
 	} else if (!(flags & PF_SINGLE))
 	    uremnode(list, node);
-	if (errflag)
+	if (errflag) {
+	    unqueue_signals();
 	    return;
+	}
     }
+    unqueue_signals();
 }
 
 /**/
@@ -307,7 +315,7 @@ multsub(char **s, char ***a, int *isarr, char *sep)
 mod_export void
 filesub(char **namptr, int assign)
 {
-    char *sub = NULL, *str, *ptr;
+    char *eql = NULL, *sub = NULL, *str, *ptr;
     int len;
 
     filesubstr(namptr, assign);
@@ -316,7 +324,7 @@ filesub(char **namptr, int assign)
 	return;
 
     if (assign & PF_TYPESET) {
-	if ((*namptr)[1] && (sub = strchr(*namptr + 1, Equals))) {
+	if ((*namptr)[1] && (eql = sub = strchr(*namptr + 1, Equals))) {
 	    str = sub + 1;
 	    if ((sub[1] == Tilde || sub[1] == Equals) && filesubstr(&str, assign)) {
 		sub[1] = '\0';
@@ -330,7 +338,9 @@ filesub(char **namptr, int assign)
     while ((sub = strchr(ptr, ':'))) {
 	str = sub + 1;
 	len = sub - *namptr;
-	if ((sub[1] == Tilde || sub[1] == Equals) && filesubstr(&str, assign)) {
+	if (sub > eql &&
+	    (sub[1] == Tilde || sub[1] == Equals) &&
+	    filesubstr(&str, assign)) {
 	    sub[1] = '\0';
 	    *namptr = dyncat(*namptr, str);
 	}
@@ -702,17 +712,21 @@ get_intarg(char **s)
 /* Parsing for the (e) flag. */
 
 static int
-subst_parse_str(char **sp, int single)
+subst_parse_str(char **sp, int single, int err)
 {
     char *s;
 
     *sp = s = dupstring(*sp);
 
-    if (!parsestr(s)) {
+    if (!(err ? parsestr(s) : parsestrnoerr(s))) {
 	if (!single) {
+            int qt = 0;
+
 	    for (; *s; s++)
-		if (*s == Qstring)
+		if (!qt && *s == Qstring)
 		    *s = String;
+                else if (*s == Dnull)
+                    qt = !qt;
 	}
 	return 0;
     }
@@ -1005,7 +1019,7 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 		spbreak = 0;
 		s++;
 	    } else
-		spbreak = 1;
+		spbreak = 2;
 	} else if ((c == '#' || c == Pound) &&
 		   (iident(cc = s[1])
 		    || cc == '*' || cc == Star || cc == '@'
@@ -1058,7 +1072,7 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 	    s++;
 	v = (Value) NULL;
     } else if (aspar) {
-	if ((v = getvalue(&vbuf, &s, 1))) {
+	if ((v = fetchvalue(&vbuf, &s, 1, (qt ? SCANPM_DQUOTED : 0)))) {
 	    val = idbeg = getstrvalue(v);
 	    subexp = 1;
 	} else
@@ -1070,7 +1084,9 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 	if (!(v = fetchvalue(&vbuf, (subexp ? &ov : &s),
 			     (wantt ? -1 :
 			      ((unset(KSHARRAYS) || inbrace) ? 1 : -1)),
-			     hkeys|hvals|(arrasg ? SCANPM_ASSIGNING : 0))) ||
+			     hkeys|hvals|
+			     (arrasg ? SCANPM_ASSIGNING : 0)|
+			     (qt ? SCANPM_DQUOTED : 0))) ||
 	    (v->pm && (v->pm->flags & PM_UNSET)))
 	    vunset = 1;
 
@@ -1109,6 +1125,8 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 		    val = dyncat(val, "-unique");
 		if (f & PM_HIDE)
 		    val = dyncat(val, "-hide");
+		if (f & PM_HIDE)
+		    val = dyncat(val, "-hideval");
 		if (f & PM_SPECIAL)
 		    val = dyncat(val, "-special");
 		vunset = 0;
@@ -1131,6 +1149,7 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 		isarr = 0;
 	    }
 	    pm = createparam(nulstring, isarr ? PM_ARRAY : PM_SCALAR);
+	    DPUTS(!pm, "BUG: parameter not created");
 	    if (isarr)
 		pm->u.arr = aval;
 	    else
@@ -1139,7 +1158,7 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 	    v->isarr = isarr;
 	    v->pm = pm;
 	    v->end = -1;
-	    if (getindex(&s, v) || s == os)
+	    if (getindex(&s, v, qt) || s == os)
 		break;
 	}
 	if ((isarr = v->isarr)) {
@@ -1367,7 +1386,14 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 	case '-':
 	    if (vunset) {
 		val = dupstring(s);
-		multsub(&val, NULL, &isarr, NULL);
+		/*
+		 * This is not good enough for sh emulation!  Sh would
+		 * split unquoted substrings, yet not split quoted ones
+		 * (except according to $@ rules); but this leaves the
+		 * unquoted substrings unsplit, and other code below
+		 * for spbreak splits even within the quoted substrings.
+		 */
+		multsub(&val, (aspar ? NULL : &aval), &isarr, NULL);
 		copied = 1;
 	    }
 	    break;
@@ -1395,8 +1421,6 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 		    if (spsep || spbreak) {
 			aval = sepsplit(val, spsep, 0, 1);
 			isarr = 2;
-			sep = spsep = NULL;
-			spbreak = 0;
 			l = arrlen(aval);
 			if (l && !*(aval[l-1]))
 			    l--;
@@ -1434,6 +1458,16 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 		}
 		*idend = sav;
 		copied = 1;
+		if (isarr) {
+		  if (nojoin)
+		    isarr = -1;
+		  if (qt && !getlen && isarr > 0 && !spsep && spbreak < 2) {
+		    val = sepjoin(aval, sep, 1);
+		    isarr = 0;
+		  }
+		  sep = spsep = NULL;
+		  spbreak = 0;
+		}
 	    }
 	    break;
 	case '?':
@@ -1454,7 +1488,14 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 	case '#':
 	case Pound:
 	case '/':
-	    if (qt) {
+            /* This once was executed only `if (qt) ...'. But with that
+             * patterns in a expansion resulting from a ${(e)...} aren't
+             * tokenized even though this function thinks they are (it thinks
+             * they are because subst_parse_string() turns Qstring tokens
+             * into String tokens and for unquoted parameter expansions the
+             * lexer normally does tokenize patterns inside parameter
+             * expansions). */
+            {
 		int one = noerrs, oef = errflag, haserr;
 
 		if (!quoteerr)
@@ -1852,7 +1893,7 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 		if (prenum || postnum)
 		    x = dopadding(x, prenum, postnum, preone, postone,
 				  premul, postmul);
-		if (eval && subst_parse_str(&x, (qt && !nojoin)))
+		if (eval && subst_parse_str(&x, (qt && !nojoin), quoteerr))
 		    return NULL;
 		xlen = strlen(x);
 		for (tn = firstnode(&tl);
@@ -1888,7 +1929,7 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 	    if (prenum || postnum)
 		x = dopadding(x, prenum, postnum, preone, postone,
 			      premul, postmul);
-	    if (eval && subst_parse_str(&x, (qt && !nojoin)))
+	    if (eval && subst_parse_str(&x, (qt && !nojoin), quoteerr))
 		return NULL;
 	    xlen = strlen(x);
 	    strcatsub(&y, ostr, aptr, x, xlen, NULL, globsubst, copied);
@@ -1903,7 +1944,7 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 		if (prenum || postnum)
 		    x = dopadding(x, prenum, postnum, preone, postone,
 				  premul, postmul);
-		if (eval && subst_parse_str(&x, (qt && !nojoin)))
+		if (eval && subst_parse_str(&x, (qt && !nojoin), quoteerr))
 		    return NULL;
 		if (qt && !*x && isarr != 2)
 		    y = dupstring(nulstring);
@@ -1919,7 +1960,7 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 	    if (prenum || postnum)
 		x = dopadding(x, prenum, postnum, preone, postone,
 			      premul, postmul);
-	    if (eval && subst_parse_str(&x, (qt && !nojoin)))
+	    if (eval && subst_parse_str(&x, (qt && !nojoin), quoteerr))
 		return NULL;
 	    xlen = strlen(x);
 	    *str = strcatsub(&y, aptr, aptr, x, xlen, fstr, globsubst, copied);
@@ -1938,7 +1979,7 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 	if (prenum || postnum)
 	    x = dopadding(x, prenum, postnum, preone, postone,
 			  premul, postmul);
-	if (eval && subst_parse_str(&x, (qt && !nojoin)))
+	if (eval && subst_parse_str(&x, (qt && !nojoin), quoteerr))
 	    return NULL;
 	xlen = strlen(x);
 	*str = strcatsub(&y, ostr, aptr, x, xlen, fstr, globsubst, copied);
@@ -1965,7 +2006,7 @@ static char *
 arithsubst(char *a, char **bptr, char *rest)
 {
     char *s = *bptr, *t;
-    char buf[DIGBUFSIZE], *b = buf;
+    char buf[BDIGBUFSIZE], *b = buf;
     mnumber v;
 
     singsub(&a);

@@ -91,11 +91,6 @@ bin_mkdir(char *nam, char **args, char *ops, int func)
 
 	while(ptr > *args + (**args == '/') && *--ptr == '/')
 	    *ptr = 0;
-	if(ztrlen(*args) > PATH_MAX - 1) {
-	    zwarnnam(nam, "%s: %e", *args, ENAMETOOLONG);
-	    err = 1;
-	    continue;
-	}
 	if(ops['p']) {
 	    char *ptr = *args;
 
@@ -191,10 +186,10 @@ static int
 bin_ln(char *nam, char **args, char *ops, int func)
 {
     MoveFunc move;
-    int flags, space, err = 0;
-    char **a, *ptr, *rp;
+    int flags, err = 0;
+    char **a, *ptr, *rp, *buf;
     struct stat st;
-    char buf[PATH_MAX * 2 + 1];
+    size_t blen;
 
 
     if(func == BIN_MV) {
@@ -208,7 +203,7 @@ bin_ln(char *nam, char **args, char *ops, int func)
 	    move = (MoveFunc) symlink;
 	else
 #endif
-	     {
+	{
 	    move = (MoveFunc) link;
 	    if(!ops['d'])
 		flags |= MV_NODIRS;
@@ -234,31 +229,24 @@ bin_ln(char *nam, char **args, char *ops, int func)
 	    args[1] = args[0];
     }
     return domove(nam, move, args[0], args[1], flags);
-    havedir:
-    strcpy(buf, *a);
+ havedir:
+    buf = ztrdup(*a);
     *a = NULL;
-    space = PATH_MAX - 1 - ztrlen(buf);
-    rp = strchr(buf, 0);
-    *rp++ = '/';
+    buf = appstr(buf, "/");
+    blen = strlen(buf);
     for(; *args; args++) {
-	if(ztrlen(*args) > PATH_MAX) {
-	    zwarnnam(nam, "%s: %e", *args, ENAMETOOLONG);
-	    err = 1;
-	    continue;
-	}
+
 	ptr = strrchr(*args, '/');
 	if(ptr)
 	    ptr++;
 	else
 	    ptr = *args;
-	if(ztrlen(ptr) > space) {
-	    zwarnnam(nam, "%s: %e", ptr, ENAMETOOLONG);
-	    err = 1;
-	    continue;
-	}
-	strcpy(rp, ptr);
+
+	buf[blen] = 0;
+	buf = appstr(buf, ptr);
 	err |= domove(nam, move, *args, buf, flags);
     }
+    zsfree(buf);
     return err;
 }
 
@@ -267,14 +255,15 @@ static int
 domove(char *nam, MoveFunc move, char *p, char *q, int flags)
 {
     struct stat st;
-    char *qbuf;
-    char pbuf[PATH_MAX + 1];
-    strcpy(pbuf, unmeta(p));
+    char *pbuf, *qbuf;
+
+    pbuf = ztrdup(unmeta(p));
     qbuf = unmeta(q);
     if(flags & MV_NODIRS) {
 	errno = EISDIR;
 	if(lstat(pbuf, &st) || S_ISDIR(st.st_mode)) {
 	    zwarnnam(nam, "%s: %e", p, errno);
+	    zsfree(pbuf);
 	    return 1;
 	}
     }
@@ -282,6 +271,7 @@ domove(char *nam, MoveFunc move, char *p, char *q, int flags)
 	int doit = flags & MV_FORCE;
 	if(S_ISDIR(st.st_mode)) {
 	    zwarnnam(nam, "%s: cannot overwrite directory", q, 0);
+	    zsfree(pbuf);
 	    return 1;
 	} else if(flags & MV_INTER) {
 	    nicezputs(nam, stderr);
@@ -289,8 +279,10 @@ domove(char *nam, MoveFunc move, char *p, char *q, int flags)
 	    nicezputs(q, stderr);
 	    fputs("'? ", stderr);
 	    fflush(stderr);
-	    if(!ask())
+	    if(!ask()) {
+		zsfree(pbuf);
 		return 0;
+	    }
 	    doit = 1;
 	} else if((flags & MV_ASKNW) &&
 		!S_ISLNK(st.st_mode) &&
@@ -301,8 +293,10 @@ domove(char *nam, MoveFunc move, char *p, char *q, int flags)
 	    fprintf(stderr, "', overriding mode %04o? ",
 		mode_to_octal(st.st_mode));
 	    fflush(stderr);
-	    if(!ask())
+	    if(!ask()) {
+		zsfree(pbuf);
 		return 0;
+	    }
 	    doit = 1;
 	}
 	if(doit && !(flags & MV_ATOMIC))
@@ -310,8 +304,10 @@ domove(char *nam, MoveFunc move, char *p, char *q, int flags)
     }
     if(move(pbuf, qbuf)) {
 	zwarnnam(nam, "%s: %e", p, errno);
+	zsfree(pbuf);
 	return 1;
     }
+    zsfree(pbuf);
     return 0;
 }
 

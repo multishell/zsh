@@ -56,7 +56,6 @@ char **path,		/* $path        */
 /**/
 char *argzero,		/* $0           */
      *home,		/* $HOME        */
-     *hostnam,		/* $HOST        */
      *nullcmd,		/* $NULLCMD     */
      *oldpwd,		/* $OLDPWD      */
      *zoptarg,		/* $OPTARG      */
@@ -447,6 +446,32 @@ getvaluearr(Value v)
 	return NULL;
 }
 
+/*
+ * Split environment string into (name, vlaue) pair.
+ * this is used to avoid in-place editing of environment table
+ * that results in core dump on some systems
+ */
+
+static int
+split_env_string(char *env, char **name, char **value)
+{
+    char *str, *tenv;
+
+    if (!env || !name || !value)
+	return 0;
+
+    tenv = strcpy(zhalloc(strlen(env) + 1), env);
+    for (str = tenv; *str && *str != '='; str++)
+	;
+    if (str != tenv && *str == '=') {
+	*str = '\0';
+	*name = tenv;
+	*value = str + 1;
+	return 1;
+    } else
+	return 0;
+}
+    
 /* Set up parameter hash table.  This will add predefined  *
  * parameter entries as well as setting up parameter table *
  * entries for environment variables we inherit.           */
@@ -456,10 +481,13 @@ void
 createparamtable(void)
 {
     Param ip, pm;
-    char **new_environ, **envp, **envp2, **sigptr, **t;
-    char **old_environ = environ;
-    char buf[50], *str, *iname;
-    int num_env, oae = opts[ALLEXPORT];
+#ifndef HAVE_PUTENV
+    char **new_environ;
+    int  envsize;
+#endif
+    char **envp, **envp2, **sigptr, **t;
+    char buf[50], *str, *iname, *ivalue, *hostnam;
+    int  oae = opts[ALLEXPORT];
 #ifdef HAVE_UNAME
     struct utsname unamebuf;
     char *machinebuf;
@@ -494,44 +522,48 @@ createparamtable(void)
     setsparam("TMPPREFIX", ztrdup(DEFAULT_TMPPREFIX));
     setsparam("TIMEFMT", ztrdup(DEFAULT_TIMEFMT));
     setsparam("WATCHFMT", ztrdup(default_watchfmt));
+
+    hostnam = (char *)zalloc(256);
+    gethostname(hostnam, 256);
     setsparam("HOST", ztrdup(hostnam));
+    zfree(hostnam, 256);
+
     setsparam("LOGNAME", ztrdup((str = getlogin()) && *str ? str : cached_username));
 
+#ifndef HAVE_PUTENV
     /* Copy the environment variables we are inheriting to dynamic *
      * memory, so we can do mallocs and frees on it.               */
-    num_env = arrlen(environ);
-    new_environ = (char **) zalloc(sizeof(char *) * (num_env + 1));
-    *new_environ = NULL;
+    envsize = sizeof(char *)*(1 + arrlen(environ));
+    new_environ = (char **) zalloc(envsize);
+    memcpy(new_environ, environ, envsize);
+    environ = new_environ;
+#endif
+
+    /* Use heap allocation to avoid many small alloc/free calls */
+    pushheap();
 
     /* Now incorporate environment variables we are inheriting *
-     * into the parameter hash table.                          */
-    for (envp = new_environ, envp2 = environ; *envp2; envp2++) {
-	for (str = *envp2; *str && *str != '='; str++);
-	if (*str == '=') {
-	    iname = NULL;
-	    *str = '\0';
-	    if (!idigit(**envp2) && isident(*envp2) && !strchr(*envp2, '[')) {
-		iname = *envp2;
+     * into the parameter hash table. Copy them into dynamic   *
+     * memory so that we can free them if needed               */
+    for (envp = envp2 = environ; *envp2; envp2++) {
+	if (split_env_string(*envp2, &iname, &ivalue)) {
+	    if (!idigit(*iname) && isident(iname) && !strchr(iname, '[')) {
 		if ((!(pm = (Param) paramtab->getnode(paramtab, iname)) ||
-		     !(pm->flags & PM_DONTIMPORT)) &&
-		    (pm = setsparam(iname, metafy(str + 1, -1, META_DUP))) &&
-		    !(pm->flags & PM_EXPORTED)) {
-		    *str = '=';
+		     !(pm->flags & PM_DONTIMPORT || pm->flags & PM_EXPORTED)) &&
+		    (pm = setsparam(iname, metafy(ivalue, -1, META_DUP)))) {
 		    pm->flags |= PM_EXPORTED;
-		    pm->env = *envp++ = ztrdup(*envp2);
-		    *envp = NULL;
-		    if (pm->flags & PM_SPECIAL) {
-			environ = new_environ;
-			pm->env = replenv(pm->env, getsparam(pm->nam),
-					  pm->flags);
-			environ = old_environ;
-		    }
+		    if (pm->flags & PM_SPECIAL)
+			pm->env = mkenvstr (pm->nam,
+					    getsparam(pm->nam), pm->flags);
+		    else
+			pm->env = ztrdup(*envp2);
+		    *envp++ = pm->env;
 		}
 	    }
-	    *str = '=';
 	}
     }
-    environ = new_environ;
+    popheap();
+    *envp = '\0';
     opts[ALLEXPORT] = oae;
 
     pm = (Param) paramtab->getnode(paramtab, "HOME");
@@ -637,6 +669,12 @@ createparam(char *name, int flags)
 	if (oldpm && (oldpm->level == locallevel || !(flags & PM_LOCAL))) {
 	    if (!(oldpm->flags & PM_UNSET) || (oldpm->flags & PM_SPECIAL)) {
 		oldpm->flags &= ~PM_UNSET;
+		if ((oldpm->flags & PM_SPECIAL) && oldpm->ename) {
+		    Param altpm = 
+			(Param) paramtab->getnode(paramtab, oldpm->ename);
+		    if (altpm)
+			altpm->flags &= ~PM_UNSET;
+		}
 		return NULL;
 	    }
 	    if ((oldpm->flags & PM_RESTRICTED) && isset(RESTRICTED)) {
@@ -656,7 +694,6 @@ createparam(char *name, int flags)
 		 */
 		if (oldpm->env) {
 		    delenv(oldpm->env);
-		    zsfree(oldpm->env);
 		    oldpm->env = NULL;
 		}
 		paramtab->removenode(paramtab, name);
@@ -667,7 +704,7 @@ createparam(char *name, int flags)
 	if (isset(ALLEXPORT) && !(flags & PM_HASHELEM))
 	    flags |= PM_EXPORTED;
     } else {
-	pm = (Param) zhalloc(sizeof *pm);
+	pm = (Param) hcalloc(sizeof *pm);
 	pm->nam = nulstring;
     }
     pm->flags = flags & ~PM_LOCAL;
@@ -690,6 +727,7 @@ copyparam(Param tpm, Param pm, int toplevel)
      * with sets.?fn() usage).
      */
     tpm->flags = pm->flags;
+    tpm->ct = pm->ct;
     if (!toplevel)
 	tpm->flags &= ~PM_SPECIAL;
     switch (PM_TYPE(pm->flags)) {
@@ -734,43 +772,30 @@ isident(char *s)
     if (!*s)			/* empty string is definitely not valid */
 	return 0;
 
-    /* find the first character in `s' not in the iident type table */
-    for (ss = s; *ss; ss++)
-	if (!iident(*ss))
-	    break;
+    if (idigit(*s)) {
+	/* If the first character is `s' is a digit, then all must be */
+	for (ss = ++s; *ss; ss++)
+	    if (!idigit(*ss))
+		break;
+    } else {
+	/* Find the first character in `s' not in the iident type table */
+	for (ss = s; *ss; ss++)
+	    if (!iident(*ss))
+		break;
+    }
 
-#if 0
-    /* If this exhaust `s' or the next two characters *
-     * are [(, then it is a valid identifier.         */
-    if (!*ss || (*ss == '[' && ss[1] == '('))
-	return 1;
-
-    /* Else if the next character is not [, then it is *
-     * definitely not a valid identifier.              */
-    if (*ss != '[')
-	return 0;
-
-    noeval = 1;
-    (void)mathevalarg(++ss, &ss);
-    if (*ss == ',')
-	(void)mathevalarg(++ss, &ss);
-    noeval = ne;		/* restore the value of noeval */
-    if (*ss != ']' || ss[1])
-	return 0;
-    return 1;
-#else
     /* If the next character is not [, then it is *
-     * definitely not a valid identifier.              */
+     * definitely not a valid identifier.         */
     if (!*ss)
 	return 1;
     if (*ss != '[')
 	return 0;
 
-    /* Require balanced [ ] pairs */
-    if (skipparens('[', ']', &ss))
+    /* Require balanced [ ] pairs with something between */
+    if (!(ss = parse_subscript(++ss, 1)))
 	return 0;
-    return !*ss;
-#endif
+    untokenize(s);
+    return !ss[1];
 }
 
 /**/
@@ -827,7 +852,8 @@ getarg(char **str, int *inv, Value v, int a2, zlong *w)
 		sep = "\n";
 		break;
 	    case 'e':
-		/* obsolate compatibility flag without any real effect */
+		/* Compatibility flag with no effect except to prevent *
+		 * special interpretation by getindex() of `*' or `@'. */
 		break;
 	    case 'n':
 		t = get_strarg(++s);
@@ -858,7 +884,7 @@ getarg(char **str, int *inv, Value v, int a2, zlong *w)
 		break;
 	    case 's':
 		/* This gives the string that separates words *
-		 * (for use with the `w' flag.                */
+		 * (for use with the `w' flag).               */
 		t = get_strarg(++s);
 		if (!*t)
 		    goto flagerr;
@@ -902,8 +928,24 @@ getarg(char **str, int *inv, Value v, int a2, zlong *w)
     }
 
     for (t = s, i = 0;
-	 (c = *t) && ((c != ']' && c != Outbrack &&
+	 (c = *t) && ((c != Outbrack &&
 		       (ishash || c != ',')) || i); t++) {
+	/* Untokenize INULL() except before brackets and double-quotes */
+	if (INULL(c)) {
+	    c = t[1];
+	    if (c == '[' || c == ']' ||
+		c == '(' || c == ')' ||
+		c == '{' || c == '}') {
+		/* This test handles nested subscripts in hash keys */
+		if (ishash && i)
+		    *t = ztokens[*t - Pound];
+		needtok = 1;
+		++t;
+	    } else if (c != '"')
+		*t = ztokens[*t - Pound];
+	    continue;
+	}
+	/* Inbrack and Outbrack are probably never found here ... */
 	if (c == '[' || c == Inbrack)
 	    i++;
 	else if (c == ']' || c == Outbrack)
@@ -915,11 +957,18 @@ getarg(char **str, int *inv, Value v, int a2, zlong *w)
 	return 0;
     s = dupstrpfx(s, t - s);
     *str = tt = t;
+    /* If we're NOT reverse subscripting, strip the INULL()s so brackets *
+     * are not backslashed after parsestr().  Otherwise leave them alone *
+     * so that the brackets will be escaped when we patcompile() or when *
+     * subscript arithmetic is performed (for nested subscripts).        */
+    if (ishash && (keymatch || !rev))
+	remnulargs(s);
     if (needtok) {
 	if (parsestr(s))
 	    return 0;
 	singsub(&s);
-    }
+    } else if (rev)
+	remnulargs(s);	/* This is probably always a no-op, but ... */
     if (!rev) {
 	if (ishash) {
 	    HashTable ht = v->pm->gets.hfn(v->pm);
@@ -988,7 +1037,7 @@ getarg(char **str, int *inv, Value v, int a2, zlong *w)
 		    s = d;
 		}
 	    } else {
-		if (!l || s[l - 1] != '*') {
+		if (!l || s[l - 1] != '*' || (l > 1 && s[l - 2] == '\\')) {
 		    d = (char *) hcalloc(l + 2);
 		    strcpy(d, s);
 		    strcat(d, "*");
@@ -996,7 +1045,10 @@ getarg(char **str, int *inv, Value v, int a2, zlong *w)
 		}
 	    }
 	}
-	tokenize(s);
+	if (!keymatch) {
+	    tokenize(s);
+	    remnulargs(s);
+	}
 
 	if (keymatch || (pprog = patcompile(s, 0, NULL))) {
 	    int len;
@@ -1005,10 +1057,9 @@ getarg(char **str, int *inv, Value v, int a2, zlong *w)
 		if (ishash) {
 		    scanprog = pprog;
 		    scanstr = s;
-		    if (keymatch) {
-			untokenize(s);
+		    if (keymatch)
 			v->isarr |= SCANPM_KEYMATCH;
-		    } else if (ind)
+		    else if (ind)
 			v->isarr |= SCANPM_MATCHKEY;
 		    else
 			v->isarr |= SCANPM_MATCHVAL;
@@ -1082,10 +1133,12 @@ getarg(char **str, int *inv, Value v, int a2, zlong *w)
 		if (beg < 0)
 		    beg += len;
 		if (beg >= 0 && beg < len) {
+                    char *de = d + len;
+
 		    if (a2) {
 			if (down) {
 			    if (!hasbeg)
-				beg = len - 1;
+				beg = len;
 			    for (r = beg, t = d + beg; t >= d; r--, t--) {
 				sav = *t;
 				*t = '\0';
@@ -1097,7 +1150,7 @@ getarg(char **str, int *inv, Value v, int a2, zlong *w)
 				*t = sav;
 			    }
 			} else
-			    for (r = beg, t = d + beg; *t; r++, t++) {
+			    for (r = beg, t = d + beg; t <= de; r++, t++) {
 				sav = *t;
 				*t = '\0';
 				if (pattry(pprog, d) &&
@@ -1110,20 +1163,20 @@ getarg(char **str, int *inv, Value v, int a2, zlong *w)
 		    } else {
 			if (down) {
 			    if (!hasbeg)
-				beg = len - 1;
+				beg = len;
 			    for (r = beg + 1, t = d + beg; t >= d; r--, t--) {
 				if (pattry(pprog, t) &&
 				    !--num)
 				    return r;
 			    }
 			} else
-			    for (r = beg + 1, t = d + beg; *t; r++, t++)
+			    for (r = beg + 1, t = d + beg; t <= de; r++, t++)
 				if (pattry(pprog, t) &&
 				    !--num)
 				    return r;
 		    }
 		}
-		return 0;
+		return down ? 0 : len + 1;
 	    }
 	}
     }
@@ -1132,18 +1185,32 @@ getarg(char **str, int *inv, Value v, int a2, zlong *w)
 
 /**/
 int
-getindex(char **pptr, Value v)
+getindex(char **pptr, Value v, int dq)
 {
     int start, end, inv = 0;
     char *s = *pptr, *tbrack;
 
     *s++ = '[';
-    for (tbrack = s; *tbrack && *tbrack != ']' && *tbrack != Outbrack; tbrack++)
-	if (itok(*tbrack))
+    s = parse_subscript(s, dq);	/* Error handled after untokenizing */
+    /* Now we untokenize everthing except INULL() markers so we can check *
+     * for the '*' and '@' special subscripts.  The INULL()s are removed  *
+     * in getarg() after we know whether we're doing reverse indexing.    */
+    for (tbrack = *pptr + 1; *tbrack && tbrack != s; tbrack++) {
+	if (INULL(*tbrack) && !*++tbrack)
+	    break;
+	if (itok(*tbrack))	/* Need to check for Nularg here? */
 	    *tbrack = ztokens[*tbrack - Pound];
-    if (*tbrack == Outbrack)
-	*tbrack = ']';
-    if ((s[0] == '*' || s[0] == '@') && s[1] == ']') {
+    }
+    /* If we reached the end of the string (s == NULL) we have an error */
+    if (*tbrack)
+	*tbrack = Outbrack;
+    else {
+	zerr("invalid subscript", NULL, 0);
+	*pptr = tbrack;
+	return 1;
+    }
+    s = *pptr + 1;
+    if ((s[0] == '*' || s[0] == '@') && s + 1 == tbrack) {
 	if ((v->isarr || IS_UNSET_VALUE(v)) && s[0] == '@')
 	    v->isarr |= SCANPM_ISVAR_AT;
 	v->start = 0;
@@ -1175,12 +1242,11 @@ getindex(char **pptr, Value v)
 	    }
 	    if (*s == ',') {
 		zerr("invalid subscript", NULL, 0);
-		while (*s != ']' && *s != Outbrack)
-		    s++;
-		*pptr = s;
+		*tbrack = ']';
+		*pptr = tbrack+1;
 		return 1;
 	    }
-	    if (*s == ']' || *s == Outbrack)
+	    if (s == tbrack)
 		s++;
 	} else {
 	    int com;
@@ -1195,7 +1261,7 @@ getindex(char **pptr, Value v)
 		start--;
 	    else if (start == 0 && end == 0)
 		end++;
-	    if (*s == ']' || *s == Outbrack) {
+	    if (s == tbrack) {
 		s++;
 		if (v->isarr && start == end-1 && !com &&
 		    (!(v->isarr & SCANPM_MATCHMANY) ||
@@ -1208,6 +1274,7 @@ getindex(char **pptr, Value v)
 		s = *pptr;
 	}
     }
+    *tbrack = ']';
     *pptr = s;
     return 0;
 }
@@ -1298,7 +1365,7 @@ fetchvalue(Value v, char **pptr, int bracks, int flags)
 	v->start = 0;
 	v->end = -1;
 	if (bracks > 0 && (*s == '[' || *s == Inbrack)) {
-	    if (getindex(&s, v)) {
+	    if (getindex(&s, v, (flags & SCANPM_DQUOTED))) {
 		*pptr = s;
 		return v;
 	    }
@@ -1333,7 +1400,7 @@ mod_export char *
 getstrvalue(Value v)
 {
     char *s, **ss;
-    char buf[(sizeof(zlong) * 8) + 4];
+    char buf[BDIGBUFSIZE];
 
     if (!v)
 	return hcalloc(1);
@@ -1349,7 +1416,7 @@ getstrvalue(Value v)
 	/* (!v->isarr) should be impossible unless emulating ksh */
 	if (!v->isarr && emulation == EMULATE_KSH) {
 	    s = dupstring("[0]");
-	    if (getindex(&s, v) == 0)
+	    if (getindex(&s, v, 0) == 0)
 		s = getstrvalue(v);
 	    return s;
 	} /* else fall through */
@@ -1400,7 +1467,7 @@ getstrvalue(Value v)
 static char *nular[] = {"", NULL};
 
 /**/
-char **
+mod_export char **
 getarrvalue(Value v)
 {
     char **s;
@@ -1475,21 +1542,30 @@ getnumvalue(Value v)
 void
 export_param(Param pm)
 {
-    char buf[(sizeof(zlong) * 8) + 4], *val;
+    char buf[BDIGBUFSIZE], *val;
 
-    if (PM_TYPE(pm->flags) == PM_INTEGER)
+    if (PM_TYPE(pm->flags) & (PM_ARRAY|PM_HASHED)) {
+#if 0	/* Requires changes elsewhere in params.c and builtin.c */
+	if (emulation == EMULATE_KSH /* isset(KSHARRAYS) */) {
+	    struct value v;
+	    v.isarr = 1;
+	    v.inv = 0;
+	    v.start = 0;
+	    v.end = -1;
+	    val = getstrvalue(&v);
+	} else
+#endif
+	    return;
+    } else if (PM_TYPE(pm->flags) == PM_INTEGER)
 	convbase(val = buf, pm->gets.ifn(pm), pm->ct);
     else if (pm->flags & (PM_EFLOAT|PM_FFLOAT))
 	val = convfloat(pm->gets.ffn(pm), pm->ct,
 			pm->flags, NULL);
     else
 	val = pm->gets.cfn(pm);
-    if (pm->env)
-	pm->env = replenv(pm->env, val, pm->flags);
-    else {
-	pm->flags |= PM_EXPORTED;
-	pm->env = addenv(pm->nam, val, pm->flags);
-    }
+
+    pm->flags |= PM_EXPORTED;
+    pm->env = addenv(pm->nam, val, pm->flags);
 }
 
 /**/
@@ -1504,6 +1580,10 @@ setstrvalue(Value v, char *val)
     if ((v->pm->flags & PM_RESTRICTED) && isset(RESTRICTED)) {
 	zerr("%s: restricted", v->pm->nam, 0);
 	zsfree(val);
+	return;
+    }
+    if (v->pm->flags & PM_HASHED) {
+	zerr("%s: attempt to set slice of associative array", v->pm->nam, 0);
 	return;
     }
     v->pm->flags &= ~PM_UNSET;
@@ -1578,7 +1658,7 @@ setstrvalue(Value v, char *val)
 void
 setnumvalue(Value v, mnumber val)
 {
-    char buf[DIGBUFSIZE], *p;
+    char buf[BDIGBUFSIZE], *p;
 
     if (v->pm->flags & PM_READONLY) {
 	zerr("read-only variable: %s", v->pm->nam, 0);
@@ -1629,7 +1709,8 @@ setarrvalue(Value v, char **val)
     }
     if (!(PM_TYPE(v->pm->flags) & (PM_ARRAY|PM_HASHED))) {
 	freearray(val);
-	zerr("attempt to assign array value to non-array", NULL, 0);
+	zerr("%s: attempt to assign array value to non-array",
+	     v->pm->nam, 0);
 	return;
     }
     if (v->start == 0 && v->end == -1) {
@@ -1643,11 +1724,17 @@ setarrvalue(Value v, char **val)
 
 	if ((PM_TYPE(v->pm->flags) == PM_HASHED)) {
 	    freearray(val);
-	    zerr("attempt to set slice of associative array", NULL, 0);
+	    zerr("%s: attempt to set slice of associative array",
+		 v->pm->nam, 0);
 	    return;
 	}
-	if (v->inv && unset(KSHARRAYS))
-	    v->start--, v->end--;
+	if (v->inv && unset(KSHARRAYS)) {
+	    if (v->start > 0)
+		v->start--;
+	    v->end--;
+	}
+	if (v->end < v->start)
+	    v->end = v->start;
 	q = old = v->pm->gets.afn(v->pm);
 	n = arrlen(old);
 	if (v->start < 0) {
@@ -1787,6 +1874,7 @@ setsparam(char *s, char *val)
 	errflag = 1;
 	return NULL;
     }
+    queue_signals();
     if ((ss = strchr(s, '['))) {
 	*ss = '\0';
 	if (!(v = getvalue(&vbuf, &s, 1)))
@@ -1804,10 +1892,12 @@ setsparam(char *s, char *val)
 	}
     }
     if (!v && !(v = getvalue(&vbuf, &t, 1))) {
+	unqueue_signals();
 	zsfree(val);
 	return NULL;
     }
     setstrvalue(v, val);
+    unqueue_signals();
     return v->pm;
 }
 
@@ -1826,13 +1916,16 @@ setaparam(char *s, char **val)
 	errflag = 1;
 	return NULL;
     }
+    queue_signals();
     if ((ss = strchr(s, '['))) {
 	*ss = '\0';
 	if (!(v = getvalue(&vbuf, &s, 1)))
 	    createparam(t, PM_ARRAY);
 	*ss = '[';
 	if (v && PM_TYPE(v->pm->flags) == PM_HASHED) {
-	    zerr("attempt to set slice of associative array", NULL, 0);
+	    unqueue_signals();
+	    zerr("%s: attempt to set slice of associative array",
+		 v->pm->nam, 0);
 	    freearray(val);
 	    errflag = 1;
 	    return NULL;
@@ -1850,9 +1943,12 @@ setaparam(char *s, char **val)
 	}
     }
     if (!v)
-	if (!(v = fetchvalue(&vbuf, &t, 1, SCANPM_ASSIGNING)))
+	if (!(v = fetchvalue(&vbuf, &t, 1, SCANPM_ASSIGNING))) {
+	    unqueue_signals();
 	    return NULL;
+	}
     setarrvalue(v, val);
+    unqueue_signals();
     return v->pm;
 }
 
@@ -1875,20 +1971,23 @@ sethparam(char *s, char **val)
 	zerr("nested associative arrays not yet supported", NULL, 0);
 	errflag = 1;
 	return NULL;
-    } else {
-	if (!(v = fetchvalue(&vbuf, &s, 1, SCANPM_ASSIGNING)))
-	    createparam(t, PM_HASHED);
-	else if (!(PM_TYPE(v->pm->flags) & PM_HASHED) &&
-		 !(v->pm->flags & PM_SPECIAL)) {
-	    unsetparam(t);
-	    createparam(t, PM_HASHED);
-	    v = NULL;
-	}
+    }
+    queue_signals();
+    if (!(v = fetchvalue(&vbuf, &s, 1, SCANPM_ASSIGNING)))
+	createparam(t, PM_HASHED);
+    else if (!(PM_TYPE(v->pm->flags) & PM_HASHED) &&
+	     !(v->pm->flags & PM_SPECIAL)) {
+	unsetparam(t);
+	createparam(t, PM_HASHED);
+	v = NULL;
     }
     if (!v)
-	if (!(v = fetchvalue(&vbuf, &t, 1, SCANPM_ASSIGNING)))
+	if (!(v = fetchvalue(&vbuf, &t, 1, SCANPM_ASSIGNING))) {
+	    unqueue_signals();
 	    return NULL;
+	}
     setarrvalue(v, val);
+    unqueue_signals();
     return v->pm;
 }
 
@@ -1898,7 +1997,7 @@ setiparam(char *s, zlong val)
 {
     struct value vbuf;
     Value v;
-    char *t = s;
+    char *t = s, *ss;
     Param pm;
     mnumber mnval;
 
@@ -1907,15 +2006,25 @@ setiparam(char *s, zlong val)
 	errflag = 1;
 	return NULL;
     }
+    queue_signals();
     if (!(v = getvalue(&vbuf, &s, 1))) {
-	pm = createparam(t, PM_INTEGER);
+	if ((ss = strchr(s, '[')))
+	    *ss = '\0';
+	if (!(pm = createparam(t, ss ? PM_ARRAY : PM_INTEGER)))
+	    pm = (Param) paramtab->getnode(paramtab, t);
 	DPUTS(!pm, "BUG: parameter not created");
-	pm->u.val = val;
-	return pm;
+	if (ss) {
+	    *ss = '[';
+	} else {
+	    pm->ct = outputradix;
+	}
+	v = getvalue(&vbuf, &t, 1);
+	DPUTS(!v, "BUG: value not found for new parameter");
     }
     mnval.type = MN_INTEGER;
     mnval.u.l = val;
     setnumvalue(v, mnval);
+    unqueue_signals();
     return v->pm;
 }
 
@@ -1930,7 +2039,7 @@ setnparam(char *s, mnumber val)
 {
     struct value vbuf;
     Value v;
-    char *t = s;
+    char *t = s, *ss = NULL;
     Param pm;
 
     if (!isident(s)) {
@@ -1938,18 +2047,25 @@ setnparam(char *s, mnumber val)
 	errflag = 1;
 	return NULL;
     }
+    queue_signals();
     if (!(v = getvalue(&vbuf, &s, 1))) {
-	pm = createparam(t, (val.type & MN_INTEGER) ? PM_INTEGER
-			 : PM_FFLOAT);
+	if ((ss = strchr(s, '[')))
+	    *ss = '\0';
+	pm = createparam(t, ss ? PM_ARRAY :
+			 (val.type & MN_INTEGER) ? PM_INTEGER : PM_FFLOAT);
+	if (!pm)
+	    pm = (Param) paramtab->getnode(paramtab, t);
 	DPUTS(!pm, "BUG: parameter not created");
-	if (val.type & MN_INTEGER) {
+	if (ss) {
+	    *ss = '[';
+	} else if (val.type & MN_INTEGER) {
 	    pm->ct = outputradix;
-	    pm->u.val = val.u.l;
-	} else
-	    pm->u.dval = val.u.d;
-	return pm;
+	}
+	v = getvalue(&vbuf, &t, 1);
+	DPUTS(!v, "BUG: value not found for new parameter");
     }
     setnumvalue(v, val);
+    unqueue_signals();
     return v->pm;
 }
 
@@ -1961,10 +2077,12 @@ unsetparam(char *s)
 {
     Param pm;
 
+    queue_signals();
     if ((pm = (Param) (paramtab == realparamtab ?
 		       gethashnode2(paramtab, s) :
 		       paramtab->getnode(paramtab, s))))
 	unsetparam_pm(pm, 0, 1);
+    unqueue_signals();
 }
 
 /* Unset a parameter */
@@ -1986,7 +2104,6 @@ unsetparam_pm(Param pm, int altflag, int exp)
     pm->unsetfn(pm, exp);
     if ((pm->flags & PM_EXPORTED) && pm->env) {
 	delenv(pm->env);
-	zsfree(pm->env);
 	pm->env = NULL;
     }
 
@@ -2020,6 +2137,7 @@ unsetparam_pm(Param pm, int altflag, int exp)
 	oldpm = pm->old;
 	paramtab->addnode(paramtab, oldpm->nam, oldpm);
 	if ((PM_TYPE(oldpm->flags) == PM_SCALAR) &&
+	    !(pm->flags & PM_HASHELEM) &&
 	    oldpm->sets.cfn == strsetfn)
 	    adduserdir(oldpm->nam, oldpm->u.str, 0, 0);
 	if (oldpm->flags & PM_EXPORTED) {
@@ -2054,7 +2172,7 @@ stdunsetfn(Param pm, int exp)
 /* Function to get value of an integer parameter */
 
 /**/
-static zlong
+mod_export zlong
 intgetfn(Param pm)
 {
     return pm->u.val;
@@ -2104,7 +2222,8 @@ strsetfn(Param pm, char *x)
 {
     zsfree(pm->u.str);
     pm->u.str = x;
-    adduserdir(pm->nam, x, 0, 0);
+    if (!(pm->flags & PM_HASHELEM))
+	adduserdir(pm->nam, x, 0, 0);
 }
 
 /* Function to get value of an array parameter */
@@ -2433,6 +2552,7 @@ usernamesetfn(Param pm, char *x)
 	}
     }
 #endif /* HAVE_SETUID && HAVE_GETPWNAM */
+    zsfree(x);
 }
 
 /* Function to get value for special parameter `UID' */
@@ -2578,9 +2698,11 @@ setlang(char *x)
     struct localename *ln;
 
     setlocale(LC_ALL, x ? x : "");
+    queue_signals();
     for (ln = lc_names; ln->name; ln++)
 	if ((x = getsparam(ln->name)))
 	    setlocale(ln->category, x);
+    unqueue_signals();
 }
 
 /**/
@@ -2588,8 +2710,11 @@ void
 lc_allsetfn(Param pm, char *x)
 {
     strsetfn(pm, x);
-    if (!x)
+    if (!x) {
+	queue_signals();
 	setlang(getsparam("LANG"));
+	unqueue_signals();
+    }
     else
 	setlocale(LC_ALL, x);
 }
@@ -2611,12 +2736,14 @@ lcsetfn(Param pm, char *x)
     strsetfn(pm, x);
     if (getsparam("LC_ALL"))
 	return;
+    queue_signals();
     if (!x)
 	x = getsparam("LANG");
 
     for (ln = lc_names; ln->name; ln++)
 	if (!strcmp(ln->name, pm->nam))
 	    setlocale(ln->category, x ? x : "");
+    unqueue_signals();
 }
 #endif /* USE_LOCALE */
 
@@ -2788,44 +2915,94 @@ pipestatgetfn(Param pm)
 static void
 pipestatsetfn(Param pm, char **x)
 {
-    int i;
+    if (x) {
+        int i;
 
-    for (i = 0; *x && i < MAX_PIPESTATS; i++, x++)
-	pipestats[i] = atoi(*x);
-    numpipestats = i;
+        for (i = 0; *x && i < MAX_PIPESTATS; i++, x++)
+            pipestats[i] = atoi(*x);
+        numpipestats = i;
+    }
+    else
+        numpipestats = 0;
 }
-
-/* We could probably replace the replenv with the actual code to *
- * do the replacing, since we've already scanned for the string. */
 
 /**/
 void
 arrfixenv(char *s, char **t)
 {
-    char **ep, *u;
-    int len_s;
     Param pm;
 
+    if (t == path)
+	cmdnamtab->emptytable(cmdnamtab);
+
     pm = (Param) paramtab->getnode(paramtab, s);
+    
     /*
      * Only one level of a parameter can be exported.  Unless
      * ALLEXPORT is set, this must be global.
      */
-    if (t == path)
-	cmdnamtab->emptytable(cmdnamtab);
+
     if (pm->flags & PM_HASHELEM)
 	return;
-    u = t ? zjoin(t, ':', 1) : "";
-    len_s = strlen(s);
-    for (ep = environ; *ep; ep++)
-	if (!strncmp(*ep, s, len_s) && (*ep)[len_s] == '=') {
-	    pm->env = replenv(*ep, u, pm->flags);
-	    return;
-	}
+
     if (isset(ALLEXPORT))
 	pm->flags |= PM_EXPORTED;
+
+    /*
+     * Do not "fix" parameters that were not exported
+     */
+
     if (pm->flags & PM_EXPORTED)
-	pm->env = addenv(s, u, pm->flags);
+	pm->env = addenv(s, t ? zjoin(t, ':', 1) : "", pm->flags);
+}
+
+
+static int
+zputenv(char *str)
+{
+#ifdef HAVE_PUTENV
+    return putenv(str);
+#else
+    char **ep;
+    int num_env;
+
+
+    /* First check if there is already an environment *
+     * variable matching string `name'.               */
+    if (findenv(str, &num_env)) {
+	environ[num_env] = str;
+    } else {
+    /* Else we have to make room and add it */
+	num_env = arrlen(environ);
+	environ = (char **) zrealloc(environ, (sizeof(char *)) * (num_env + 2));
+
+	/* Now add it at the end */
+	ep = environ + num_env;
+	*ep = str;
+	*(ep + 1) = NULL;
+    }
+    return 0;
+#endif
+}
+
+/**/
+static int
+findenv(char *name, int *pos)
+{
+    char **ep, *eq;
+    int  nlen;
+
+
+    eq = strchr(name, '=');
+    nlen = eq ? eq - name : strlen(name);
+    for (ep = environ; *ep; ep++) 
+	if (!strncmp (*ep, name, nlen) && *((*ep)+nlen) == '=') {
+	    if (pos)
+		*pos = ep - environ;
+	    return 1;
+	}
+    
+    return 0;
 }
 
 /* Given *name = "foo", it searchs the environment for string *
@@ -2835,14 +3012,18 @@ arrfixenv(char *s, char **t)
 mod_export char *
 zgetenv(char *name)
 {
+#ifdef HAVE_GETENV
+    return getenv(name);
+#else
     char **ep, *s, *t;
  
     for (ep = environ; *ep; ep++) {
-	for (s = *ep, t = name; *s && *s == *t; s++, t++);
-	if (*s == '=' && !*t)
-	    return s + 1;
+       for (s = *ep, t = name; *s && *s == *t; s++, t++);
+       if (*s == '=' && !*t)
+           return s + 1;
     }
     return NULL;
+#endif
 }
 
 /**/
@@ -2859,28 +3040,42 @@ copyenvstr(char *s, char *value, int flags)
     }
 }
 
-/* Change the value of an existing environment variable */
-
 /**/
 char *
-replenv(char *e, char *value, int flags)
+addenv(char *name, char *value, int flags)
 {
-    char **ep, *s;
-    int len_value;
+    char *oldenv = 0, *newenv = 0, *env = 0;
+    int pos;
 
-    for (ep = environ; *ep; ep++)
-	if (*ep == e) {
-	    for (len_value = 0, s = value;
-		 *s && (*s++ != Meta || *s++ != 32); len_value++);
-	    s = e;
-	    while (*s++ != '=');
-	    *ep = (char *) zrealloc(e, s - e + len_value + 1);
-	    s = s - e + *ep - 1;
-	    copyenvstr(s, value, flags);
-	    return *ep;
-	}
-    return NULL;
+    /* First check if there is already an environment *
+     * variable matching string `name'. If not, and   *
+     * we are not requested to add new, return        */
+    if (findenv(name, &pos))
+	oldenv = environ[pos];
+
+     newenv = mkenvstr(name, value, flags);
+     if (zputenv(newenv)) {
+        zsfree(newenv);
+	return NULL;
+    }
+    /*
+     * Under Cygwin we must use putenv() to maintain consistency.
+     * Unfortunately, current version (1.1.2) copies argument and may
+     * silently reuse exisiting environment string. This tries to
+     * check for both cases
+     */
+    if (findenv(name, &pos)) {
+	env = environ[pos];
+	if (env != oldenv)
+	    zsfree(oldenv);
+	if (env != newenv)
+	    zsfree(newenv);
+	return env;
+    }
+
+    return NULL; /* Cannot happen */
 }
+
 
 /* Given strings *name = "foo", *value = "bar", *
  * return a new string *str = "foo=bar".        */
@@ -2908,33 +3103,6 @@ mkenvstr(char *name, char *value, int flags)
  * pointer to the location of this new environment *
  * string.                                         */
 
-/**/
-char *
-addenv(char *name, char *value, int flags)
-{
-    char **ep, *s, *t;
-    int num_env;
-
-    /* First check if there is already an environment *
-     * variable matching string `name'.               */
-    for (ep = environ; *ep; ep++) {
-	for (s = *ep, t = name; *s && *s == *t; s++, t++);
-	if (*s == '=' && !*t) {
-	    zsfree(*ep);
-	    return *ep = mkenvstr(name, value, flags);
-	}
-    }
-
-    /* Else we have to make room and add it */
-    num_env = arrlen(environ);
-    environ = (char **) zrealloc(environ, (sizeof(char *)) * (num_env + 2));
-
-    /* Now add it at the end */
-    ep = environ + num_env;
-    *ep = mkenvstr(name, value, flags);
-    *(ep + 1) = NULL;
-    return *ep;
-}
 
 /* Delete a pointer from the list of pointers to environment *
  * variables by shifting all the other pointers up one slot. */
@@ -2949,8 +3117,10 @@ delenv(char *x)
 	if (*ep == x)
 	    break;
     }
-    if (*ep)
+    if (*ep) {
 	for (; (ep[0] = ep[1]); ep++);
+    }
+    zsfree(x);
 }
 
 /**/
@@ -2962,13 +3132,21 @@ convbase(char *s, zlong v, int base)
 
     if (v < 0)
 	*s++ = '-', v = -v;
-    if (base <= 1)
-	base = 10;
+    if (base >= -1 && base <= 1)
+	base = -10;
 
-    if (base != 10) {
-	sprintf(s, "%d#", base);
+    if (base > 0) {
+	if (isset(CBASES) && base == 16)
+	    sprintf(s, "0x");
+	else if (isset(CBASES) && base == 8 && isset(OCTALZEROES))
+	    sprintf(s, "0");
+	else if (base != 10)
+	    sprintf(s, "%d#", base);
+	else
+	    *s = 0;
 	s += strlen(s);
-    }
+    } else
+	base = -base;
     for (x = v; x; digs++)
 	x /= base;
     if (!digs)
@@ -3083,7 +3261,6 @@ scanendscope(HashNode hn, int flags)
 	    pm->ct = tpm->ct;
 	    if (pm->env) {
 		delenv(pm->env);
-		zsfree(pm->env);
 	    }
 	    pm->env = NULL;
 
@@ -3181,7 +3358,8 @@ printparamnode(HashNode hn, int printflags)
 	    printf("exported ");
     }
 
-    if (printflags & PRINT_NAMEONLY) {
+    if ((printflags & PRINT_NAMEONLY) ||
+	((p->flags & PM_HIDEVAL) && !(printflags & PRINT_INCLUDEVALUE))) {
 	zputs(p->nam, stdout);
 	putchar('\n');
 	return;

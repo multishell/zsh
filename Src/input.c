@@ -273,9 +273,6 @@ inputline(void)
 	free(ingetcline);
 	return lexstop = errflag = 1;
     }
-    /* Look for a space, to see if this shouldn't be put into history */
-    if (isfirstln)
-	spaceflag = *ingetcline == ' ';
     if (isset(VERBOSE)) {
 	/* Output the whole line read so far. */
 	zputs(ingetcline, stderr);

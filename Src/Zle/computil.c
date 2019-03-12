@@ -115,6 +115,7 @@ cd_init(char *nam, char *sep, char **args, int disp)
     if (cd_parsed) {
 	zsfree(cd_state.sep);
 	freecdsets(cd_state.sets);
+	cd_parsed = 0;
     }
     setp = &(cd_state.sets);
     cd_state.sep = ztrdup(sep);
@@ -153,6 +154,7 @@ cd_init(char *nam, char *sep, char **args, int disp)
 	if ((*args = tmp))
 	    args++;
     }
+    cd_parsed = 1;
     return 0;
 }
 
@@ -259,10 +261,8 @@ bin_compdescribe(char *nam, char **args, char *ops, int func)
     }
     switch (args[0][1]) {
     case 'i':
-	cd_parsed = 1;
 	return cd_init(nam, "", args + 1, 0);
     case 'I':
-	cd_parsed = 1;
 	return cd_init(nam, args[1], args + 2, 1);
     case 'g':
 	if (cd_parsed) {
@@ -308,10 +308,10 @@ struct cadef {
     char *set;			/* set name prefix (<name>-), shared */
     char *sname;		/* set name */
     int flags;			/* see CDF_* below */
+    char *nonarg;		/* pattern for non-args (-A argument) */
 };
 
 #define CDF_SEP 1
-#define CDF_ARG 2
 
 /* Description for an option. */
 
@@ -325,6 +325,7 @@ struct caopt {
     int active;			/* still allowed on command line */
     int num;			/* it's the num'th option */
     char *set;			/* set name, shared */
+    int not;			/* don't complete this option (`!...') */
 };
 
 #define CAO_NEXT    1
@@ -423,6 +424,7 @@ freecadef(Cadef d)
 	}
 	freecaargs(d->args);
 	freecaargs(d->rest);
+	zsfree(d->nonarg);
 	if (d->single)
 	    zfree(d->single, 256 * sizeof(Caopt));
 	zfree(d, sizeof(*d));
@@ -518,7 +520,7 @@ parse_caarg(int mult, int type, int num, int opt, char *oname, char **def,
 }
 
 static Cadef
-alloc_cadef(char **args, int single, char *match, int flags)
+alloc_cadef(char **args, int single, char *match, char *nonarg, int flags)
 {
     Cadef ret;
 
@@ -526,6 +528,7 @@ alloc_cadef(char **args, int single, char *match, int flags)
     ret->next = ret->snext = NULL;
     ret->opts = NULL;
     ret->args = ret->rest = NULL;
+    ret->nonarg = ztrdup(nonarg);
     if (args) {
 	ret->defs = zarrdup(args);
 	ret->ndefs = arrlen(args);
@@ -569,8 +572,9 @@ parse_cadef(char *nam, char **args)
     Caopt *optp;
     char **oargs = args, *p, *q, *match = "r:|[_-]=* r:|=*", **xor, **sargs;
     char *adpre, *adsuf, *axor = NULL, *doset = NULL, **setp = NULL;
+    char *nonarg = NULL;
     int single = 0, anum = 1, xnum, nopts, ndopts, nodopts, flags = 0;
-    int state = 0;
+    int state = 0, not = 0;
 
     nopts = ndopts = nodopts = 0;
 
@@ -591,10 +595,10 @@ parse_cadef(char *nam, char **args)
     args++;
     while ((p = *args) && *p == '-' && p[1]) {
 	for (q = ++p; *q; q++)
-	    if (*q == 'M') {
+	    if (*q == 'M' || *q == 'A') {
 		q = "";
 		break;
-	    } else if (*q != 's' && *q != 'S' && *q != 'A')
+	    } else if (*q != 's' && *q != 'S')
 		break;
 
 	if (*q)
@@ -605,9 +609,15 @@ parse_cadef(char *nam, char **args)
 		single = 1;
 	    else if (*p == 'S')
 		flags |= CDF_SEP;
-	    else if (*p == 'A')
-		flags |= CDF_ARG;
-	    else if (*p == 'M') {
+	    else if (*p == 'A') {
+		if (p[1]) {
+		    nonarg = p + 1;
+		    p = "" - 1;
+		} else if (args[1])
+		    nonarg = *++args;
+		else
+		    break;
+	    } else if (*p == 'M') {
 		if (p[1]) {
 		    match = p + 1;
 		    p = "" - 1;
@@ -625,9 +635,12 @@ parse_cadef(char *nam, char **args)
     if (!*args)
 	return NULL;
 
+    if (nonarg)
+	tokenize(nonarg = dupstring(nonarg));
+
     /* Looks good. Optimistically allocate the cadef structure. */
 
-    all = ret = alloc_cadef(oargs, single, match, flags);
+    all = ret = alloc_cadef(oargs, single, match, nonarg, flags);
     optp = &(ret->opts);
     anum = 1;
 
@@ -662,7 +675,7 @@ parse_cadef(char *nam, char **args)
 		ret->ndopts = ndopts;
 		ret->nodopts = nodopts;
 		set_cadef_opts(ret);
-		ret = ret->snext = alloc_cadef(NULL, single, NULL, flags);
+		ret = ret->snext = alloc_cadef(NULL, single, NULL, nonarg, flags);
 		optp = &(ret->opts);
 		nopts = ndopts = nodopts = 0;
 		anum = 1;
@@ -671,6 +684,8 @@ parse_cadef(char *nam, char **args)
 	}
 	p = dupstring(*args);
 	xnum = 0;
+	if ((not = (*p == '!')))
+	    p++;
 	if (*p == '(') {
 	    /* There is a xor list, get it. */
 
@@ -804,9 +819,10 @@ parse_cadef(char *nam, char **args)
 	    if (!multi) {
 		if (!xor) {
 		    xor = (char **) zalloc(2 * sizeof(char *));
-		    xor[1] = NULL;
+		    xor[0] = xor[1] = NULL;
 		}
-		xor[xnum] = ztrdup(name);
+                zsfree(xor[xnum]);
+		xor[xnum] = ztrdup(rembslashcolon(name));
 	    }
 	    if (c == ':') {
 		/* There's at least one argument. */
@@ -898,6 +914,7 @@ parse_cadef(char *nam, char **args)
 	    opt->type = otype;
 	    opt->args = oargs;
 	    opt->num = nopts++;
+	    opt->not = not;
 
 	    if (otype == CAO_DIRECT || otype == CAO_EQUAL)
 		ndopts++;
@@ -919,6 +936,9 @@ parse_cadef(char *nam, char **args)
 	    /* It's a rest-argument definition. */
 
 	    int type = CAA_REST;
+
+	    if (not)
+		continue;
 
 	    if (*++p != ':') {
 		freecadef(all);
@@ -944,6 +964,9 @@ parse_cadef(char *nam, char **args)
 
 	    int type = CAA_NORMAL, direct;
 	    Caarg arg, tmp, pre;
+
+	    if (not)
+		continue;
 
 	    if ((direct = idigit(*p))) {
 		/* Argment number is given. */
@@ -1007,7 +1030,7 @@ get_cadef(char *nam, char **args)
     Cadef *p, *min, new;
     int i, na = arrlen(args);
 
-    for (i = MAX_CACACHE, p = cadef_cache, min = NULL; *p && i; p++, i--)
+    for (i = MAX_CACACHE, p = cadef_cache, min = NULL; i && *p; p++, i--)
 	if (*p && na == (*p)->ndefs && arrcmp(args, (*p)->defs)) {
 	    (*p)->lastt = time(0);
 
@@ -1064,21 +1087,21 @@ ca_get_opt(Cadef d, char *line, int full, char **end)
 /* Same as above, only for single-letter-style. */
 
 static Caopt
-ca_get_sopt(Cadef d, char *line, int full, char **end)
+ca_get_sopt(Cadef d, char *line, char **end, LinkList *lp)
 {
-    Caopt p;
+    Caopt p, pp = NULL;
     char pre = *line++;
+    LinkList l = NULL;
 
-    if (full) {
-	for (p = NULL; *line; line++)
-	    if (!(p = d->single[STOUC(*line)]) || !p->active ||
-		(line[1] && p->args))
-		return NULL;
-	return p;
-    } else {
-	for (p = NULL; *line; line++)
-	    if ((p = d->single[STOUC(*line)]) && p->active &&
-		p->args && p->type != CAO_NEXT && p->name[0] == pre) {
+    *lp = NULL;
+    for (p = NULL; *line; line++) {
+	if ((p = d->single[STOUC(*line)]) && p->active &&
+	    p->args && p->name[0] == pre) {
+	    if (p->type == CAO_NEXT) {
+		if (!l)
+		    *lp = l = newlinklist();
+		addlinknode(l, p);
+	    } else {
 		if (end) {
 		    line++;
 		    if ((p->type == CAO_OEQUAL || p->type == CAO_EQUAL) &&
@@ -1086,15 +1109,17 @@ ca_get_sopt(Cadef d, char *line, int full, char **end)
 			line++;
 		    *end = line;
 		}
+		pp = p;
 		break;
-	    } else if (!p || !p->active || (line[1] && p->args) ||
-		       p->name[0] != pre)
-		return NULL;
-	if (p && end)
-	    *end = line;
-	return p;
+	    }
+	} else if (!p || (p && !p->active))
+	    return NULL;
+	pp = (p->name[0] == pre ? p : NULL);
+	p = NULL;
     }
-    return NULL;
+    if (pp && end)
+	*end = line;
+    return pp;
 }
 
 /* Return the n'th argument definition. */
@@ -1105,9 +1130,11 @@ ca_get_arg(Cadef d, int n)
     if (d->argsactive) {
 	Caarg a = d->args;
 
-	while (a && (n < a->min || n > a->num))
+	while (a && (!a->active || n < a->min || n > a->num)) {
+            if (!a->active)
+                n++;
 	    a = a->next;
-
+        }
 	if (a && a->min <= n && a->num >= n && a->active)
 	    return a;
 
@@ -1121,7 +1148,7 @@ ca_get_arg(Cadef d, int n)
 static LinkList ca_xor;
 
 static int
-ca_inactive(Cadef d, char **xor, int cur, int opts)
+ca_inactive(Cadef d, char **xor, int cur, int opts, char *optname)
 {
     if ((xor || opts) && cur <= compcurrent) {
 	Caopt opt;
@@ -1129,6 +1156,8 @@ ca_inactive(Cadef d, char **xor, int cur, int opts)
 	int sl = (d->set ? strlen(d->set) : -1), set = 0;
 
 	for (; (x = (opts ? "-" : *xor)); xor++) {
+            if (optname && optname[0] == x[0] && strcmp(optname, x))
+                continue;
 	    if (ca_xor)
 		addlinknode(ca_xor, x);
 	    set = 0;
@@ -1227,8 +1256,9 @@ ca_parse_line(Cadef d, int multi, int first)
     Caopt ptr, wasopt = NULL, dopt;
     struct castate state;
     char *line, *pe, **argxor = NULL;
-    int cur, doff, argend, arglast;
-    Patprog endpat = NULL;
+    int cur, doff, argend, arglast, ne;
+    Patprog endpat = NULL, napat = NULL;
+    LinkList sopts = NULL;
 
     /* Free old state. */
 
@@ -1279,6 +1309,9 @@ ca_parse_line(Cadef d, int multi, int first)
 
 	goto end;
     }
+    if (d->nonarg)
+	napat = patcompile(d->nonarg, 0, NULL);
+
     /* Loop over the words from the line. */
 
     for (line = compwords[1], cur = 2, state.curopt = NULL, state.def = NULL;
@@ -1287,9 +1320,18 @@ ca_parse_line(Cadef d, int multi, int first)
 	dopt = NULL;
 	doff = state.singles = arglast = 0;
 
-	if (ca_inactive(d, argxor, cur, 0) ||
-	    ((d->flags & CDF_SEP) && !strcmp(line, "--"))) {
-	    if (ca_inactive(d, NULL, cur, 1))
+        /* remove quotes */
+        line = dupstring(line);
+        ne = noerrs;
+        noerrs = 2;
+        parse_subst_string(line);
+        noerrs = ne;
+        remnulargs(line);
+        untokenize(line);
+
+	if (ca_inactive(d, argxor, cur, 0, NULL) ||
+	    ((d->flags & CDF_SEP) && cur != compcurrent && !strcmp(line, "--"))) {
+	    if (ca_inactive(d, NULL, cur, 1, NULL))
 		return 1;
 	    continue;
 	}
@@ -1315,6 +1357,17 @@ ca_parse_line(Cadef d, int multi, int first)
 	    } else if ((state.def = state.def->next)) {
 		state.argbeg = cur;
 		state.argend = argend;
+	    } else if (sopts && nonempty(sopts)) {
+		state.curopt = (Caopt) uremnode(sopts, firstnode(sopts));
+		state.def = state.curopt->args;
+		state.opt = 0;
+		state.argbeg = state.optbeg = state.inopt = cur;
+		state.argend = argend;
+		doff = state.doff = 0;
+		state.singles = 1;
+		if (!state.oargs[state.curopt->num])
+		    state.oargs[state.curopt->num] = znewlinklist();
+		goto cont;
 	    } else {
 		state.curopt = NULL;
 		state.opt = 1;
@@ -1352,7 +1405,8 @@ ca_parse_line(Cadef d, int multi, int first)
 	    if (!state.oargs[state.curopt->num])
 		state.oargs[state.curopt->num] = znewlinklist();
 
-	    if (ca_inactive(d, state.curopt->xor, cur, 0))
+	    if (ca_inactive(d, state.curopt->xor, cur, 0,
+                            (cur == compcurrent ? state.curopt->name : NULL)))
 		return 1;
 
 	    /* Collect the argument strings. Maybe. */
@@ -1378,13 +1432,22 @@ ca_parse_line(Cadef d, int multi, int first)
 		state.curopt = NULL;
 	    }
 	} else if (state.opt == 2 && d->single &&
-		   (state.curopt = ca_get_sopt(d, line, 0, &pe))) {
+		   ((state.curopt = ca_get_sopt(d, line, &pe, &sopts)) ||
+		    (sopts && nonempty(sopts)))) {
 	    /* Or maybe it's a single-letter option? */
 
 	    char *p;
 	    Caopt tmpopt;
 
-	    ddef = state.def = state.curopt->args;
+	    if (cur != compcurrent && sopts && nonempty(sopts))
+		state.curopt = (Caopt) uremnode(sopts, firstnode(sopts));
+
+	    if (!state.oargs[state.curopt->num])
+		state.oargs[state.curopt->num] = znewlinklist();
+
+	    state.def = state.curopt->args;
+	    ddef = (state.curopt->type == CAO_NEXT && cur == compcurrent ?
+		    NULL : state.def);
 	    dopt = state.curopt;
 	    doff = pe - line;
 	    state.optbeg = state.argbeg = state.inopt = cur;
@@ -1396,7 +1459,8 @@ ca_parse_line(Cadef d, int multi, int first)
 		    if (!state.oargs[tmpopt->num])
 			state.oargs[tmpopt->num] = znewlinklist();
 
-		    if (ca_inactive(d, tmpopt->xor, cur, 0))
+		    if (ca_inactive(d, tmpopt->xor, cur, 0,
+                                    (cur == compcurrent ? tmpopt->name : NULL)))
 			return 1;
 		}
 	    }
@@ -1417,11 +1481,18 @@ ca_parse_line(Cadef d, int multi, int first)
 		state.opt = 0;
 	    else
 		state.curopt = NULL;
-	} else if (multi && (*line == '-' || *line == '+') && cur != compcurrent)
+	} else if (multi && (*line == '-' || *line == '+') && cur != compcurrent
+#if 0
+		   /**** Ouch. Using this will disable the mutual exclusion
+			 of different sets. Not using it will make the -A
+			 pattern be effectively ignored with multiple sets. */
+		   && (!napat || !pattry(napat, line))
+#endif
+		   )
 	    return 1;
-	else if (state.arg) {
+	else if (state.arg && (!napat || !pattry(napat, line))) {
 	    /* Otherwise it's a normal argument. */
-	    if ((d->flags & CDF_ARG) && ca_inactive(d, NULL, cur + 1, 1))
+	    if (napat && ca_inactive(d, NULL, cur + 1, 1, NULL))
 		return 1;
 
 	    arglast = 1;
@@ -1430,17 +1501,18 @@ ca_parse_line(Cadef d, int multi, int first)
 		state.nargbeg = cur - 1;
 		state.argend = argend;
 	    }
-	    if (!d->args && !d->rest && *line && *line != '-' && *line != '+')
+	    if (!d->args && !d->rest && *line && *line != '-' && *line != '+') {
+		if (!multi && cur > compcurrent)
+		    break;
 		return 1;
+	    }
 	    if ((adef = state.def = ca_get_arg(d, state.nth)) &&
 		(state.def->type == CAA_RREST ||
 		 state.def->type == CAA_RARGS)) {
 		state.inrest = 0;
 		state.opt = (cur == state.nargbeg + 1 &&
 			     (!multi || !*line || 
-			      ((*line == '-' || *line == '+') &&
-			       (!line[1] ||
-				(*line == '-' && line[1] == '-' && !line[2])))));
+			      *line == '-' || *line == '+'));
 		state.optbeg = state.nargbeg;
 		state.argbeg = cur - 1;
 		state.argend = argend;
@@ -1455,6 +1527,8 @@ ca_parse_line(Cadef d, int multi, int first)
 		break;
 	    }
 	    zaddlinknode(state.args, ztrdup(line));
+            if (adef)
+                state.oopt = adef->num - state.nth;
 
 	    if (state.def)
 		argxor = state.def->xor;
@@ -1517,9 +1591,7 @@ ca_parse_line(Cadef d, int multi, int first)
 	    } else {
 		ca_laststate.def = adef;
 		ca_laststate.opt = (!arglast || !multi || !*line || 
-				    ((*line == '-' || *line == '+') &&
-				     (!line[1] ||
-				      (*line == '-' && line[1] == '-' && !line[2]))));
+				    *line == '-' || *line == '+');
 		ca_laststate.ddef = NULL;
 		ca_laststate.dopt = NULL;
 		ca_laststate.optbeg = state.nargbeg;
@@ -1634,7 +1706,8 @@ ca_set_data(LinkList descr, LinkList act, LinkList subc,
 
 	if (!opt) {
 	    if (arg->num >= 0 && !arg->next && miss)
-		arg = ca_laststate.d->rest;
+		arg = (ca_laststate.d->rest && ca_laststate.d->rest->active ?
+		       ca_laststate.d->rest : NULL);
 	    else {
 		onum = arg->num;
 		rest = (onum != arg->min && onum == ca_laststate.nth);
@@ -1642,7 +1715,8 @@ ca_set_data(LinkList descr, LinkList act, LinkList subc,
 		    if (arg->num != onum + 1)
 			miss = 1;
 		} else if (rest || (oopt > 0 && !opt)) {
-		    arg = ca_laststate.d->rest;
+		    arg = (ca_laststate.d->rest && ca_laststate.d->rest->active ?
+			   ca_laststate.d->rest : NULL);
 		    oopt = -1;
 		}
 	    }
@@ -1660,7 +1734,8 @@ ca_set_data(LinkList descr, LinkList act, LinkList subc,
     }
     if (!opt && oopt > 0) {
 	oopt = -1;
-	arg = ca_laststate.d->rest;
+	arg = (ca_laststate.d->rest && ca_laststate.d->rest->active ?
+	       ca_laststate.d->rest : NULL);
 
 	goto rec;
     }
@@ -1734,7 +1809,7 @@ bin_comparguments(char *nam, char **args, char *ops, int func)
 			for (node = firstnode(nx); node; incnode(node)) {
 			    xor[0] = (char *) getdata(node);
 			    if (!strcmp(xor[0], def->sname) ||
-				ca_inactive(def, xor, compcurrent, 0))
+				ca_inactive(def, xor, compcurrent, 0, NULL))
 				break;
 			}
 			if (!node)
@@ -1821,7 +1896,7 @@ bin_comparguments(char *nam, char **args, char *ops, int func)
 		      (compcurrent == 1)))) {
 		    ret = 0;
 		    for (p = lstate->d->opts; p; p = p->next) {
-			if (p->active) {
+			if (p->active && !p->not) {
 			    switch (p->type) {
 			    case CAO_NEXT:    l = next;    break;
 			    case CAO_DIRECT:  l = direct;  break;
@@ -1882,7 +1957,12 @@ bin_comparguments(char *nam, char **args, char *ops, int func)
     case 's':
 	for (; lstate; lstate = lstate->snext)
 	    if (lstate->d->single && lstate->singles &&
-		lstate->actopts && lstate->opt) {
+		lstate->actopts
+#if 0
+                /* let's try without, for the -W option of _arguments */
+                && lstate->opt
+#endif
+                ) {
 		setsparam(args[1],
 			  ztrdup((lstate->ddef && lstate->dopt) ?
 				 (lstate->dopt->type == CAO_DIRECT ?
@@ -1956,6 +2036,7 @@ struct cvdef {
     char *descr;		/* global description */
     int hassep;			/* multiple values allowed */
     char sep;			/* separator character */
+    char argsep;                /* argument separator */
     Cvdef next;			/* next in cache */
     Cvval vals;			/* value definitions */
     char **defs;		/* original strings */
@@ -2017,16 +2098,21 @@ parse_cvdef(char *nam, char **args)
     Cvdef ret;
     Cvval val, *valp;
     Caarg arg;
-    char **oargs = args, sep = '\0', *name, *descr, *p, *q, **xor, c;
+    char **oargs = args, sep = '\0', asep = '=', *name, *descr, *p, *q, **xor, c;
     int xnum, multi, vtype, hassep = 0;
 
-    if (args[0][0] == '-' && args[0][1] == 's' && !args[0][2]) {
-	if (args[1][0] && args[1][1]) {
+    while (args[0][0] == '-' && (args[0][1] == 's' || args[0][1] == 'S') &&
+           !args[0][2]) {
+	if (!args[1][0] || (args[1][0] && args[1][1])) {
 	    zwarnnam(nam, "invalid separator: %s", args[1], 0);
 	    return NULL;
 	}
-	hassep = 1;
-	sep = args[1][0];
+        if (args[0][1] == 's') {
+            hassep = 1;
+            sep = args[1][0];
+        } else
+            asep = args[1][0];
+
 	args += 2;
     }
     if (!args[0] || !args[1]) {
@@ -2039,6 +2125,7 @@ parse_cvdef(char *nam, char **args)
     ret->descr = ztrdup(descr);
     ret->hassep = hassep;
     ret->sep = sep;
+    ret->argsep = asep;
     ret->next = NULL;
     ret->vals = NULL;
     ret->defs = zarrdup(oargs);
@@ -2046,6 +2133,7 @@ parse_cvdef(char *nam, char **args)
     ret->lastt = time(0);
 
     for (valp = &(ret->vals); *args; args++) {
+	int bs = 0;
 	p = dupstring(*args);
 	xnum = 0;
 
@@ -2093,9 +2181,9 @@ parse_cvdef(char *nam, char **args)
 
 	for (name = p; *p && *p != ':' && *p != '['; p++)
 	    if (*p == '\\' && p[1])
-		p++;
+		p++, bs = 1;
 
-	if (hassep && !sep && name + 1 != p) {
+	if (hassep && !sep && name + bs + 1 < p) {
 	    freecvdef(ret);
 	    zwarnnam(nam, "no multi-letter values with empty separator allowed", NULL, 0);
 	    return NULL;
@@ -2256,7 +2344,7 @@ cv_parse_word(Cvdef d)
 	    for (str = compprefix, end = strchr(str, d->sep); end;) {
 		*end = '\0';
 
-		if ((heq = !!(eq = strchr(str, '='))))
+		if ((heq = !!(eq = strchr(str, d->argsep))))
 		    *eq++ = '\0';
 		else
 		    eq = "";
@@ -2268,7 +2356,7 @@ cv_parse_word(Cvdef d)
 		    cv_inactive(d, ptr->xor);
 		}
 		if (heq)
-		    eq[-1] = '=';
+		    eq[-1] = d->argsep;
 
 		*end = d->sep;
 		str = end + 1;
@@ -2283,7 +2371,7 @@ cv_parse_word(Cvdef d)
 		    if ((end = strchr(str, d->sep)))
 			*end = '\0';
 
-		    if ((heq = !!(eq = strchr(str, '='))))
+		    if ((heq = !!(eq = strchr(str, d->argsep))))
 			*eq++ = '\0';
 		    else
 			eq = "";
@@ -2295,7 +2383,7 @@ cv_parse_word(Cvdef d)
 			cv_inactive(d, ptr->xor);
 		    }
 		    if (heq)
-			eq[-1] = '=';
+			eq[-1] = d->argsep;
 		    if (end)
 			*end++ = d->sep;
 		}
@@ -2334,16 +2422,16 @@ cv_parse_word(Cvdef d)
     compprefix = str;
     compsuffix = ztrdup("");
 
-    if ((eq = strchr(str, '='))) {
+    if ((eq = strchr(str, d->argsep))) {
 	*eq++ = '\0';
 
 	if ((ptr = cv_get_val(d, str)) && ptr->type != CVV_NOARG) {
-	    eq[-1] = '=';
+	    eq[-1] = d->argsep;
 	    ignore_prefix(eq - str);
 	    state.def = ptr->arg;
 	    state.val = ptr;
 	} else
-	    eq[-1] = '=';
+	    eq[-1] = d->argsep;
     }
     memcpy(&cv_laststate, &state, sizeof(state));
 }
@@ -2371,6 +2459,7 @@ bin_compvalues(char *nam, char **args, char *ops, int func)
     case 'C': min = 1; max =  1; break;
     case 'V': min = 3; max =  3; break;
     case 's': min = 1; max =  1; break;
+    case 'S': min = 1; max =  1; break;
     case 'd': min = 1; max =  1; break;
     case 'L': min = 3; max =  4; break;
     case 'v': min = 1; max =  1; break;
@@ -2472,6 +2561,15 @@ bin_compvalues(char *nam, char **args, char *ops, int func)
 	    return 0;
 	}
 	return 1;
+    case 'S':
+	{
+	    char tmp[2];
+
+	    tmp[0] = cv_laststate.d->argsep;
+	    tmp[1] = '\0';
+	    setsparam(args[1], ztrdup(tmp));
+	}
+	return 0;
     case 'd':
 	setsparam(args[1], ztrdup(cv_laststate.d->descr));
 	return 0;
@@ -2511,6 +2609,24 @@ bin_compvalues(char *nam, char **args, char *ops, int func)
     return 1;
 }
 
+static char *
+comp_quote(char *str, int prefix)
+{
+    int x;
+    char *ret;
+
+    if ((x = (prefix && *str == '=')))
+	*str = 'x';
+
+    ret = bslashquote(str, NULL, (*compqstack == '\'' ? 1 :
+				  (*compqstack == '"' ? 2 : 0)));
+
+    if (x)
+	*str = *ret = '=';
+
+    return ret;
+}
+
 static int
 bin_compquote(char *nam, char **args, char *ops, int func)
 {
@@ -2518,6 +2634,10 @@ bin_compquote(char *nam, char **args, char *ops, int func)
     struct value vbuf;
     Value v;
 
+    if (incompfunc != 1) {
+	zwarnnam(nam, "can only be called from completion function", NULL, 0);
+	return 1;
+    }
     /* Anything to do? */
 
     if (!compqstack || !*compqstack)
@@ -2527,18 +2647,11 @@ bin_compquote(char *nam, char **args, char *ops, int func)
 
     while ((name = *args++)) {
 	name = dupstring(name);
+	queue_signals();
 	if ((v = getvalue(&vbuf, &name, 0))) {
 	    switch (PM_TYPE(v->pm->flags)) {
 	    case PM_SCALAR:
-		{
-		    char *val = getstrvalue(v);
-
-		    val = bslashquote(val, NULL,
-				      (*compqstack == '\'' ? 1 :
-				       (*compqstack == '"' ? 2 : 0)));
-
-		    setstrvalue(v, ztrdup(val));
-		}
+		setstrvalue(v, ztrdup(comp_quote(getstrvalue(v), ops['p'])));
 		break;
 	    case PM_ARRAY:
 		{
@@ -2548,10 +2661,7 @@ bin_compquote(char *nam, char **args, char *ops, int func)
 		    char **p = new;
 
 		    for (; *val; val++, p++)
-			*p = ztrdup(bslashquote(*val, NULL,
-						(*compqstack == '\'' ? 1 :
-						 (*compqstack == '"' ? 2 :
-						  0))));
+			*p = ztrdup(comp_quote(*val, ops['p']));
 		    *p = NULL;
 
 		    setarrvalue(v, new);
@@ -2562,6 +2672,7 @@ bin_compquote(char *nam, char **args, char *ops, int func)
 	    }
 	} else
 	    zwarnnam(nam, "unknown parameter: %s", args[-1], 0);
+	unqueue_signals();
     }
     return 0;
 }
@@ -2979,47 +3090,642 @@ bin_comptry(char *nam, char **args, char *ops, int func)
     return 0;
 }
 
-static char *
-fmtstr(char *str, char c, char *repl)
+#define PATH_MAX2 (PATH_MAX * 2)
+
+static LinkList
+cfp_test_exact(LinkList names, char **accept, char *skipped)
 {
-    int len, num, rlen;
-    char *s, *ret, *rp;
+    char buf[PATH_MAX2 + 1], *suf, *p;
+    int l, sl, found = 0;
+    struct stat st;
+    LinkNode node;
+    LinkList ret = newlinklist(), alist = NULL;
 
-    len = strlen(str);
-    rlen = strlen(repl);
+    if ((!(compprefix && *compprefix) && !(compsuffix && *compsuffix)) ||
+	(!accept || !*accept ||
+	 ((!strcmp(*accept, "false") || !strcmp(*accept, "no") ||
+	   !strcmp(*accept, "off") || !strcmp(*accept, "0")) && !accept[1])))
+	return NULL;
 
-    for (num = 0, s = str; *s; s++)
-	if (*s == '%' && s[1] == c)
-	    num++, s++;
+    if (accept[1] ||
+	(strcmp(*accept, "true") && strcmp(*accept, "yes") &&
+	 strcmp(*accept, "on") && strcmp(*accept, "1"))) {
+	Patprog prog;
 
-    ret = (char *) zhalloc((num * (rlen - 2)) + len + 1);
+	alist = newlinklist();
 
-    for (s = str, rp = ret; *s; s++) {
-	if (*s == '%' && s[1] == c) {
-	    strcpy(rp, repl);
-	    rp += rlen;
-	    s++;
-	} else
-	    *rp++ = *s;
+	for (; (p = *accept); accept++) {
+	    if (*p == '*' && !p[1]) {
+		alist = NULL;
+		break;
+	    }
+	    tokenize(p = dupstring(p));
+	    if ((prog = patcompile(p, 0, NULL)))
+		addlinknode(alist, prog);
+	}
     }
-    *rp = '\0';
+    sl = strlen(skipped) + (compprefix ? strlen(compprefix) : 0) +
+	(compsuffix ? strlen(compsuffix) : 0);
 
+    if (sl > PATH_MAX2)
+	return NULL;
+
+    suf = dyncat(skipped, rembslash(dyncat(compprefix, compsuffix)));
+
+    for (node = firstnode(names); node; incnode(node)) {
+	l = strlen(p = (char *) getdata(node));
+	if (l + sl < PATH_MAX2) {
+	    strcpy(buf, p);
+	    strcpy(buf + l, suf);
+
+	    if (!ztat(buf, &st, 0)) {
+		if (alist) {
+		    LinkNode anode;
+
+		    for (anode = firstnode(alist); anode; incnode(anode))
+			if (pattry((Patprog) getdata(anode), buf))
+			    break;
+
+		    if (!anode)
+			continue;
+		}
+		found = 1;
+		addlinknode(ret, dupstring(buf));
+	    }
+	}
+    }
+    return (found ? ret : NULL);
+}
+
+static char *
+cfp_matcher_pats(char *matcher, char *add)
+{
+    Cmatcher m = parse_cmatcher(NULL, matcher);
+
+    if (m && m != pcm_err) {
+	char *tmp;
+	int al = strlen(add), tl;
+	VARARR(Cmatcher, ms, al);
+	Cmatcher *mp;
+	Cpattern stopp;
+	int stopl = 0;
+
+	memset(ms, 0, al * sizeof(Cmatcher));
+
+	for (; m && *add; m = m->next) {
+	    stopp = NULL;
+	    if (!(m->flags & (CMF_LEFT|CMF_RIGHT))) {
+		if (m->llen == 1 && m->wlen == 1) {
+		    for (tmp = add, tl = al, mp = ms; tl; tl--, tmp++, mp++) {
+			if (pattern_match(m->line, tmp, NULL, NULL)) {
+			    if (*mp) {
+				*tmp = '\0';
+				al = tmp - add;
+				break;
+			    } else
+				*mp = m;
+			}
+		    }
+		} else {
+		    stopp = m->line;
+		    stopl = m->llen;
+		}
+	    } else if (m->flags & CMF_RIGHT) {
+		if (m->wlen < 0 && !m->llen && m->ralen == 1) {
+		    for (tmp = add, tl = al, mp = ms; tl; tl--, tmp++, mp++) {
+			if (pattern_match(m->right, tmp, NULL, NULL)) {
+			    if (*mp || (tmp == add && *tmp == '.')) {
+				*tmp = '\0';
+				al = tmp - add;
+				break;
+			    } else
+				*mp = m;
+			}
+		    }
+		} else if (m->llen) {
+		    stopp = m->line;
+		    stopl = m->llen;
+		} else {
+		    stopp = m->right;
+		    stopl = m->ralen;
+		}
+	    } else {
+		if (!m->lalen)
+		    return "";
+
+		stopp = m->left;
+		stopl = m->lalen;
+	    }
+	    if (stopp)
+		for (tmp = add, tl = al; tl >= stopl; tl--, tmp++)
+		    if (pattern_match(stopp, tmp, NULL, NULL)) {
+			*tmp = '\0';
+			al = tmp - add;
+			break;
+		    }
+	}
+	if (*add) {
+	    char *ret = "", buf[259];
+
+	    for (mp = ms; *add; add++, mp++) {
+		if (!(m = *mp)) {
+		    buf[0] = *add;
+		    buf[1] = '\0';
+		} else if (m->flags & CMF_RIGHT) {
+		    buf[0] = '*';
+		    buf[1] = *add;
+		    buf[2] = '\0';
+		} else {
+		    unsigned char *t, c;
+		    char *p = buf;
+		    int i;
+
+		    for (i = 256, t = m->word->tab; i--; t++)
+			if (*t)
+			    break;
+		    if (i) {
+			t = m->word->tab;
+			*p++ = '[';
+			if (m->line->equiv && m->word->equiv) {
+			    *p++ = *add;
+			    c = m->line->tab[STOUC(*add)];
+			    for (i = 0; i < 256; i++)
+				if (m->word->tab[i] == c) {
+				    *p++ = (char) i;
+				    break;
+				}
+			} else {
+			    if (*add == ']' || t[STOUC(']')])
+				*p++ = ']';
+			    for (i = 0; i < 256; i++, t++)
+				if (*t && ((char) i) != *add &&
+				    i != ']' && i != '-' &&
+				    i != '^' && i != '!')
+				    *p++ = (char) i;
+			    *p++ = *add;
+			    t = m->word->tab;
+			    if (*add != '^' && t[STOUC('^')])
+				*p++ = '^';
+			    if (*add != '!' && t[STOUC('!')])
+				*p++ = '!';
+			    if (*add != '-' && t[STOUC('-')])
+				*p++ = '-';
+			}
+			*p++ = ']';
+			*p = '\0';
+		    } else {
+			*p = '?';
+			p[1] = '\0';
+		    }
+		}
+		ret = dyncat(ret, buf);
+	    }
+	    return ret;
+	}
+    }
+    return add;
+}
+
+static void
+cfp_opt_pats(char **pats, char *matcher)
+{
+    char *add, **p, *q, *t, *s;
+
+    if (!compprefix || !*compprefix)
+	return;
+
+    if (comppatmatch && *comppatmatch) {
+	tokenize(t = rembslash(dyncat(compprefix, compsuffix)));
+	remnulargs(t);
+	if (haswilds(t))
+	    return;
+    }
+    add = (char *) zhalloc(strlen(compprefix) * 2 + 1);
+    for (s = compprefix, t = add; *s; s++) {
+	if (*s != '\\' || !s[1] || s[1] == '*' || s[1] == '?' ||
+	    s[1] == '<' || s[1] == '>' || s[1] == '(' || s[1] == ')' ||
+	    s[1] == '[' || s[1] == ']' || s[1] == '|' || s[1] == '#' ||
+	    s[1] == '^' || s[1] == '~' || s[1] == '=') {
+	    if ((s == compprefix || s[-1] != '\\') &&
+		(*s == '*' || *s == '?' || *s == '<' || *s == '>' ||
+		 *s == '(' || *s == ')' || *s == '[' || *s == ']' ||
+		 *s == '|' || *s == '#' || *s == '^' || *s == '~' ||
+		 *s == '='))
+		*t++ = '\\';
+	    *t++ = *s;
+	}
+    }
+    *t = '\0';
+    for (p = pats; *add && (q = *p); p++) {
+	if (*q) {
+	    q = dupstring(q);
+	    t = q + strlen(q) - 1;
+	    if (*t == ')') {
+		for (s = t--; t > q; t--)
+		    if (*t == ')' || *t == '|' || *t == '~' || *t == '(')
+			break;
+		if (t != q && *t == '(')
+		    *t = '\0';
+	    }
+	    for (; *q && *add; q++) {
+		if (*q == '\\' && q[1]) {
+		    for (s = add, q++; *s && *s != *q; s++);
+		    *s = '\0';
+		} else if (*q == '<') {
+		    for (s = add; *s && !idigit(*s); s++);
+		    *s = '\0';
+		} else if (*q == '[') {
+		    int not, first = 1;
+		    char *x = ++q;
+
+		    if ((not = (*x == '!' || *x == '^')))
+			x++;
+		    for (; *x && (first || *x != ']'); x++) {
+			if (x[1] == '-' && x[2]) {
+			    char c1 = *x, c2 = x[2];
+
+			    for (s = add; *s && (*x < c1 || *x > c2); s++);
+			    *s = '\0';
+			} else {
+			    for (s = add; *s && *s != *x; s++);
+			    *s = '\0';
+			}
+		    }
+		} else if (*q != '?' && *q != '*' && *q != '(' && *q != ')' &&
+			   *q != '|' && *q != '~' && *q != '#') {
+		    for (s = add; *s && *s != *q; s++);
+		    *s = '\0';
+		}
+	    }
+	}
+    }
+    if (*add) {
+	if (*matcher && !(add = cfp_matcher_pats(matcher, add)))
+	    return;
+
+	for (p = pats; *p; p++)
+	    if (**p == '*')
+		*p = dyncat(add, *p);
+    }
+}
+
+static LinkList
+cfp_bld_pats(int dirs, LinkList names, char *skipped, char **pats)
+{
+    LinkList ret = newlinklist();
+    LinkNode node;
+    int ol, sl = strlen(skipped), pl, dot;
+    char **p, *o, *str;
+
+    dot = (unset(GLOBDOTS) && compprefix && *compprefix == '.');
+    for (node = firstnode(names); node; incnode(node)) {
+	ol = strlen(o = (char *) getdata(node));
+	for (p = pats; *p; p++) {
+	    pl = strlen(*p);
+	    str = (char *) zhalloc(ol + sl + pl + 1);
+	    strcpy(str, o);
+	    strcpy(str + ol, skipped);
+	    strcpy(str + ol + sl, *p);
+	    addlinknode(ret, str);
+	    if (dot && **p != '.') {
+		str = (char *) zhalloc(ol + sl + pl + 2);
+		strcpy(str, o);
+		strcpy(str + ol, skipped);
+		str[ol + sl] = '.';
+		strcpy(str + ol + sl + 1, *p);
+		addlinknode(ret, str);
+	    }
+	}
+    }
     return ret;
 }
 
-static int
-bin_compfmt(char *nam, char **args, char *ops, int func)
+static LinkList
+cfp_add_sdirs(LinkList final, LinkList orig, char *skipped,
+	      char *sdirs, char **fake)
 {
-    char *param = args[0], *str = args[1];
+    int add = 0;
 
-    for (args += 2; *args; args++) {
-	if (args[0][1] != ':') {
-	    zwarnnam(nam, "invalid argument `%s'", args[0], 0);
-	    return 1;
-	}
-	str = fmtstr(str, **args, *args + 2);
+    if (*sdirs && (isset(GLOBDOTS) || (compprefix && *compprefix == '.'))) {
+	if (!strcmp(sdirs, "yes") || !strcmp(sdirs, "true") ||
+	    !strcmp(sdirs, "on") || !strcmp(sdirs, "1"))
+	    add = 2;
+	else if (!strcmp(sdirs, ".."))
+	    add = 1;
     }
-    setsparam(param, ztrdup(str));
+    if (add) {
+	LinkNode node;
+	char *s1 = dyncat(skipped, "..");
+	char *s2 = (add == 2 ? dyncat(skipped, ".") : NULL), *m;
+
+	for (node = firstnode(orig); node; incnode(node)) {
+	    if ((m = (char *) getdata(node))) {
+		addlinknode(final, dyncat(m, s1));
+		if (s2)
+		    addlinknode(final, dyncat(m, s2));
+	    }
+	}
+    }
+    if (fake && *fake) {
+	LinkNode node;
+	char *m, *f, *p, *t, *a, c;
+	int sl = strlen(skipped) + 1;
+	struct stat st1, st2;
+
+	for (; (f = *fake); fake++) {
+	    f = dupstring(f);
+	    for (p = t = f; *p; p++) {
+		if (*p == ':')
+		    break;
+		else if (*p == '\\' && p[1])
+		    p++;
+		*t++ = *p;
+	    }
+	    if (*p) {
+		*t = *p++ = '\0';
+		if (!*p)
+		    continue;
+
+		for (node = firstnode(orig); node; incnode(node)) {
+		    if ((m = (char *) getdata(node)) &&
+			(!strcmp(f, m) ||
+			 (!stat(f, &st1) && !stat((*m ? m : "."), &st2) &&
+			  st1.st_dev == st2.st_dev &&
+			  st1.st_ino == st2.st_ino))) {
+			while (*p) {
+			    while (*p && inblank(*p))
+				p++;
+			    if (!*p)
+				break;
+			    for (f = t = p; *p; p++) {
+				if (inblank(*p))
+				    break;
+				else if (*p == '\\' && p[1])
+				    p++;
+				*t++ = *p;
+			    }
+			    c = *t;
+			    *t = '\0';
+			    a = (char *) zhalloc(strlen(m) + sl + strlen(f));
+			    strcpy(a, m);
+			    strcat(a, skipped);
+			    strcat(a, f);
+			    addlinknode(final, a);
+			    *t = c;
+			}
+		    }
+		}
+	    }
+	}
+    }
+    return final;
+}
+
+static LinkList
+cf_pats(int dirs, int noopt, LinkList names, char **accept, char *skipped,
+	char *matcher, char *sdirs, char **fake, char **pats)
+{
+    LinkList ret;
+    char *dpats[2];
+
+    if ((ret = cfp_test_exact(names, accept, skipped)))
+	return cfp_add_sdirs(ret, names, skipped, sdirs, fake);
+
+    if (dirs) {
+	dpats[0] = "*(-/)";
+	dpats[1] = NULL;
+	pats = dpats;
+    }
+    if (!noopt)
+	cfp_opt_pats(pats, matcher);
+
+    return cfp_add_sdirs(cfp_bld_pats(dirs, names, skipped, pats),
+			 names, skipped, sdirs, fake);
+}
+
+static void
+cf_ignore(char **names, LinkList ign, char *style, char *path)
+{
+    int pl = strlen(path), tpar, tpwd, found;
+    struct stat nst, est, st;
+    char *n, *c, *e;
+
+    tpar = !!strstr(style, "parent");
+    if ((tpwd = !!strstr(style, "pwd")) && stat(pwd, &est))
+	tpwd = 0;
+
+    if (!tpar && !tpwd)
+	return;
+
+    for (; (n = *names); names++) {
+	if (!ztat(n, &nst, 0) && S_ISDIR(nst.st_mode)) {
+	    if (tpwd && nst.st_dev == est.st_dev && nst.st_ino == est.st_ino) {
+		addlinknode(ign, bslashquote(n, NULL, 0));
+		continue;
+	    }
+	    if (tpar && !strncmp((c = dupstring(n)), path, pl)) {
+		found = 0;
+		while ((e = strrchr(c, '/')) && e > c + pl) {
+		    *e = '\0';
+		    if (!ztat(c, &st, 0) &&
+			st.st_dev == nst.st_dev && st.st_ino == nst.st_ino) {
+			found = 1;
+			break;
+		    }
+		}
+		if (found || ((e = strrchr(c, '/')) && e > c + pl &&
+			      !ztat(c, &st, 0) && st.st_dev == nst.st_dev &&
+			      st.st_ino == nst.st_ino))
+		    addlinknode(ign, bslashquote(n, NULL, 0));
+	    }
+	}
+    }
+}
+
+static LinkList
+cf_remove_other(char **names, char *pre, int *amb)
+{
+    char *p;
+
+    if ((p = strchr(pre, '/'))) {
+	char **n;
+
+	*p = '\0';
+	pre = dyncat(pre, "/");
+	*p = '/';
+
+	for (n = names; *n; n++)
+	    if (strpfx(pre, *n))
+		break;
+
+	if (*n) {
+	    LinkList ret = newlinklist();
+
+	    for (; *names; names++)
+		if (strpfx(pre, *names))
+		    addlinknode(ret, dupstring(*names));
+
+	    *amb = 0;
+
+	    return ret;
+	} else {
+	    if (!(p = *names++))
+		*amb = 0;
+	    else {
+		char *q;
+
+		if ((q = strchr((p = dupstring(p)), '/')))
+		    *q = '\0';
+
+		for (; *names; names++)
+		    if (!strpfx(p, *names)) {
+			*amb = 1;
+			return NULL;
+		    }
+	    }
+	}
+    } else {
+	if (!(p = *names++))
+	    *amb = 0;
+	else
+	    for (; *names; names++)
+		if (strcmp(p, *names)) {
+		    *amb = 1;
+		    return NULL;
+		}
+    }
+    return NULL;
+}
+
+static int
+bin_compfiles(char *nam, char **args, char *ops, int func)
+{
+    if (incompfunc != 1) {
+	zwarnnam(nam, "can only be called from completion function", NULL, 0);
+	return 1;
+    }
+    if (**args != '-') {
+	zwarnnam(nam, "missing option: %s", *args, 0);
+	return 1;
+    }
+    switch (args[0][1]) {
+    case 'p':
+    case 'P':
+	if (args[0][2] && (args[0][2] != '-' || args[0][3])) {
+	    zwarnnam(nam, "invalid option: %s", *args, 0);
+	    return 1;
+	} else {
+	    char **tmp;
+	    LinkList l;
+
+	    if (!args[1] || !args[2] || !args[3] || !args[4] || !args[5] ||
+		!args[6] || (args[0][1] == 'p' && !args[7])) {
+		zwarnnam(nam, "too few arguments", NULL, 0);
+		return 1;
+	    }
+	    queue_signals();
+	    if (!(tmp = getaparam(args[1]))) {
+		zwarnnam(nam, "unknown parameter: %s", args[1], 0);
+		return 0;
+	    }
+	    for (l = newlinklist(); *tmp; tmp++)
+		addlinknode(l, *tmp);
+	    set_list_array(args[1], cf_pats((args[0][1] == 'P'), !!args[0][2],
+					    l, getaparam(args[2]), args[3],
+					    args[4], args[5],
+					    getaparam(args[6]), args + 7));
+	    unqueue_signals();
+	    return 0;
+	}
+    case 'i':
+	if (args[0][2]) {
+	    zwarnnam(nam, "invalid option: %s", *args, 0);
+	    return 1;
+	} else {
+	    char **tmp;
+	    LinkList l;
+
+	    if (!args[1] || !args[2] || !args[3] || !args[4]) {
+		zwarnnam(nam, "too few arguments", NULL, 0);
+		return 1;
+	    }
+	    if (args[5]) {
+		zwarnnam(nam, "too many arguments", NULL, 0);
+		return 1;
+	    }
+	    queue_signals();
+	    tmp = getaparam(args[2]);
+	    l = newlinklist();
+	    if (tmp)
+		for (; *tmp; tmp++)
+		    addlinknode(l, *tmp);
+	    if (!(tmp = getaparam(args[1]))) {
+		unqueue_signals();
+		zwarnnam(nam, "unknown parameter: %s", args[1], 0);
+		return 0;
+	    }
+	    cf_ignore(tmp, l, args[3], args[4]);
+	    unqueue_signals();
+	    set_list_array(args[2], l);
+	    return 0;
+	}
+    case 'r':
+	{
+	    char **tmp;
+	    LinkList l;
+	    int ret = 0;
+
+	    if (!args[1] || !args[2]) {
+		zwarnnam(nam, "too few arguments", NULL, 0);
+		return 1;
+	    }
+	    if (args[3]) {
+		zwarnnam(nam, "too many arguments", NULL, 0);
+		return 1;
+	    }
+	    queue_signals();
+	    if (!(tmp = getaparam(args[1]))) {
+		unqueue_signals();
+		zwarnnam(nam, "unknown parameter: %s", args[1], 0);
+		return 0;
+	    }
+	    if ((l = cf_remove_other(tmp, args[2], &ret)))
+		set_list_array(args[1], l);
+	    unqueue_signals();
+	    return ret;
+	}
+    }
+    zwarnnam(nam, "invalid option: %s", *args, 0);
+    return 1;
+}
+
+static int
+bin_compgroups(char *nam, char **args, char *ops, int func)
+{
+    Heap oldheap;
+    char *n;
+
+    if (incompfunc != 1) {
+	zwarnnam(nam, "can only be called from completion function", NULL, 0);
+	return 1;
+    }
+    SWITCHHEAPS(oldheap, compheap) {
+	while ((n = *args++)) {
+	    endcmgroup(NULL);
+	    begcmgroup(n, 0);
+	    endcmgroup(NULL);
+	    begcmgroup(n, CGF_NOSORT);
+	    endcmgroup(NULL);
+	    begcmgroup(n, CGF_UNIQALL);
+	    endcmgroup(NULL);
+	    begcmgroup(n, CGF_NOSORT|CGF_UNIQCON);
+	    endcmgroup(NULL);
+	    begcmgroup(n, CGF_UNIQALL);
+	    endcmgroup(NULL);
+	    begcmgroup(n, CGF_NOSORT|CGF_UNIQCON);
+	}
+    } SWITCHBACKHEAPS(oldheap);
+
     return 0;
 }
 
@@ -3027,10 +3733,11 @@ static struct builtin bintab[] = {
     BUILTIN("compdescribe", 0, bin_compdescribe, 3, -1, 0, NULL, NULL),
     BUILTIN("comparguments", 0, bin_comparguments, 1, -1, 0, NULL, NULL),
     BUILTIN("compvalues", 0, bin_compvalues, 1, -1, 0, NULL, NULL),
-    BUILTIN("compquote", 0, bin_compquote, 1, -1, 0, NULL, NULL),
+    BUILTIN("compquote", 0, bin_compquote, 1, -1, 0, "p", NULL),
     BUILTIN("comptags", 0, bin_comptags, 1, -1, 0, NULL, NULL),
     BUILTIN("comptry", 0, bin_comptry, 0, -1, 0, NULL, NULL),
-    BUILTIN("compfmt", 0, bin_compfmt, 2, -1, 0, NULL, NULL),
+    BUILTIN("compfiles", 0, bin_compfiles, 1, -1, 0, NULL, NULL),
+    BUILTIN("compgroups", 0, bin_compgroups, 1, -1, 0, NULL, NULL),
 };
 
 

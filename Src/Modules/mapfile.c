@@ -86,8 +86,8 @@ createmapfilehash()
     unsetparam(mapfile_nam);
     mapfile_pm = NULL;
 
-    if (!(pm = createparam(mapfile_nam,
-			   PM_SPECIAL|PM_HIDE|PM_REMOVABLE|PM_HASHED)))
+    if (!(pm = createparam(mapfile_nam, PM_SPECIAL|PM_HIDE|PM_HIDEVAL|
+			   PM_REMOVABLE|PM_HASHED)))
 	return NULL;
 
     pm->level = pm->old ? locallevel : 0;
@@ -318,6 +318,7 @@ scanpmmapfile(HashTable ht, ScanFunc func, int flags)
 	 * we always read the entire contents of every single file
 	 * in the directory into memory.  Hence just leave it empty.
 	 */
+	pm.nam = dupstring(pm.nam);
 	pm.u.str = "";
 	func((HashNode) &pm, flags);
     }

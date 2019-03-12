@@ -1,4 +1,4 @@
-.TH "ZSHZFTPSYS" "1" "June 5, 2000" "zsh 3\&.1\&.9"
+.TH "ZSHZFTPSYS" "1" "June 1, 2001" "zsh 4\&.0\&.1"
 .SH "NAME"
 zshzftpsys \- zftp function front\-end
 .\" Yodl file: Zsh/zftpsys.yo
@@ -504,7 +504,7 @@ unless the output is going to a terminal; however, if you transfer files in
 the background, you should turn off progress reports by hand using
 `\fBzstyle ':zftp:*' progress none\fP'\&.  Note also that if you alter it, any
 output \fImust\fP be to standard error, as standard output may be a file
-being received\&.  The form of the progess meter, or whether it is used at
+being received\&.  The form of the progress meter, or whether it is used at
 all, can be configured without altering the function, as described in the
 next section\&.
 .TP
@@ -666,6 +666,6 @@ reopened\&.
 Completion of local and remote files, directories, sessions and bookmarks
 is supported\&.  The older, \fBcompctl\fP\-style completion is defined when
 \fBzfinit\fP is called; support for the new widget\-based completion system is
-provided in the function \fBCompletion/Builtins/_zftp\fP, which should be
+provided in the function \fBCompletion/Zsh/Command/_zftp\fP, which should be
 installed with the other functions of the completion system and hence
 should automatically be available\&.

@@ -1,4 +1,4 @@
-.TH "ZSHMODULES" "1" "June 5, 2000" "zsh 3\&.1\&.9"
+.TH "ZSHMODULES" "1" "June 1, 2001" "zsh 4\&.0\&.1"
 .SH "NAME"
 zshmodules \- zsh loadable modules
 .\" Yodl file: Zsh/modules.yo
@@ -57,6 +57,12 @@ A builtin that provides a timed execution facility within the shell\&.
 \fBzsh/stat\fP
 A builtin command interface to the \fBstat\fP system call\&.
 .TP
+\fBzsh/termcap\fP
+Interface to the termcap database\&.
+.TP
+\fBzsh/terminfo\fP
+Interface to the terminfo database\&.
+.TP
 \fBzsh/zftp\fP
 A builtin FTP client\&.
 .TP
@@ -66,15 +72,15 @@ The Zsh Line Editor, including the \fBbindkey\fP and \fBvared\fP builtins\&.
 \fBzsh/zleparameter\fP
 Access to internals of the Zsh Line Editor via parameters\&.
 .TP
-\fBzsh/zutil\fP
-Some utility builtins, e\&.g\&. the one for supporting configuration via 
-styles\&.
-.TP
 \fBzsh/zprof\fP
 A module allowing profiling for shell functions\&.
 .TP
 \fBzsh/zpty\fP
 A builtin for starting a command in a pseudo\-terminal\&.
+.TP
+\fBzsh/zutil\fP
+Some utility builtins, e\&.g\&. the one for supporting configuration via 
+styles\&.
 .\" Yodl file: Zsh/modmenu.yo
 .SH "THE ZSH/CAP MODULE"
 .\" Yodl file: Zsh/mod_cap.yo
@@ -138,7 +144,7 @@ can be used in user\-defined completion widgets, see
 
 The \fBzsh/complist\fP module offers three extensions to completion listings:
 the ability to highlight matches in such a list, the ability to
-scroll through long lists and a different style of menu\-completion\&.
+scroll through long lists and a different style of menu completion\&.
 .PP
 .SS "Colored completion listings"
 Whenever one of the parameters \fBZLS_COLORS\fP or \fBZLS_COLOURS\fP is set 
@@ -195,11 +201,11 @@ for the left code (see below)
 \fBrc m\fP
 for the right code
 .TP
-\fBtc\fP \fI0\fP
+\fBtc 0\fP
 for the character indicating the file type  printed after filenames if
 the \fBLIST_TYPES\fP option is set
 .TP
-\fBsp\fP \fI0\fP
+\fBsp 0\fP
 for the spaces printed after matches to align the next column
 .TP
 \fBec\fP \fInone\fP
@@ -208,7 +214,7 @@ for the end code
 Apart from these strings, the \fIname\fP may also be an asterisk
 (`\fB*\fP') followed by any string\&. The \fIvalue\fP given for such a
 string will be used for all files whose name ends with the string\&.
-The \fIname\fP may also be a equal sign (`\fB=\fP') followed by a
+The \fIname\fP may also be an equals sign (`\fB=\fP') followed by a
 pattern\&.  The \fIvalue\fP given for this pattern will be used for all
 matches (not just filenames) whose display string are matched by
 the pattern\&.  Definitions for both of these take precedence over the
@@ -224,7 +230,7 @@ equal signs\&.  The first code will be used for all parts for which no
 explicit code is specified and the following codes will be used for
 the parts matched by the sub\-patterns in parentheses\&.  For example,
 the specification `\fB=(#b)(?)*(?)=0=3=7\fP' will be used for all
-matches which are at least two characters long and will make the use
+matches which are at least two characters long and will use
 the code `\fB3\fP' for the first character, `\fB7\fP' for the last
 character and `\fB0\fP' for the rest\&.
 .PP
@@ -248,9 +254,14 @@ then the value of \fBec\fP if that is defined or the values of \fBlc\fP,
 .PP
 The default values are ISO 6429 (ANSI) compliant and can be used on
 vt100 compatible terminals such as \fBxterm\fPs\&.  On monochrome terminals
-the default values will have no visible effect\&.
+the default values will have no visible effect\&.  The \fBcolors\fP
+function from the contribution can be used to get associative arrays
+containing the codes for ANSI terminals (see
+the section `Other Functions' in \fIzshcontrib\fP(1))\&.  For example, after loading \fBcolors\fP, one could use
+`\fB$colors[red]\fP' to get the code for foreground color red and
+`\fB$colors[bg\-green]\fP' for the code for background color green\&.
 .PP
-If the completion system based around shell functions is used, these
+If the completion system invoked by compinit is used, these
 parameters should not be set directly because the system controls them 
 itself\&.  Instead, the \fBlist\-colors\fP style should be used (see
 the section `Completion System Configuration' in \fIzshcompsys\fP(1))\&.
@@ -311,12 +322,12 @@ should be used\&.
 .PP
 .SS "Menu selection"
 The \fBzsh/complist\fP module also offers an alternative style of selecting
-matches from a list, called menu\-selection, which can be used if the
+matches from a list, called menu selection, which can be used if the
 shell is set up to return to the last prompt after showing a
 completion list (see the \fBALWAYS_LAST_PROMPT\fP option in
 \fIzshoptions\fP(1))\&.  It can be invoked directly by
 the widget \fBmenu\-select\fP defined by the module\&.  Alternatively,
-the parameter \fBMENUSELECT\fP can be set to an integer, which give the
+the parameter \fBMENUSELECT\fP can be set to an integer, which gives the
 minimum number of matches that must be present before menu selection is
 automatically turned on\&.  This second method requires that menu completion
 be started, either directly from a widget such as \fBmenu\-complete\fP, or due
@@ -329,7 +340,7 @@ When using the completion system based on shell functions, the
 and \fBZLS_COLOURS\fP parameters described above)\&.  Instead, the \fBmenu\fP 
 style should be used with the \fBselect=\fP\fI\&.\&.\&.\fP keyword\&.
 .PP
-After menu\-selection is started, the matches will be listed\&. If there
+After menu selection is started, the matches will be listed\&. If there
 are more matches than fit on the screen, only the first screenful is
 shown\&.  The
 matches to insert into the command line can be selected from this
@@ -349,7 +360,7 @@ used\&.
 .PP
 The \fBMENUSCROLL\fP parameter can be used to specify how the list is
 scrolled\&.  If the parameter is unset, this is done line by line, if it
-is set to `\fB0\fP' (zero), the list will scrolled half the number of
+is set to `\fB0\fP' (zero), the list will scroll half the number of
 lines of the screen\&.  If the value is positive, it gives the number of
 lines to scroll and if it is negative, the list will be scrolled
 the number of lines of the screen minus the (absolute) value\&.
@@ -366,7 +377,7 @@ completion function which added them explicitly requested that they
 not appear in the list (using the \fB\-n\fP option of the \fBcompadd\fP
 builtin command) or they are matches which duplicate a string already
 in the list (because they differ only in things like prefixes or
-suffixes that are not displayed)\&.  In the list used for menu\-selection,
+suffixes that are not displayed)\&.  In the list used for menu selection,
 however, even these matches are shown so that it is possible to select
 them\&.  To highlight such matches the \fBhi\fP and \fBdu\fP capabilities in
 the \fBZLS_COLORS\fP and \fBZLS_COLOURS\fP parameters are supported for
@@ -397,8 +408,12 @@ select the next match to insert into the line
 .TP
 \fBaccept\-and\-infer\-next\-history\fP
 accepts the current match and then tries completion with
-menu\-selection again;  in the case of files this allows one to select
-a directory and immediately attempt to complete files in it
+menu selection again;  in the case of files this allows one to select
+a directory and immediately attempt to complete files in it;  if there 
+are no matches, a message is shown and one can use \fBundo\fP to go back 
+to completion on the previous level, every other key leaves menu
+selection (including the other zle functions which are otherwise
+special during menu selection)
 .TP
 \fBundo\fP
 removes matches inserted during the menu selection by one of the three 
@@ -471,7 +486,7 @@ moves the mark to the next match
 moves the mark to the previous match
 .PP
 All movement functions wrap around at the edges; any other zle function not
-listed leaves menu\-selection and executes that function\&.  It is possible to
+listed leaves menu selection and executes that function\&.  It is possible to
 make widgets in the above list do the same by using the form of the widget
 with a `\fB\&.\fP' in front\&.  For example, the widget `\fB\&.accept\-line\fP' has
 the effect of leaving menu selection and accepting the entire command line\&.
@@ -481,10 +496,10 @@ key that is not defined in this keymap or that is bound to
 \fBundefined\-key\fP is looked up in the keymap currently selected\&.  This
 is used to ensure that the most important keys used during selection
 (namely the cursor keys, return, and TAB) have sensible defaults\&.  However,
-keys in the the \fBmenuselect\fP keymap can be modified directly using the
+keys in the \fBmenuselect\fP keymap can be modified directly using the
 \fBbindkey\fP builtin command (see
-\fIzshmodules\fP(1))\&. For example, to make the return key leave menu\-selection and
-continue with normal menu\-completion one can call
+\fIzshmodules\fP(1))\&. For example, to make the return key leave menu selection without
+accepting the match currently selected one could call
 .PP
 .RS
 .nf
@@ -507,19 +522,11 @@ completion functions\&.  In summary, these builtin commands are:
 .PD 0
 .TP
 .PD
-\fBcompquote\fP \fInames\fP \&.\&.\&.
-There may be reasons to write completion functions that have to add
-the matches using the \fB\-Q\fP option to \fBcompadd\fP and perform quoting
-themselves\&.  Instead of interpreting the first character of the
-\fBall_quotes\fP key of the \fBcompstate\fP special association and using
-the \fBq\fP flag for parameter expansions, one can use this builtin
-command\&.  The arguments are the names of scalar or array parameters
-and the values of these parameters are quoted as needed for the
-innermost quoting level\&.
-.RS
-.PP
-The return value is non\-zero in case of an error and zero otherwise\&.
-.RE
+\fBcomparguments\fP
+This is used by the \fB_arguments\fP function to do the argument and
+command line parsing\&.  Like \fBcompdescribe\fP it has an option \fB\-i\fP to 
+do the parsing and initialize some internal state and various options
+to access the state information to decide what should be completed\&.
 .TP
 \fBcompdescribe\fP
 This is used by the \fB_describe\fP function to build the displays for
@@ -542,17 +549,49 @@ matches for them in the fifth array\&.  These are then directly given to
 \fBcompadd\fP to register the matches with the completion code\&.
 .RE
 .TP
-\fBcomparguments\fP
-This is used by the \fB_arguments\fP function to do the argument and
-command line parsing\&.  Like \fBcompdescribe\fP it has an option \fB\-i\fP to 
-do the parsing and initialize some internal state and various options
-to access the state information to decide what should be completed\&.
+\fBcompfiles\fP
+Used by the \fB_path_files\fP function to optimize complex recursive
+filename generation (globbing)\&.  It does three things\&.  With the
+\fB\-p\fP and \fB\-P\fP options it builds the glob patterns to use,
+including the paths already handled and trying to optimize the
+patterns with respect to the prefix and suffix from the line and the
+match specification currently used\&.  The \fB\-i\fP option does the
+directory tests for the \fBignore\-parents\fP style and the \fB\-r\fP option 
+tests if a component for some of the matches are equal to the string
+on the line and removes all other matches if that is true\&.
+.TP
+\fBcompgroups\fP
+Used by the \fB_tags\fP function to implement the internals of the
+\fBgroup\-order\fP style\&.  This only takes its arguments as names of
+completion groups and creates the groups for it (all six types: sorted 
+and unsorted, both without removing duplicates, with removing all
+duplicates and with removing consecutive duplicates)\&.
+.TP
+\fBcompquote\fP [ \fB\-p\fP ] \fInames\fP \&.\&.\&.
+There may be reasons to write completion functions that have to add
+the matches using the \fB\-Q\fP option to \fBcompadd\fP and perform quoting
+themselves\&.  Instead of interpreting the first character of the
+\fBall_quotes\fP key of the \fBcompstate\fP special association and using
+the \fBq\fP flag for parameter expansions, one can use this builtin
+command\&.  The arguments are the names of scalar or array parameters
+and the values of these parameters are quoted as needed for the
+innermost quoting level\&.  If the \fB\-p\fP option is given, quoting is
+done as if there is some prefix before the values of the parameters,
+so that a leading equal sign will not be quoted\&.
+.RS
+.PP
+The return value is non\-zero in case of an error and zero otherwise\&.
+.RE
+.TP
+.PD 0
+\fBcomptags\fP
+.TP
+.PD
+\fBcomptry\fP
+These implement the internals of the tags mechanism\&.
 .TP
 \fBcompvalues\fP
 Like \fBcomparguments\fP, but for the \fB_values\fP function\&.
-.TP
-\fBcomptags\fP, \fBcomptry\fP
-This implements the internals of the tags mechanism\&.
 .SH "THE ZSH/DELTOCHAR MODULE"
 .\" Yodl file: Zsh/mod_deltochar.yo
 
@@ -922,9 +961,10 @@ Setting or unsetting keys in this array is not possible\&.
 .TP
 \fBmodules\fP
 An associative array giving information about modules\&. The keys are the names
-of the modules builtin, loaded, or registered to be autoloaded\&. The
+of the modules loaded, registered to be autoloaded, or aliased\&. The
 value says which state the named module is in and is one of the
-strings \fBbuiltin\fP, \fBloaded\fP, or \fBautoloaded\fP\&.
+strings `\fBloaded\fP', `\fBautoloaded\fP', or `\fBalias:\fP\fIname\fP',
+where \fIname\fP is the name the module is aliased to\&.
 .RS
 .PP
 Setting or unsetting keys in this array is not possible\&.
@@ -953,12 +993,13 @@ that were used to start the jobs\&.
 This associative array gives information about the states of the jobs
 currently known\&. The keys are the job numbers and the values are
 strings of the form
-`\fIjob\-state\fP:\fIpid\fP\fB=\fP\fIstate\fP\fB\&.\&.\&.\fP'\&. The \fIjob\-state\fP
-gives the state the whole job is currently in, one of `\fBrunning\fP',
-`\fBsuspended\fP', or `\fBdone\fP'\&. This is followed by one
-`\fIpid\fP\fB=\fP\fIstate\fP' for every process in the job\&. The \fIpid\fPs
-are, of course, the process IDs and the \fIstate\fP describes the state 
-of that process\&.
+`\fIjob\-state\fP:\fImark\fP:\fIpid\fP\fB=\fP\fIstate\fP\fB\&.\&.\&.\fP'\&. The
+\fIjob\-state\fP gives the state the whole job is currently in, one of
+`\fBrunning\fP', `\fBsuspended\fP', or `\fBdone\fP'\&. The \fImark\fP is
+`\fB+\fP' for the current job, `\fB\-\fP' for the previous job and empty
+otherwise\&. This is followed by one `\fIpid\fP\fB=\fP\fIstate\fP' for every
+process in the job\&. The \fIpid\fPs are, of course, the process IDs and
+the \fIstate\fP describes the state of that process\&.
 .TP
 \fBnameddirs\fP
 This associative array maps the names of named directories to the pathnames
@@ -1151,6 +1192,46 @@ standard output and no individual element has been selected\&.
 Never show the type names of the \fBstruct stat\fP elements\&.
 .RE
 .RE
+.SH "THE ZSH/TERMCAP MODULE"
+.\" Yodl file: Zsh/mod_termcap.yo
+
+The \fBzsh/termcap\fP module makes available one builtin command:
+.PP
+.PD 0
+.TP
+.PD
+\fBechotc\fP \fIcap\fP [ \fIarg\fP \&.\&.\&. ]
+Output the termcap value corresponding to the capability
+\fIcap\fP, with optional arguments\&.
+.PP
+The \fBzsh/termcap\fP module makes available one parameter:
+.PP
+.PD 0
+.TP
+.PD
+\fBtermcap\fP
+An associative array that maps termcap capability codes to
+their values\&.
+.SH "THE ZSH/TERMINFO MODULE"
+.\" Yodl file: Zsh/mod_terminfo.yo
+
+The \fBzsh/terminfo\fP module makes available one builtin command:
+.PP
+.PD 0
+.TP
+.PD
+\fBechoti\fP \fIcap\fP
+Output the terminfo value corresponding to the capability
+\fIcap\fP\&.
+.PP
+The \fBzsh/terminfo\fP module makes available one parameter:
+.PP
+.PD 0
+.TP
+.PD
+\fBterminfo\fP
+An associative array that maps terminfo capability names to
+their values\&.
 .SH "THE ZSH/ZFTP MODULE"
 .\" Yodl file: Zsh/mod_zftp.yo
 
@@ -1650,372 +1731,7 @@ is presumably a bug in the operating system\&.
 .\" Yodl file: Zsh/mod_zle.yo
 
 The \fBzsh/zle\fP module contains the Zsh Line Editor\&.  See
-\fIzshzle\fP(1)\&.  It also contains three related builtin commands:
-.PP
-.PD 0
-.TP
-.PD 0
-\fBbindkey\fP [ \fIoptions\fP ] \fB\-l\fP
-.TP
-.PD 0
-\fBbindkey\fP [ \fIoptions\fP ] \fB\-d\fP
-.TP
-.PD 0
-\fBbindkey\fP [ \fIoptions\fP ] \fB\-D\fP \fIkeymap\fP \&.\&.\&.
-.TP
-.PD 0
-\fBbindkey\fP [ \fIoptions\fP ] \fB\-A\fP \fIold\-keymap new\-keymap\fP
-.TP
-.PD 0
-\fBbindkey\fP [ \fIoptions\fP ] \fB\-N\fP \fInew\-keymap\fP [ \fIold\-keymap\fP ]
-.TP
-.PD 0
-\fBbindkey\fP [ \fIoptions\fP ] \fB\-m\fP
-.TP
-.PD 0
-\fBbindkey\fP [ \fIoptions\fP ] \fB\-r\fP \fIin\-string\fP \&.\&.\&.
-.TP
-.PD 0
-\fBbindkey\fP [ \fIoptions\fP ] \fB\-s\fP \fIin\-string out\-string\fP \&.\&.\&.
-.TP
-.PD 0
-\fBbindkey\fP [ \fIoptions\fP ] \fIin\-string command\fP \&.\&.\&.
-.TP
-.PD
-\fBbindkey\fP [ \fIoptions\fP ] [ \fIin\-string\fP ]
-\fBbindkey\fP's options can be divided into three categories: keymap selection,
-operation selection, and others\&.  The keymap selection options are:
-.RS
-.PP
-.PD 0
-.TP
-.PD
-\fB\-e\fP
-Selects keymap `\fBemacs\fP', and also links it to `\fBmain\fP'\&.
-.TP
-\fB\-v\fP
-Selects keymap `\fBviins\fP', and also links it to `\fBmain\fP'\&.
-.TP
-\fB\-a\fP
-Selects keymap `\fBvicmd\fP'\&.
-.TP
-\fB\-M\fP
-The first non\-option argument is used as a keymap name,
-and does not otherwise count as an argument\&.
-.PP
-If a keymap selection is required and none of the options above are used, the
-`\fBmain\fP' keymap is used\&.  Some operations do not permit a keymap to be
-selected, namely:
-.PP
-.PD 0
-.TP
-.PD
-\fB\-l\fP
-List all existing keymap names\&.  If the \fB\-L\fP
-option is also used, list in the form of \fBbindkey\fP
-commands to create the keymaps\&.
-.TP
-\fB\-d\fP
-Delete all existing keymaps and reset to the default state\&.
-.TP
-\fB\-D\fP \fIkeymap\fP \&.\&.\&.
-Delete the named \fIkeymap\fPs\&.
-.TP
-\fB\-A\fP \fIold\-keymap new\-keymap\fP
-Make the \fInew\-keymap\fP name an alias for \fIold\-keymap\fP, so that
-both names refer to the same keymap\&.  The names have equal standing;
-if either is deleted, the other remains\&.  If there is already a keymap
-with the \fInew\-keymap\fP name, it is deleted\&.
-.TP
-\fB\-N\fP \fInew\-keymap\fP [ \fIold\-keymap\fP ]
-Create a new keymap, named \fInew\-keymap\fP\&.  If a keymap already has that
-name, it is deleted\&.  If an \fIold\-keymap\fP name is given, the new keymap
-is initialized to be a duplicate of it, otherwise the new keymap will
-be empty\&.
-.PP
-To use a newly created keymap, it should be linked to \fBmain\fP\&.  Hence
-the sequence of commands to create and use a new keymap `\fBmymap\fP'
-initialized from the \fBemacs\fP keymap (which remains unchanged) is:
-.PP
-.RS
-.nf
-\fBbindkey \-N mymap emacs
-bindkey \-A mymap main\fP
-.fi
-.RE
-.PP
-Note that while `\fBbindkey \-A\fP \fInewmap\fP \fBmain\fP' will work when
-\fInewmap\fP is \fBemacs\fP or \fBviins\fP, it will not work for \fBvicmd\fP, as
-switching from vi insert to command mode becomes impossible\&.
-.PP
-The following operations act on the `\fBmain\fP' keymap if no keymap
-selection option was given:
-.PP
-.PD 0
-.TP
-.PD
-\fB\-m\fP
-Add the built\-in set of meta\-key bindings to the selected keymap\&.
-Only keys that are unbound or bound to \fBself\-insert\fP are affected\&.
-.TP
-\fB\-r\fP \fIin\-string\fP \&.\&.\&.
-Unbind the specified \fIin\-string\fPs in the selected keymap\&.
-This is exactly equivalent to binding the strings to \fBundefined\-key\fP\&.
-When \fB\-R\fP is also used, interpret the \fIin\-string\fPs as ranges\&.
-.TP
-\fB\-s\fP \fIin\-string out\-string\fP \&.\&.\&.
-Bind each \fIin\-string\fP to each \fIout\-string\fP\&.
-When \fIin\-string\fP is typed, \fIout\-string\fP will be
-pushed back and treated as input to the line editor\&.
-When \fB\-R\fP is also used, interpret the \fIin\-string\fPs as ranges\&.
-.TP
-\fIin\-string command\fP \&.\&.\&.
-Bind each \fIin\-string\fP to each \fIcommand\fP\&.
-When \fB\-R\fP is used, interpret the \fIin\-string\fPs as ranges\&.
-.TP
-[ \fIin\-string\fP ]
-List key bindings\&.  If an \fIin\-string\fP is specified, the binding of
-that string in the selected keymap is displayed\&.  Otherwise, all key
-bindings in the selected keymap are displayed\&.  (As a special case,
-if the \fB\-e\fP or \fB\-v\fP option is used alone, the keymap is \fInot\fP
-displayed \- the implicit linking of keymaps is the only thing that
-happens\&.)
-.RS
-.PP
-When the \fB\-L\fP option is used, the list is in the form of \fBbindkey\fP
-commands to create the key bindings\&.
-.RE
-.RE
-.PP
-When the \fB\-R\fP option is used as noted above, a valid range consists of
-two characters, with an optional `\fB\-\fP' between them\&.  All characters
-between the two specified, inclusive, are bound as specified\&.
-.PP
-For either \fIin\-string\fP or \fIout\-string\fP, the following
-escape sequences are recognised:
-.PP
-.PD 0
-.TP
-\fB\ea\fP
-bell character
-.TP
-\fB\eb\fP
-backspace
-.TP
-\fB\ee\fP, \fB\eE\fP
-escape
-.TP
-\fB\ef\fP
-form feed
-.TP
-\fB\en\fP
-linefeed (newline)
-.TP
-\fB\er\fP
-carriage return
-.TP
-\fB\et\fP
-horizontal tab
-.TP
-\fB\ev\fP
-vertical tab
-.TP
-\fB\e\fP\fINNN\fP
-character code in octal
-.TP
-\fB\ex\fP\fINN\fP
-character code in hexadecimal
-.TP
-\fB\eM\fP[\fB\-\fP]\fIX\fP
-character with meta bit set
-.TP
-\fB\eC\fP[\fB\-\fP]\fIX\fP
-control character
-.TP
-\fB^\fP\fIX\fP
-control character
-.PD
-.PP
-In all other cases, `\fB\e\fP' escapes the following character\&.  Delete is
-written as `\fB^?\fP'\&.  Note that `\fB\eM^?\fP' and `\fB^\eM?\fP' are not the same,
-and that (unlike emacs), the bindings `\fB\eM\-\fP\fIX\fP' and `\fB\ee\fP\fIX\fP'
-are entirely distinct, although they are initialized to the same bindings
-by `\fBbindkey \-m\fP'\&.
-.RE
-.TP
-\fBvared\fP [ \fB\-Aache\fP ] [ \fB\-p\fP \fIprompt\fP ] [ \fB\-r\fP \fIrprompt\fP ] \fIname\fP
-The value of the parameter \fIname\fP is loaded into the edit
-buffer, and the line editor is invoked\&.  When the editor exits,
-\fIname\fP is set to the string value returned by the editor\&.
-When the \fB\-c\fP flag is given, the parameter is created if it doesn't
-already exist\&.  The \fB\-a\fP flag may be given with \fB\-c\fP to create
-an array parameter, or the \fB\-A\fP flag to create an associative array\&.
-If the type of an existing parameter does not match the type to be
-created, the parameter is unset and recreated\&.
-.RS
-.PP
-Individual elements of existing array or associative array parameters
-may be edited by using subscript syntax on \fIname\fP\&.  New elements are
-created automatically, even without \fB\-c\fP\&.
-.PP
-If the \fB\-p\fP flag is given, the following string will be taken as
-the prompt to display at the left\&.  If the \fB\-r\fP flag is given,
-the following string gives the prompt to display at the right\&.  If the
-\fB\-h\fP flag is specified, the history can be accessed from ZLE\&. If the 
-\fB\-e\fP flag is given, typing \fB^D\fP (Control\-D) on an empty line
-causes \fBvared\fP to exit immediately with a non\-zero return value\&.
-.RE
-.TP
-.PD 0
-\fBzle\fP \fB\-l\fP [ \fB\-L\fP ] [ \fB\-a\fP ] [ \fIstring\fP \&.\&.\&. ]
-.TP
-.PD 0
-\fBzle\fP \fB\-D\fP \fIwidget\fP \&.\&.\&.
-.TP
-.PD 0
-\fBzle\fP \fB\-A\fP \fIold\-widget\fP \fInew\-widget\fP
-.TP
-.PD 0
-\fBzle\fP \fB\-N\fP \fIwidget\fP [ \fIfunction\fP ]
-.TP
-.PD 0
-\fBzle\fP \fB\-C\fP \fIwidget\fP \fIcompletion\-widget\fP \fIfunction\fP
-.TP
-.PD 0
-\fBzle\fP \fB\-R\fP [ \fB\-c\fP ] [ \fIdisplay\-string\fP ] [ \fIstring\fP \&.\&.\&. ]
-.TP
-.PD 0
-\fBzle\fP \fB\-M\fP \fIstring\fP
-.TP
-.PD 0
-\fBzle\fP \fB\-U\fP \fIstring\fP
-.TP
-.PD 0
-\fBzle\fP \fIwidget\fP \fB[ \-n\fP \fInum\fP \fB]\fP \fB[ \-N ]\fP \fIargs\fP \&.\&.\&.
-.TP
-.PD
-\fBzle\fP
-The \fBzle\fP builtin performs a number of different actions concerning
-ZLE\&.  Which operation it performs depends on its options:
-.RS
-.PP
-.PD 0
-.TP
-.PD
-\fB\-l\fP [ \fB\-L\fP ]
-List all existing user\-defined widgets\&.  If the \fB\-L\fP
-option is used, list in the form of \fBzle\fP
-commands to create the widgets\&.
-.RS
-.PP
-When combined with the \fB\-a\fP option, all widget names are listed,
-including the builtin ones\&. In this case the \fB\-L\fP option is ignored\&.
-.PP
-If at least one \fIstring\fP is given, nothing will be printed but the
-return status will be zero if all \fIstring\fPs are names of existing
-widgets (or of user\-defined widgets if the \fB\-a\fP flag is not given)
-and non\-zero if at least one \fIstring\fP is not a name of an defined
-widget\&.
-.RE
-.TP
-\fB\-D\fP \fIwidget\fP \&.\&.\&.
-Delete the named \fIwidget\fPs\&.
-.TP
-\fB\-A\fP \fIold\-widget\fP \fInew\-widget\fP
-Make the \fInew\-widget\fP name an alias for \fIold\-widget\fP, so that
-both names refer to the same widget\&.  The names have equal standing;
-if either is deleted, the other remains\&.  If there is already a widget
-with the \fInew\-widget\fP name, it is deleted\&.
-.TP
-\fB\-N\fP \fIwidget\fP [ \fIfunction\fP ]
-Create a user\-defined widget\&.  If there is already a widget with the
-specified name, it is overwritten\&.  When the new
-widget is invoked from within the editor, the specified shell \fIfunction\fP
-is called\&.  If no function name is specified, it defaults to
-the same name as the widget\&.  For further information, see the section
-\fIWidgets\fP in
 \fIzshzle\fP(1)\&.
-citem(completion widgets, creating)
-.TP
-\fB\-C\fP \fIwidget\fP \fIcompletion\-widget\fP \fIfunction\fP
-Create a user\-defined completion widget named \fIwidget\fP\&. The 
-completion widget will behave like the built\-in completion\-widget
-whose name is given as \fIcompletion\-widget\fP\&. To generate the
-completions, the shell function \fIfunction\fP will be called\&.
-For further information, see
-\fIzshcompwid\fP(1)\&.
-.TP
-\fB\-R\fP [ \fB\-c\fP ] [ \fIdisplay\-string\fP ] [ \fIstring\fP \&.\&.\&. ]
-Redisplay the command line; this is to be called from within a user\-defined
-widget to allow changes to become visible\&.  If a \fIdisplay\-string\fP is
-given and not empty, this is shown in the status line (immediately
-below the line being edited)\&.
-.RS
-.PP
-If the optional \fIstring\fPs are given they are listed below the
-prompt in the same way as completion lists are printed\&. If no
-\fIstring\fPs are given but the \fB\-c\fP option is used such a list is
-cleared\&.
-.PP
-Note that this option is only useful for widgets that do not exit
-immediately after using it because the strings displayed will be erased 
-immediately after return from the widget\&.
-.RE
-.TP
-\fB\-M\fP \fIstring\fP
-As with the \fB\-R\fP option, the \fIstring\fP will be displayed below the 
-command line; unlike the \fB\-R\fP option, the string will not be put into
-the status line but will instead be printed normally below the
-prompt\&.  This means that the \fIstring\fP will still be displayed after
-the widget returns (until it is overwritten by subsequent commands)\&.
-.TP
-\fB\-U\fP \fIstring\fP
-This pushes the characters in the \fIstring\fP onto the input stack of
-ZLE\&.  After the widget currently executed finishes ZLE will behave as
-if the characters in the \fIstring\fP were typed by the user\&.
-.RS
-.PP
-As ZLE uses a stack, if this option is used repeatedly
-the last string pushed onto the stack will be processed first\&.  However,
-the characters in each \fIstring\fP will be processed in the order in which
-they appear in the string\&.
-.RE
-.TP
-\fIwidget\fP \fB[ \-n\fP \fInum\fP \fB]\fP \fB[ \-N ]\fP \fIargs\fP \&.\&.\&.
-Invoke the specified widget\&.  This can only be done when ZLE is
-active; normally this will be within a user\-defined widget\&.
-.RS
-.PP
-With the options \fB\-n\fP and \fB\-N\fP, the current numerical argument will be
-saved and then restored after the call to \fBwidget\fP; `\fB\-n\fP \fInum\fP'
-sets the numerical argument temporarily to \fInum\fP, while `\fB\-N\fP' sets it
-to the default, i\&.e\&. as if there were none\&.
-.PP
-Any further arguments will be passed to the widget\&.  If it is a shell
-function, these are passed down as positional parameters; for builtin
-widgets it is up to the widget in question what it does with them\&.
-Currently arguments are only handled by the incremental\-search commands,
-the \fBhistory\-search\-forward\fP and \fB\-backward\fP and the corresponding
-functions prefixed by \fBvi\-\fP, and by \fBuniversal\-argument\fP\&.  No error is
-flagged if the command does not use the arguments, or only uses some of
-them\&.
-.PP
-The return status reflects the success or failure of the operation carried
-out by the widget, or if it is a user\-defined widget the return status of
-the shell function\&.  
-.PP
-A non\-zero return status causes the shell to beep when the widget exits,
-unless the \fBBEEP\fP options was unset or the widget was called via the
-\fBzle\fP command\&.  Thus if a user defined widget requires an immediate beep,
-it should call the \fBbeep\fP widget directly\&.
-.RE
-.RE
-.PP
-With no options and no arguments, only the return status will be
-set\&. It is zero if ZLE is currently active and widgets could be
-invoked using this builtin command and non\-zero if ZLE is not active\&.
-.RE
-.RE
 .SH "THE ZSH/ZLEPARAMETER MODULE"
 .\" Yodl file: Zsh/mod_zleparameter.yo
 
@@ -2040,248 +1756,6 @@ widget, or it is a string of the form
 the last case \fItype\fP is the name of the builtin widgets the
 completion widget imitates in its behavior and \fIname\fP is the name
 of the shell function implementing the completion widget\&.
-.SH "THE ZSH/ZUTIL MODULE"
-.\" Yodl file: Zsh/mod_zutil.yo
-
-The \fBzsh/zutil\fP module only adds some builtins:
-.PP
-.PD 0
-.TP
-.PD 0
-\fBzstyle\fP [ \fB\-L\fP ]
-.TP
-.PD 0
-\fBzstyle\fP [ \fB\-\fP | \fB\-\fP\fB\-\fP ] \fIpattern\fP \fIstyle\fP \fIstrings\fP \&.\&.\&.
-.TP
-.PD 0
-\fBzstyle \-d\fP [ \fIpattern\fP [ \fIstyles\fP \&.\&.\&. ] ]
-.TP
-.PD 0
-\fBzstyle \-g\fP \fIname\fP [ \fIpattern\fP [ \fIstyle\fP ] ]
-.TP
-.PD 0
-\fBzstyle \-abs\fP \fIcontext\fP \fIstyle\fP \fIname\fP [ \fIsep\fP ]
-.TP
-.PD 0
-\fBzstyle \-Tt\fP \fIcontext\fP \fIstyle\fP [ \fIstrings\fP \&.\&.\&.]
-.TP
-.PD
-\fBzstyle \-m\fP \fIcontext\fP \fIstyle\fP \fIpattern\fP
-This builtin command is used to define and lookup styles\&.  Styles are
-pairs of names and values, where the values consist of any number of
-strings\&.  They are stored together with patterns and lookup is done by
-giving a string, called the `context', which is compared to the
-patterns\&.  The definition stored for the first matching pattern will be 
-returned\&.  For this, the patterns are ordered from most specific to
-less specific and patterns that are equally specific keep the order in 
-which they were defined\&.  A pattern is considered to be more specific
-than another if it contains more components (substrings separated by
-colons) or if the patterns for the components are more specific, where 
-simple strings are considered to be more specific than patterns and
-complex patterns are considered to be more specific than the pattern
-`\fB*\fP'\&.
-.RS
-.PP
-The first form (without arguments) lists the definitions in the order
-\fBzstyle\fP will test them\&. If the \fB\-L\fP option is given, listing is
-done in the form of calls to \fBzstyle\fP\&.  Forms with arguments:
-.PP
-.PD 0
-.TP
-.PD
-\fBzstyle\fP [ \fB\-\fP | \fB\-\fP\fB\-\fP ] \fIpattern\fP \fIstyle\fP \fIstrings\fP \&.\&.\&.
-Defines the given \fIstyle\fP for the \fIpattern\fP with the \fIstrings\fP as
-the value\&.
-.TP
-\fBzstyle \-d\fP [ \fIpattern\fP [ \fIstyles\fP \&.\&.\&. ] ]
-Delete style definitions\&. Without arguments all definitions are deleted,
-with a \fIpattern\fP all definitions for that pattern are deleted and if
-any \fIstyles\fP are given, then only those styles are deleted for the
-\fIpattern\fP\&.
-.TP
-\fBzstyle \-g\fP \fIname\fP [ \fIpattern\fP [ \fIstyle\fP ] ]
-Retrieve a style definition\&. The \fIname\fP is
-used as the name of an array in which the results are stored\&. Without
-any further arguments, all \fIpatterns\fP defined are returned\&. With a
-\fIpattern\fP the styles defined for that pattern are returned and with 
-both a \fIpattern\fP and a \fIstyle\fP, the value strings of that
-combination is returned\&.
-.PP
-The other forms can be used to look up or test patterns\&.
-.PP
-.PD 0
-.TP
-.PD
-\fBzstyle \-s\fP \fIcontext\fP \fIstyle\fP \fIname\fP [ \fIsep\fP ]
-The parameter \fIname\fP is set to the value of the style interpreted as a
-string\&.  If the value contains several strings they are concatenated with
-spaces (or with the \fIsep\fP string if that is given) between them\&.
-.TP
-\fBzstyle \-b\fP \fIcontext\fP \fIstyle\fP \fIname\fP
-The value is stored in \fIname\fP as a boolean, i\&.e\&. as the string
-`\fByes\fP' if the value has only one string and that string is equal to one
-of `\fByes\fP', `\fBtrue\fP', `\fBon\fP', or `\fB1\fP'\&. If the value is any other
-string or has more than one string, the parameter is set to `\fBno\fP'\&.
-.TP
-\fBzstyle \-a\fP \fIcontext\fP \fIstyle\fP \fIname\fP
-The value is stored in \fIname\fP as an array\&. If \fIname\fP is declared 
-as an associative array,  the first, third, etc\&. stringare used as the
-keys and the other strings are used as the values\&.
-.TP
-.PD 0
-\fBzstyle \-t\fP \fIcontext\fP \fIstyle\fP [ \fIstrings\fP \&.\&.\&.]
-.TP
-.PD
-\fBzstyle \-T\fP \fIcontext\fP \fIstyle\fP [ \fIstrings\fP \&.\&.\&.]
-Test the value of a style, i\&.e\&. the \fB\-t\fP option only returns a status
-(sets \fB$?\fP)\&.  Without any \fIstrings\fP the return status is zero if the
-style is defined for at least one matching pattern, has only one string in
-its value, and that is equal to one of `\fBtrue\fP', `\fByes\fP', `\fBon\fP' or
-`\fB1\fP'\&. If any \fIstrings\fP are given the status is zero if and only if
-at least one of the \fIstrings\fP is equal to at least one of the strings
-in the value\&. If the style is not defined, the status is \fB2\fP\&.
-.RS
-.PP
-The \fB\-T\fP option is like \fB\-t\fP but returns zero if the style is not
-set for any matching pattern\&.
-.RE
-.TP
-\fBzstyle \-m\fP \fIcontext\fP \fIstyle\fP \fIpattern\fP
-Match a value\&. Returns status zero if the 
-\fIpattern\fP matches at least one of the strings in the value\&.
-.RE
-.TP
-.PD 0
-\fBzformat \-f\fP \fIparam\fP \fIformat\fP \fIspecs\fP \&.\&.\&.
-.TP
-.PD
-\fBzformat \-a\fP \fIarray\fP \fIsep\fP \fIspecs\fP \&.\&.\&.
-This builtin provides two different forms of formatting\&. The first form 
-is selected with the \fB\-f\fP option\&. In this case the \fIformat\fP
-string will be modified by replacing sequences starting with a percent 
-sign in it with strings from the \fIspecs\fP\&.  Each \fIspec\fP should be
-of the form `\fIchar\fP\fB:\fP\fIstring\fP' which will cause every
-appearance of the sequence `\fB%\fP\fIchar\fP' in \fIformat\fP to be replaced 
-by the \fIstring\fP\&.  The `\fB%\fP' sequence may also contain optional
-minimum and maximum field width specifications between the `\fB%\fP' and 
-the `\fIchar\fP' in the form `\fB%\fP\fImin\fP\fB\&.\fP\fImax\fP\fBc\fP',
-i\&.e\&. the minimum field width is given first and if the maximum field
-width is used, it has to be preceded by a dot\&.  Specifying a minimum field
-width makes the result be padded with spaces to the right if the
-\fIstring\fP is shorter than the requested width\&.  Padding to the left
-can be achieved by giving a negative minimum field width\&.  If a maximum 
-field width is specified, the \fIstring\fP will be truncated after that
-many characters\&.  After all `\fB%\fP' sequences for the given \fIspecs\fP
-have been processed, the resulting string is stored in the parameter
-\fIparam\fP\&.
-.RS
-.PP
-The second form, using the \fB\-a\fP option, can be used for alignin
-strings\&.  Here, the \fIspecs\fP are of the form
-`\fIleft\fP\fB:\fP\fIright\fP' where `\fIleft\fP' and `\fIright\fP' are
-arbitrary strings\&.  These strings are modified by replacing the colons
-by the \fIsep\fP string and padding the \fIleft\fP strings with spaces 
-to the right so that the \fIsep\fP strings in the result (and hence the 
-\fIright\fP strings after them) are all aligned if the strings are
-printed below each other\&.  All strings without a colon are left
-unchanged and all strings with a empty \fIright\fP string have the
-trailing colon removed\&.  In both cases the lengths of the strings
-are not used to determine how the other strings are to be aligned\&.
-The resulting strings are stored in the \fIarray\fP\&.
-.RE
-.TP
-\fBzregexparse\fP
-This implements the internals of the `\fB_regex_arguments\fP'\&.
-.TP
-\fBzparseopts\fP [ \fB\-D\fP ] [ \fB\-E\fP ] [ \fB\-a\fP \fIarray\fP ] [ \fB\-A\fP \fIassoc\fP ] \fIspecs\fP
-This builtin simplifies the parsing of options in positional
-parameters, i\&.e\&. the set of arguments given by \fB$*\fP\&.  Each \fIspec\fP
-describes one option and should be of the form
-`\fIname\fP[\fB+\fP][\fB:\fP[\fB:\fP][\fB\-\fP]][\fB=\fP\fIarray\fP]'\&.  The \fIname\fP is
-the name of the option (without the leading `\fB\-\fP')\&.  If only the option
-name is given, the option takes no argument and if it is found in the
-positional parameters it will be placed in the \fIarray\fP specified with
-the \fB\-a\fP option; if the optional `\fB=\fP\fIarray\fP' is given, it will
-instead be put into that array\&.  If one or two colons are given, the
-option takes an argument; with one colon, the argument is mandatory
-and with two colons it is optional\&.  The argument will also be inserted into 
-the \fIarray\fP\&.  A mandatory arguments is added as a separate 
-string and an optional argument is put into a single string together
-with the option name, unless a `\fB\-\fP' appears after the colon, in
-which case the argument will be put into the same word even for mandatory
-arguments (note that this makes empty strings as arguments
-indistinguishable)\&.  Finally, if a `\fB+\fP' appears after \fIname\fP the
-option may appears more than once in the positional parameters and will
-hence be inserted more than once in the \fIarray\fP; without the `\fB+\fP'
-the option will be inserted only once in the \fIarray\fP with arguments 
-of later options overwriting earlier once\&.  Any of the special
-characters can appear in the option name provided it is preceded by a
-backslash\&.
-.RS
-.PP
-Unless the \fB\-E\fP option is given, parsing stops at the first string
-that isn't described by one of the \fIspecs\fP And even with \fB\-E\fP,
-parsing always stops at a positional parameter equal to `\fB\-\fP' or
-`\fB\-\fP\fB\-\fP'\&.
-.PP
-If the \fB\-A\fP option is given, the options and their values will also
-be put into an associative array with the option names as keys and the 
-arguments (if any) as the values\&.  Note that it is an error to give
-\fIspecs\fP without a `\fB=\fP\fIarray\fP' and not use either the \fB\-a\fP
-or \fB\-A\fP option\&.
-.PP
-If the \fB\-D\fP option is given, all options found are removed from the
-positional parameters, up to but not including any not described by the
-\fIspecs\fP\&.  This means that any options processed by \fBzparseopts\fP are
-removed from the positional parameters\&.
-.PP
-Since \fB\-E\fP changes the parsing rules, it can be used to test for or
-(if used together with \fB\-D\fP) extract options and their arguments,
-ignoring all other options and arguments that may be in the positional 
-parameters\&.
-.PP
-For example,
-.PP
-.RS
-.nf
-\fBset \-\- \-a \-bx \-c y \-cz baz \-cend
-zparseopts a=foo b:=bar c+:=bar\fP
-.fi
-.RE
-.PP
-will have the effect of
-.PP
-.RS
-.nf
-\fBfoo=(\-a)
-bar=(\-b x \-c y \-c z)\fP
-.fi
-.RE
-.PP
-The arguments from `\fBbaz\fP' on will not be used\&.
-.PP
-As an example for the \fB\-E\fP option, consider:
-.PP
-.RS
-.nf
-\fBset \-\- \-a x \-b y \-c z arg1 arg2
-zparseopts \-E \-D b:=bar\fP
-.fi
-.RE
-.PP
-will have the effect of
-.PP
-.RS
-.nf
-\fBbar=(\-b y)
-set \-\- \-a x \-c z arg1 arg2\fP
-.fi
-.RE
-.PP
-I\&.e\&., the option \fB\-b\fP and its arguments are taken from the
-positional parameters and put into the array \fBbar\fP\&.
-.RE
-.RE
 .SH "THE ZSH/ZPROF MODULE"
 .\" Yodl file: Zsh/mod_zprof.yo
 
@@ -2351,48 +1825,384 @@ The \fBzsh/zpty\fP module offers one builtin:
 .PP
 .PD 0
 .TP
-.PD 0
-\fBzpty\fP [ \fB\-e\fP ] [ \fB\-b\fP ] \fIname\fP \fIcommand\fP [ \fIargs \&.\&.\&.\fP ]
-.TP
-.PD 0
-\fBzpty\fP \fB\-d\fP [ \fInames\fP \&.\&.\&. ]
-.TP
-.PD 0
-\fBzpty\fP \fB\-w\fP [ \fB\-n\fP ] \fIname\fP \fIstrings \&.\&.\&.\fP
-.TP
-.PD 0
-\fBzpty\fP \fB\-r\fP \fIname\fP [ \fIparam\fP [ \fIpattern\fP ] ]
-.TP
 .PD
-\fBzpty\fP [ \fB\-L\fP ]
-In the first form, the \fIcommand\fP is started with the \fIargs\fP as
-arguments\&.  The command runs under a newly assigned pseudo\-terminal; this
-is useful for running commands non\-interactively which expect an
-interactive environment\&.  The \fIname\fP given is used to refer to this
-command in later calls to \fBpty\fP\&.  With the \fB\-e\fP option given, the
-pseudo\-terminal will be set up so that input characters are echoed and 
-with the \fB\-b\fP option given, input and output from and to the
-pseudo\-terminal will be blocking\&.
+\fBzpty\fP [ \fB\-e\fP ] [ \fB\-b\fP ] \fIname\fP [ \fIarg \&.\&.\&.\fP ]
+The arguments following \fIname\fP are concatenated with spaces between,
+then executed as a command, as if passed to the \fBeval\fP builtin\&.  The
+command runs under a newly assigned pseudo\-terminal; this is useful for
+running commands non\-interactively which expect an interactive
+environment\&.  The \fIname\fP is not part of the command, but is used to
+refer to this command in later calls to \fBzpty\fP\&.
 .RS
 .PP
-The second form with the \fB\-d\fP option is used to delete commands
-previously started by supplying a list of their \fIname\fPs\&.  If no
+With the \fB\-e\fP option, the pseudo\-terminal is set up so that input
+characters are echoed\&.
+.PP
+With the \fB\-b\fP option, input to and output from the pseudo\-terminal are
+made non\-blocking\&.
+.RE
+.TP
+\fBzpty\fP \fB\-d\fP [ \fInames\fP \&.\&.\&. ]
+The second form, with the \fB\-d\fP option, is used to delete commands
+previously started, by supplying a list of their \fIname\fPs\&.  If no
 \fInames\fP are given, all commands are deleted\&.  Deleting a command causes
 the HUP signal to be sent to the corresponding process\&.
-.PP
-The \fB\-w\fP option can be used to send the command \fIname\fP the given
+.TP
+\fBzpty\fP \fB\-w\fP [ \fB\-n\fP ] \fIname\fP [ \fIstrings \&.\&.\&.\fP ]
+The \fB\-w\fP option can be used to send the to command \fIname\fP the given
 \fIstrings\fP as input (separated by spaces)\&.  If the \fB\-n\fP option is
-not given, a newline will be added at the end\&.
+\fInot\fP given, a newline is added at the end\&.
+.RS
 .PP
-The \fB\-r\fP option can be used to read the output of the command
-\fIname\fP\&.  Without a \fIparam\fP argument, the string read will be
-printed to standard output\&.  With a \fIparam\fP argument, the string
-read will be put in the parameter named \fIparam\fP\&.  If the
-\fIpattern\fP is also given, output will be read until the whole string 
-read matches the \fIpattern\fP\&.
+If no \fIstrings\fP are provided, the standard input is copied to the
+pseudo\-terminal; this may stop before copying the full input if the
+pseudo\-terminal is non\-blocking\&.
 .PP
-The last form without any arguments is used to list the commands
+Note that the command under the pseudo\-terminal sees this input as if it
+were typed, so beware when sending special tty driver characters such as
+word\-erase, line\-kill, and end\-of\-file\&.
+.RE
+.TP
+\fBzpty\fP \fB\-r\fP [ \fB\-t\fP ] \fIname\fP [ \fIparam\fP [ \fIpattern\fP ] ]
+The \fB\-r\fP option can be used to read the output of the command \fIname\fP\&.
+With only a \fIname\fP argument, the output read is copied to the standard
+output\&.  Unless the pseudo\-terminal is non\-blocking, copying continues
+until the command under the pseudo\-terminal exits; when non\-blocking, only
+as much output as is immediately available is copied\&.  The return value is
+zero if any output is copied\&.
+.RS
+.PP
+When also given a \fIparam\fP argument, at most one line is read and stored
+in the parameter named \fIparam\fP\&.  Less than a full line may be read if
+the pseudo\-terminal is non\-blocking\&.  The return value is zero if at least
+one character is stored in \fIparam\fP\&.
+.PP
+If a \fIpattern\fP is given as well, output is read until the whole string
+read matches the \fIpattern\fP, even in the non\-blocking case\&.  The return
+value is zero if the string read matches the pattern, or if the command
+has exited but at least one character could still be read\&.  As of this
+writing, a maximum of one megabyte of output can be consumed this way; if
+a full megabyte is read without matching the pattern, the return value is
+non\-zero\&.
+.PP
+In all cases, the return value is non\-zero if nothing could be read, and
+is \fB2\fP if this is because the command has finished\&.
+.PP
+If the \fB\-r\fP option is combined with the \fB\-t\fP option, \fBzpty\fP tests
+whether output is available before trying to read\&.  If no output is
+available, \fBzpty\fP immediately returns the value \fB1\fP\&.
+.RE
+.TP
+\fBzpty\fP \fB\-t\fP \fIname\fP
+The \fB\-t\fP option without the \fB\-r\fP option can be used to test
+whether the command \fIname\fP is still running\&.  It returns a zero
+value if the command is running and a non\-zero value otherwise\&.
+.TP
+\fBzpty\fP [ \fB\-L\fP ]
+The last form, without any arguments, is used to list the commands
 currently defined\&.  If the \fB\-L\fP option is given, this is done in the
 form of calls to the \fBzpty\fP builtin\&.
+.SH "THE ZSH/ZUTIL MODULE"
+.\" Yodl file: Zsh/mod_zutil.yo
+
+The \fBzsh/zutil\fP module only adds some builtins:
+.PP
+.PD 0
+.TP
+.PD 0
+\fBzstyle\fP [ \fB\-L\fP ]
+.TP
+.PD 0
+\fBzstyle\fP [ \fB\-e\fP | \fB\-\fP | \fB\-\fP\fB\-\fP ] \fIpattern\fP \fIstyle\fP \fIstrings\fP \&.\&.\&.
+.TP
+.PD 0
+\fBzstyle \-d\fP [ \fIpattern\fP [ \fIstyles\fP \&.\&.\&. ] ]
+.TP
+.PD 0
+\fBzstyle \-g\fP \fIname\fP [ \fIpattern\fP [ \fIstyle\fP ] ]
+.TP
+.PD 0
+\fBzstyle \-abs\fP \fIcontext\fP \fIstyle\fP \fIname\fP [ \fIsep\fP ]
+.TP
+.PD 0
+\fBzstyle \-Tt\fP \fIcontext\fP \fIstyle\fP [ \fIstrings\fP \&.\&.\&.]
+.TP
+.PD
+\fBzstyle \-m\fP \fIcontext\fP \fIstyle\fP \fIpattern\fP
+This builtin command is used to define and lookup styles\&.  Styles are
+pairs of names and values, where the values consist of any number of
+strings\&.  They are stored together with patterns and lookup is done by
+giving a string, called the `context', which is compared to the
+patterns\&.  The definition stored for the first matching pattern will be 
+returned\&.
+.RS
+.PP
+For ordering of comparisons, patterns are searched from most specific to
+least specific, and patterns that are equally specific keep the order in 
+which they were defined\&.  A pattern is considered to be more specific
+than another if it contains more components (substrings separated by
+colons) or if the patterns for the components are more specific, where 
+simple strings are considered to be more specific than patterns and
+complex patterns are considered to be more specific than the pattern
+`\fB*\fP'\&.
+.PP
+The first form (without arguments) lists the definitions in the order
+\fBzstyle\fP will test them\&. If the \fB\-L\fP option is given, listing is
+done in the form of calls to \fBzstyle\fP\&.  Forms with arguments:
+.PP
+.PD 0
+.TP
+.PD
+\fBzstyle\fP [ \fB\-\fP | \fB\-\fP\fB\-\fP | \fB\-e\fP ] \fIpattern\fP \fIstyle\fP \fIstrings\fP \&.\&.\&.
+Defines the given \fIstyle\fP for the \fIpattern\fP with the \fIstrings\fP as
+the value\&.  If the \fB\-e\fP option is given, the \fIstrings\fP will be
+concatenated (separated by spaces) and the resulting string will be
+evaluated (in the same way as it is done by the \fBeval\fP builtin
+command) when the style is looked up\&.  In this case the parameter
+`\fBreply\fP' must be assigned to set the strings returned after the
+evaluation\&.  Before evaluating the value, \fBreply\fP is unset, and
+if it is still unset after the evaluation, the style is treated as if
+it were not set\&.
+.TP
+\fBzstyle \-d\fP [ \fIpattern\fP [ \fIstyles\fP \&.\&.\&. ] ]
+Delete style definitions\&. Without arguments all definitions are deleted,
+with a \fIpattern\fP all definitions for that pattern are deleted and if
+any \fIstyles\fP are given, then only those styles are deleted for the
+\fIpattern\fP\&.
+.TP
+\fBzstyle \-g\fP \fIname\fP [ \fIpattern\fP [ \fIstyle\fP ] ]
+Retrieve a style definition\&. The \fIname\fP is
+used as the name of an array in which the results are stored\&. Without
+any further arguments, all \fIpatterns\fP defined are returned\&. With a
+\fIpattern\fP the styles defined for that pattern are returned and with 
+both a \fIpattern\fP and a \fIstyle\fP, the value strings of that
+combination is returned\&.
+.PP
+The other forms can be used to look up or test patterns\&.
+.PP
+.PD 0
+.TP
+.PD
+\fBzstyle \-s\fP \fIcontext\fP \fIstyle\fP \fIname\fP [ \fIsep\fP ]
+The parameter \fIname\fP is set to the value of the style interpreted as a
+string\&.  If the value contains several strings they are concatenated with
+spaces (or with the \fIsep\fP string if that is given) between them\&.
+.TP
+\fBzstyle \-b\fP \fIcontext\fP \fIstyle\fP \fIname\fP
+The value is stored in \fIname\fP as a boolean, i\&.e\&. as the string
+`\fByes\fP' if the value has only one string and that string is equal to one
+of `\fByes\fP', `\fBtrue\fP', `\fBon\fP', or `\fB1\fP'\&. If the value is any other
+string or has more than one string, the parameter is set to `\fBno\fP'\&.
+.TP
+\fBzstyle \-a\fP \fIcontext\fP \fIstyle\fP \fIname\fP
+The value is stored in \fIname\fP as an array\&. If \fIname\fP is declared 
+as an associative array,  the first, third, etc\&. strings are used as the
+keys and the other strings are used as the values\&.
+.TP
+.PD 0
+\fBzstyle \-t\fP \fIcontext\fP \fIstyle\fP [ \fIstrings\fP \&.\&.\&.]
+.TP
+.PD
+\fBzstyle \-T\fP \fIcontext\fP \fIstyle\fP [ \fIstrings\fP \&.\&.\&.]
+Test the value of a style, i\&.e\&. the \fB\-t\fP option only returns a status
+(sets \fB$?\fP)\&.  Without any \fIstrings\fP the return status is zero if the
+style is defined for at least one matching pattern, has only one string in
+its value, and that is equal to one of `\fBtrue\fP', `\fByes\fP', `\fBon\fP' or
+`\fB1\fP'\&. If any \fIstrings\fP are given the status is zero if and only if
+at least one of the \fIstrings\fP is equal to at least one of the strings
+in the value\&. If the style is not defined, the status is \fB2\fP\&.
+.RS
+.PP
+The \fB\-T\fP option tests the values of the style like \fB\-t\fP, but it
+returns zero (rather than \fB2\fP) if the style is not defined for any
+matching pattern\&.
+.RE
+.TP
+\fBzstyle \-m\fP \fIcontext\fP \fIstyle\fP \fIpattern\fP
+Match a value\&. Returns status zero if the 
+\fIpattern\fP matches at least one of the strings in the value\&.
+.RE
+.TP
+.PD 0
+\fBzformat \-f\fP \fIparam\fP \fIformat\fP \fIspecs\fP \&.\&.\&.
+.TP
+.PD
+\fBzformat \-a\fP \fIarray\fP \fIsep\fP \fIspecs\fP \&.\&.\&.
+This builtin provides two different forms of formatting\&. The first form 
+is selected with the \fB\-f\fP option\&. In this case the \fIformat\fP
+string will be modified by replacing sequences starting with a percent 
+sign in it with strings from the \fIspecs\fP\&.  Each \fIspec\fP should be
+of the form `\fIchar\fP\fB:\fP\fIstring\fP' which will cause every
+appearance of the sequence `\fB%\fP\fIchar\fP' in \fIformat\fP to be replaced 
+by the \fIstring\fP\&.  The `\fB%\fP' sequence may also contain optional
+minimum and maximum field width specifications between the `\fB%\fP' and 
+the `\fIchar\fP' in the form `\fB%\fP\fImin\fP\fB\&.\fP\fImax\fP\fBc\fP',
+i\&.e\&. the minimum field width is given first and if the maximum field
+width is used, it has to be preceded by a dot\&.  Specifying a minimum field
+width makes the result be padded with spaces to the right if the
+\fIstring\fP is shorter than the requested width\&.  Padding to the left
+can be achieved by giving a negative minimum field width\&.  If a maximum 
+field width is specified, the \fIstring\fP will be truncated after that
+many characters\&.  After all `\fB%\fP' sequences for the given \fIspecs\fP
+have been processed, the resulting string is stored in the parameter
+\fIparam\fP\&.
+.RS
+.PP
+The second form, using the \fB\-a\fP option, can be used for aligning
+strings\&.  Here, the \fIspecs\fP are of the form
+`\fIleft\fP\fB:\fP\fIright\fP' where `\fIleft\fP' and `\fIright\fP' are
+arbitrary strings\&.  These strings are modified by replacing the colons
+by the \fIsep\fP string and padding the \fIleft\fP strings with spaces 
+to the right so that the \fIsep\fP strings in the result (and hence the 
+\fIright\fP strings after them) are all aligned if the strings are
+printed below each other\&.  All strings without a colon are left
+unchanged and all strings with an empty \fIright\fP string have the
+trailing colon removed\&.  In both cases the lengths of the strings
+are not used to determine how the other strings are to be aligned\&.
+The resulting strings are stored in the \fIarray\fP\&.
+.RE
+.TP
+\fBzregexparse\fP
+This implements some internals of the \fB_regex_arguments\fP function\&.
+.TP
+\fBzparseopts\fP [ \fB\-D\fP ] [ \fB\-K\fP ] [ \fB\-E\fP ] [ \fB\-a\fP \fIarray\fP ] [ \fB\-A\fP \fIassoc\fP ] \fIspecs\fP
+This builtin simplifies the parsing of options in positional parameters,
+i\&.e\&. the set of arguments given by \fB$*\fP\&.  Each \fIspec\fP describes one
+option and must be of the form `\fIopt\fP[\fB=\fP\fIarray\fP]'\&.  If an option
+described by \fIopt\fP is found in the positional parameters it is copied
+into the \fIarray\fP specified with the \fB\-a\fP option; if the optional
+`\fB=\fP\fIarray\fP' is given, it is instead copied into that array\&.
+.RS
+.PP
+Note that it is an error to give any \fIspec\fP without an
+`\fB=\fP\fIarray\fP' unless one of the \fB\-a\fP or \fB\-A\fP options is used\&.
+.PP
+Unless the \fB\-E\fP option is given, parsing stops at the first string
+that isn't described by one of the \fIspecs\fP\&.  Even with \fB\-E\fP,
+parsing always stops at a positional parameter equal to `\fB\-\fP' or
+`\fB\-\fP\fB\-\fP'\&.
+.PP
+The \fIopt\fP description must be one of the following\&.  Any of the special
+characters can appear in the option name provided it is preceded by a
+backslash\&.
+.PP
+.PD 0
+.TP
+.PD 0
+\fIname\fP
+.TP
+.PD
+\fIname\fP\fB+\fP
+The \fIname\fP is the name of the option without the leading `\fB\-\fP'\&.  To
+specify a GNU\-style long option, one of the usual two leading `\fB\-\fP' must
+be included in \fIname\fP; for example, a `\fB\-\-file\fP' option is
+represented by a \fIname\fP of `\fB\-file\fP'\&.
+.RS
+.PP
+If a `\fB+\fP' appears after \fIname\fP, the option is appended to \fIarray\fP
+each time it is found in the positional parameters; without the `\fB+\fP'
+only the \fIlast\fP occurrence of the option is preserved\&.
+.PP
+If one of these forms is used, the option takes no argument, so parsing
+stops if the next positional parameter does not also begin with `\fB\-\fP'
+(unless the \fB\-E\fP option is used)\&.
+.RE
+.TP
+.PD 0
+\fIname\fP\fB:\fP
+.TP
+.PD 0
+\fIname\fP\fB:\-\fP
+.TP
+.PD
+\fIname\fP\fB::\fP
+If one or two colons are given, the option takes an argument; with one
+colon, the argument is mandatory and with two colons it is optional\&.  The
+argument is appended to the \fIarray\fP after the option itself\&.
+.RS
+.PP
+An optional argument is put into the same array element as the option name
+(note that this makes empty strings as arguments indistinguishable)\&.  A
+mandatory argument is added as a separate element unless the `\fB:\-\fP' form
+is used, in which case the argument is put into the same element\&.
+.PP
+A `\fB+\fP' as described above may appear between the \fIname\fP and the
+first colon\&.
+.RE
+.RE
+.PP
+The options of \fBzparseopts\fP itself are:
+.PP
+.PD 0
+.TP
+.PD
+\fB\-a\fP \fIarray\fP
+As described above, this names the default array in which to store the
+recognised options\&.
+.TP
+\fB\-A\fP \fIassoc\fP
+If this is given, the options and their values are also put into an
+associative array with the option names as keys and the arguments (if any)
+as the values\&.
+.TP
+\fB\-D\fP
+If this option is given, all options found are removed from the positional
+parameters of the calling shell or shell function, up to but not including
+any not described by the \fIspecs\fP\&.  This is similar to using the \fBshift\fP
+builtin\&.
+.TP
+\fB\-K\fP
+With this option, the arrays specified with the \fB\-a\fP and \fB\-A\fP
+options and with the `\fB=\fP\fIarray\fP' forms are kept unchanged when none
+of the \fIspecs\fP for them is used\&.  This allows assignment of default
+values to them before calling \fBzparseopts\fP\&.
+.TP
+\fB\-E\fP
+This changes the parsing rules to \fInot\fP stop at the first string
+that isn't described by one of the \fIspec\fPs\&.  It can be used to test
+for or (if used together with \fB\-D\fP) extract options and their
+arguments, ignoring all other options and arguments that may be in the
+positional parameters\&.
+.PP
+For example,
+.PP
+.RS
+.nf
+\fBset \-\- \-a \-bx \-c y \-cz baz \-cend
+zparseopts a=foo b:=bar c+:=bar\fP
+.fi
+.RE
+.PP
+will have the effect of
+.PP
+.RS
+.nf
+\fBfoo=(\-a)
+bar=(\-b x \-c y \-c z)\fP
+.fi
+.RE
+.PP
+The arguments from `\fBbaz\fP' on will not be used\&.
+.PP
+As an example for the \fB\-E\fP option, consider:
+.PP
+.RS
+.nf
+\fBset \-\- \-a x \-b y \-c z arg1 arg2
+zparseopts \-E \-D b:=bar\fP
+.fi
+.RE
+.PP
+will have the effect of
+.PP
+.RS
+.nf
+\fBbar=(\-b y)
+set \-\- \-a x \-c z arg1 arg2\fP
+.fi
+.RE
+.PP
+I\&.e\&., the option \fB\-b\fP and its arguments are taken from the
+positional parameters and put into the array \fBbar\fP\&.
 .RE
 .RE

@@ -1,4 +1,6 @@
 name=zsh/rlimits
+link=either
+load=yes
 
 autobins="limit ulimit unlimit"
 
@@ -9,7 +11,7 @@ rlimits.o rlimits..o: rlimits.h
 
 # this file will not be made if limits are unavailable
 rlimits.h: rlimits.awk @RLIMITS_INC_H@
-	$(AWK) -f $(sdir)/rlimits.awk @RLIMITS_INC_H@ > rlimits.h
+	$(AWK) -f $(sdir)/rlimits.awk @RLIMITS_INC_H@ /dev/null > rlimits.h
 	@if grep ZLIMTYPE_UNKNOWN rlimits.h >/dev/null; then \
 	    echo >&2 WARNING: unknown limits: mail rlimits.h to developers; \
 	else :; fi

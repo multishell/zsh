@@ -29,7 +29,7 @@ if [[ -n $ZFTP_TRANSFER ]]; then
     (( ${+zftpseconds} )) && (( SECONDS - zftpseconds < update )) && return
   # size is usually ZFTP_SIZE, but zftransfer may set ZFTP_TSIZE
   local size=${ZFTP_TSIZE:-$ZFTP_SIZE}
-  if [[ -n $size ]]; then
+  if [[ ${size:-0} -ne 0 ]]; then
     local frac="$(( ZFTP_COUNT * 100 / size ))%"
     if [[ $style = bar && ${+COLUMNS} = 1 && $COLUMNS -gt 0 ]]; then
       if (( ! ${+zftpseconds} )); then

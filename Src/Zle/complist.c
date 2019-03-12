@@ -76,7 +76,7 @@ static char *colnames[] = {
 /* Default values. */
 
 static char *defcols[] = {
-    "0", "0", "1;34", "1;36", "33", "1;35", "1;33", "1;33", "1;32", NULL,
+    "0", "0", "1;31", "1;36", "33", "1;35", "1;33", "1;33", "1;32", NULL,
     "\033[", "m", NULL, "0", "0", "7", "0", "0"
 };
 
@@ -122,13 +122,17 @@ struct listcols {
     Extcol exts;		/* strings for extensions */
 };
 
+/* Combined length of LC and RC, maximum length of capability strings. */
+
+static int lr_caplen, max_caplen;
+
 /* This parses the value of a definition (the part after the `=').
  * The return value is a pointer to the character after it. */
 
 static char *
 getcolval(char *s, int multi)
 {
-    char *p;
+    char *p, *o = s;
 
     for (p = s; *s && *s != ':' && (!multi || *s != '='); p++, s++) {
 	if (*s == '\\' && s[1]) {
@@ -172,6 +176,8 @@ getcolval(char *s, int multi)
     }
     if (p != s)
 	*p = '\0';
+    if ((s - o) > max_caplen)
+	max_caplen = s - o;
     return s;
 }
 
@@ -325,10 +331,6 @@ filecol(char *col)
     return fc;
 }
 
-/* Combined length of LC and RC, maximum length of capability strings. */
-
-static int lr_caplen, max_caplen;
-
 /* This initializes the given terminal color structure. */
 
 static void
@@ -337,6 +339,8 @@ getcols(Listcols c)
     char *s;
     int i, l;
 
+    max_caplen = lr_caplen = 0;
+    queue_signals();
     if (!(s = getsparam("ZLS_COLORS")) &&
 	!(s = getsparam("ZLS_COLOURS"))) {
 	for (i = 0; i < NUM_COLS; i++)
@@ -353,16 +357,20 @@ getcols(Listcols c)
 	if ((max_caplen = strlen(c->files[COL_MA]->col)) <
 	    (l = strlen(c->files[COL_EC]->col)))
 	    max_caplen = l;
+	unqueue_signals();
 	return;
     }
     /* We have one of the parameters, use it. */
     memset(c, 0, sizeof(*c));
     s = dupstring(s);
     while (*s)
-	s = getcoldef(c, s);
+	if (*s == ':')
+	    s++;
+	else
+	    s = getcoldef(c, s);
+    unqueue_signals();
 
     /* Use default values for those that aren't set explicitly. */
-    max_caplen = lr_caplen = 0;
     for (i = 0; i < NUM_COLS; i++) {
 	if (!c->files[i] || !c->files[i]->col)
 	    c->files[i] = filecol(defcols[i]);
@@ -489,7 +497,7 @@ doiscol(Listcols c, int pos)
 	    /* insert e in sendpos */
 	    for (i = curissend; sendpos[i] <= e; ++i)
 		;
-	    for (j = i + 1; j < MAX_POS; ++j)
+	    for (j = MAX_POS - 1; j > i; --j)
 		sendpos[j] = sendpos[j-1];
 	    sendpos[i] = e;
 	    
@@ -568,6 +576,7 @@ clnicezputs(Listcols c, char *s, int ml)
 		    return ask;
 		}
 		col = 0;
+                fputs(" \010", shout);
 	    }
 	}
     }
@@ -887,8 +896,10 @@ compprintfmt(char *fmt, int n, int dopr, int doesc, int ml, int *stop)
 		    continue;
 		}
 		putc(*p, shout);
-		if ((beg = !(cc % columns)) && !stat)
+		if ((beg = !(cc % columns)) && !stat) {
 		    ml++;
+                    fputs(" \010", shout);
+                }
 		if (mscroll && beg && !--mrestlines && (ask = asklistscroll(ml))) {
 		    *stop = 1;
 		    if (stat && n)
@@ -981,7 +992,7 @@ compnicezputs(char *s, int ml)
 static int
 compprintlist(int showall)
 {
-    static int lasttype = 0, lastbeg = 0, lastml = 0;
+    static int lasttype = 0, lastbeg = 0, lastml = 0, lastinvcount = -1;
     static int lastn = 0, lastnl = 0, lastnlnct = -1;
     static Cmgroup lastg = NULL;
     static Cmatch *lastp = NULL;
@@ -994,7 +1005,7 @@ compprintlist(int showall)
     int lastused = 0;
 
     mfirstl = -1;
-    if (mnew || lastbeg != mlbeg || mlbeg < 0) {
+    if (mnew || lastinvcount != invcount || lastbeg != mlbeg || mlbeg < 0) {
 	lasttype = 0;
 	lastg = NULL;
 	lastexpl = NULL;
@@ -1005,6 +1016,7 @@ compprintlist(int showall)
 	  lines - nlnct - mhasstat : listdat.nlines) - (lastnlnct > nlnct);
     lastnlnct = nlnct;
     mrestlines = lines - 1;
+    lastinvcount = invcount;
 
     if (cl < 2) {
 	cl = -1;
@@ -1236,7 +1248,8 @@ compprintlist(int showall)
 			    goto end;
 			break;
 		    }
-		    if (!m->disp && (m->flags & CMF_FILE)) {
+		    if (!m->disp && (m->flags & CMF_FILE) &&
+			m->str[0] && m->str[strlen(m->str) - 1] != '/') {
 			struct stat buf;
 			char *pb;
 
@@ -1370,6 +1383,10 @@ clprintm(Cmgroup g, Cmatch *mp, int mc, int ml, int lastc, int width,
 	return 0;
     }
     m = *mp;
+
+    if ((m->flags & CMF_ALL) && (!m->disp || !m->disp[0]))
+	bld_all_str(m);
+
     mlastm = m->gnum;
     if (m->disp && (m->flags & CMF_DISPLINE)) {
 	if (mselect >= 0) {
@@ -1458,7 +1475,7 @@ clprintm(Cmgroup g, Cmatch *mp, int mc, int ml, int lastc, int width,
 	len = niceztrlen(m->disp ? m->disp : m->str);
 	mlprinted = len / columns;
 
-	 if (isset(LISTTYPES) && buf) {
+	if (isset(LISTTYPES) && buf) {
 	    if (m->gnum != mselect) {
 		zcoff();
 		zcputs(&mcolors, g->name, COL_TC);
@@ -1491,6 +1508,8 @@ complistmatches(Hookdef dummy, Chdata dat)
 
     amatches = dat->matches;
 
+    noselect = 0;
+
     if ((minfo.asked == 2 && mselect < 0) || nlnct >= lines) {
 	showinglist = 0;
 	amatches = oamatches;
@@ -1515,8 +1534,10 @@ complistmatches(Hookdef dummy, Chdata dat)
     mscroll = 0;
     mlistp = NULL;
 
+    queue_signals();
     if (mselect >= 0 || mlbeg >= 0 ||
-	(mlistp = getsparam("LISTPROMPT"))) {
+	(mlistp = dupstring(getsparam("LISTPROMPT")))) {
+	unqueue_signals();
 	if (mlistp && !*mlistp)
 	    mlistp = "%SAt %p: Hit TAB for more, or the character to insert%s";
 	trashzle();
@@ -1532,6 +1553,7 @@ complistmatches(Hookdef dummy, Chdata dat)
 	    minfo.asked = (listdat.nlines + nlnct <= lines);
 	}
     } else {
+	unqueue_signals();
 	mlistp = NULL;
 	if (asklist()) {
 	    amatches = oamatches;
@@ -1624,15 +1646,19 @@ domenuselect(Hookdef dummy, Chdata dat)
     Thingy cmd;
     Menustack u = NULL;
     int i = 0, acc = 0, wishcol = 0, setwish = 0, oe = onlyexpl, wasnext = 0;
-    int space, lbeg = 0, step = 1, wrap, pl = nlnct, broken = 0;
+    int space, lbeg = 0, step = 1, wrap, pl = nlnct, broken = 0, first = 1;
+    int nolist = 0;
     char *s;
 
+    queue_signals();
     if (fdat || (dummy && (!(s = getsparam("MENUSELECT")) ||
 			   (dat && dat->num < atoi(s))))) {
 	if (fdat) {
 	    fdat->matches = dat->matches;
 	    fdat->num = dat->num;
+	    fdat->nmesg = dat->nmesg;
 	}
+	unqueue_signals();
 	return 0;
     }
     if ((s = getsparam("MENUSCROLL"))) {
@@ -1644,10 +1670,11 @@ domenuselect(Hookdef dummy, Chdata dat)
     }
     if ((mstatus = dupstring(getsparam("MENUPROMPT"))) && !*mstatus)
 	mstatus = "%SScrolling active: current selection at %p%s";
+    unqueue_signals();
     mhasstat = (mstatus && *mstatus);
     fdat = dat;
     selectlocalmap(mskeymap);
-    noselect = 0;
+    noselect = 1;
     while ((menuacc &&
 	    !hasbrpsfx(*(minfo.cur), minfo.prebr, minfo.postbr)) ||
 	   (((*minfo.cur)->flags & (CMF_NOLIST | CMF_MULT)) &&
@@ -1712,6 +1739,9 @@ domenuselect(Hookdef dummy, Chdata dat)
 	lbeg = mlbeg;
 	onlyexpl = 0;
 	showinglist = -2;
+	if (first && !listshown && isset(LISTBEEP))
+	    zbeep();
+	first = 0;
 	zrefresh();
 	inselect = 1;
 	if (noselect) {
@@ -1745,9 +1775,13 @@ domenuselect(Hookdef dummy, Chdata dat)
 
     getk:
 
-	if (!(cmd = getkeycmd()) || cmd == Th(z_sendbreak))
+	if (!(cmd = getkeycmd()) || cmd == Th(z_sendbreak)) {
+	    zbeep();
 	    break;
-	else if (cmd == Th(z_acceptline)) {
+	} else if (nolist && cmd != Th(z_undo)) {
+	    ungetkeycmd();
+	    break;
+	} else if (cmd == Th(z_acceptline)) {
 	    acc = 1;
 	    break;
 	} else if (cmd == Th(z_acceptandinfernexthistory)) {
@@ -1774,16 +1808,36 @@ domenuselect(Hookdef dummy, Chdata dat)
 	    s->origcs = origcs;
 	    s->origll = origll;
 	    menucmp = menuacc = hasoldlist = 0;
+	    minfo.cur = NULL;
 	    fixsuffix();
+	    handleundo();
 	    validlist = 0;
 	    amatches = pmatches = lastmatches = NULL;
 	    invalidate_list();
+	    iforcemenu = 1;
+	    comprecursive = 1;
 	    menucomplete(zlenoargs);
-	    if (dat->num < 2 || !minfo.cur || !*(minfo.cur)) {
-		noselect = clearlist = listshown = 1;
-		onlyexpl = 0;
-		zrefresh();
-		break;
+	    iforcemenu = 0;
+
+	    if (dat->num < 1 || !minfo.cur || !*(minfo.cur)) {
+		nolist = 1;
+		if (dat->nmesg || nmessages) {
+		    showinglist = -2;
+		    zrefresh();
+		} else {
+		    trashzle();
+		    zsetterm();
+		    if (tccan(TCCLEAREOD))
+			tcout(TCCLEAREOD);
+		    fputs("no matches\r", shout);
+		    fflush(shout);
+		    tcmultout(TCUP, TCMULTUP, nlnct);
+		    showinglist = clearlist = 0;
+		    clearflag = 1;
+		    zrefresh();
+		    showinglist = clearlist = 0;
+		}
+		goto getk;
 	    }
 	    clearlist = listshown = 1;
 	    mselect = (*(minfo.cur))->gnum;
@@ -1814,6 +1868,8 @@ domenuselect(Hookdef dummy, Chdata dat)
 	    s->origcs = origcs;
 	    s->origll = origll;
 	    accept_last();
+	    handleundo();
+	    comprecursive = 1;
 	    do_menucmp(0);
 	    mselect = (*(minfo.cur))->gnum;
 
@@ -1843,9 +1899,10 @@ domenuselect(Hookdef dummy, Chdata dat)
 	    int l;
 
 	    if (!u)
-		goto getk;
+		break;
 
-	    cs = 0;
+	    handleundo();
+	    cs = nolist = 0;
 	    foredel(ll);
 	    spaceinline(l = strlen(u->line));
 	    strncpy((char *) line, u->line, l);
@@ -1857,13 +1914,13 @@ domenuselect(Hookdef dummy, Chdata dat)
 	    mlbeg = u->mlbeg;
 	    if (u->lastmatches && lastmatches != u->lastmatches) {
 		if (lastmatches)
-		    freematches(lastmatches);
+		    freematches(lastmatches, 0);
 		amatches = u->amatches;
 		pmatches = u->pmatches;
 		lastmatches = u->lastmatches;
 		lastlmatches = u->lastlmatches;
 		nmatches = u->nmatches;
-		hasoldlist = 1;
+		hasoldlist = validlist = 1;
 	    }
 	    freebrinfo(brbeg);
 	    freebrinfo(brend);
@@ -2184,6 +2241,7 @@ domenuselect(Hookdef dummy, Chdata dat)
 		   !strcmp(cmd->nam, "expand-or-complete-prefix") ||
 		   !strcmp(cmd->nam, "menu-complete") ||
 		   !strcmp(cmd->nam, "menu-expand-or-complete")) {
+	    comprecursive = 1;
 	    do_menucmp(0);
 	    mselect = (*(minfo.cur))->gnum;
 	    setwish = 1;
@@ -2191,6 +2249,7 @@ domenuselect(Hookdef dummy, Chdata dat)
 	    continue;
 	} else if (cmd == Th(z_reversemenucomplete) ||
 		   !strcmp(cmd->nam, "reverse-menu-complete")) {
+	    comprecursive = 1;
 	    reversemenucomplete(zlenoargs);
 	    mselect = (*(minfo.cur))->gnum;
 	    setwish = 1;
@@ -2200,7 +2259,11 @@ domenuselect(Hookdef dummy, Chdata dat)
 	    continue;
 	} else {
 	    ungetkeycmd();
-	    acc = 1;
+	    if (cmd->widget && (cmd->widget->flags & WIDGET_NCOMP)) {
+		acc = 0;
+		broken = 2;
+	    } else
+		acc = 1;
 	    break;
 	}
 	do_single(**p);
@@ -2209,7 +2272,7 @@ domenuselect(Hookdef dummy, Chdata dat)
     if (u)
 	for (; u; u = u->prev)
 	    if (u->lastmatches != lastmatches)
-		freematches(u->lastmatches);
+		freematches(u->lastmatches, 0);
 
     selectlocalmap(NULL);
     mselect = mlastcols = mlastlines = -1;
@@ -2223,6 +2286,12 @@ domenuselect(Hookdef dummy, Chdata dat)
 	menucmp = 2;
 	showinglist = -2;
 	minfo.asked = 0;
+	if (!noselect) {
+	    int nos = noselect;
+
+	    zrefresh();
+	    noselect = nos;
+	}
     }
     if (!noselect && (!dat || acc)) {
 	showinglist = -2;
@@ -2234,7 +2303,8 @@ domenuselect(Hookdef dummy, Chdata dat)
     mlbeg = -1;
     fdat = NULL;
 
-    return ((dat && !broken) ? (acc ? 1 : 2) : (!noselect ^ acc));
+    return (broken == 2 ? 3 :
+	    ((dat && !broken) ? (acc ? 1 : 2) : (!noselect ^ acc)));
 }
 
 /* The widget function. */

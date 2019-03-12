@@ -1,4 +1,4 @@
-.TH "ZSH" "1" "June 5, 2000" "zsh 3\&.1\&.9"
+.TH "ZSH" "1" "June 1, 2001" "zsh 4\&.0\&.1"
 .SH "NAME"
 zsh \- the Z shell
 .\" Yodl file: Zsh/intro.yo
@@ -45,7 +45,7 @@ mechanism, and a host of other features\&.
 .SH "AUTHOR"
 Zsh was originally written by Paul Falstad \fB<pf@zsh\&.org>\fP\&.
 Zsh is now maintained by the members of the zsh\-workers mailing
-list \fB<zsh\-workers@sunsite\&.auc\&.dk>\fP\&.  The development is currently
+list \fB<zsh\-workers@sunsite\&.dk>\fP\&.  The development is currently
 coordinated by Peter Stephenson \fB<pws@zsh\&.org>\fP\&.  The coordinator
 can be contacted at \fB<coordinator@zsh\&.org>\fP, but matters relating to
 the code should generally go to the mailing list\&.
@@ -72,7 +72,7 @@ Australia
 .TP
 Denmark
 .nf
-\fBftp://sunsite\&.auc\&.dk/pub/unix/shells/zsh/\fP
+\fBftp://sunsite\&.dk/pub/unix/shells/zsh/\fP
 .fi
 .TP
 Finland
@@ -82,7 +82,7 @@ Finland
 .TP
 France
 .nf
-\fBftp://ftp\&.cenatls\&.cena\&.dgac\&.fr/pub/shells/zsh/\fP
+\fBftp://ftp\&.cenatls\&.cena\&.dgac\&.fr/shells/zsh/\fP
 .fi
 .TP
 Germany
@@ -101,8 +101,8 @@ Hungary
 .TP
 Israel
 .nf
-\fBftp://ftp\&.math\&.technion\&.ac\&.il/mirror/ftp\&.zsh\&.org/pub/zsh/\fP
-\fBhttp://www\&.math\&.technion\&.ac\&.il/mirror/ftp\&.zsh\&.org/pub/zsh/\fP
+\fBftp://ftp\&.math\&.technion\&.ac\&.il/pub/zsh/\fP
+\fBhttp://www\&.math\&.technion\&.ac\&.il/pub/zsh/\fP
 .fi
 .TP
 Italy
@@ -161,14 +161,14 @@ Zsh has 3 mailing lists:
 .PD 0
 .TP
 .PD
-\fB<zsh\-announce@sunsite\&.auc\&.dk>\fP
+\fB<zsh\-announce@sunsite\&.dk>\fP
 Announcements about releases, major changes in the shell and the
 monthly posting of the Zsh FAQ\&.  (moderated)
 .TP
-\fB<zsh\-users@sunsite\&.auc\&.dk>\fP
+\fB<zsh\-users@sunsite\&.dk>\fP
 User discussions\&.
 .TP
-\fB<zsh\-workers@sunsite\&.auc\&.dk>\fP
+\fB<zsh\-workers@sunsite\&.dk>\fP
 Hacking, development, bug reports and patches\&.
 .PP
 To subscribe or unsubscribe, send mail
@@ -176,18 +176,18 @@ to the associated administrative address for the mailing list\&.
 .PP
 .PD 0
 .TP
-\fB<zsh\-announce\-subscribe@sunsite\&.auc\&.dk>\fP
+\fB<zsh\-announce\-subscribe@sunsite\&.dk>\fP
 .TP
-\fB<zsh\-users\-subscribe@sunsite\&.auc\&.dk>\fP
+\fB<zsh\-users\-subscribe@sunsite\&.dk>\fP
 .TP
-\fB<zsh\-workers\-subscribe@sunsite\&.auc\&.dk>\fP
+\fB<zsh\-workers\-subscribe@sunsite\&.dk>\fP
 .PP
 .TP
-\fB<zsh\-announce\-unsubscribe@sunsite\&.auc\&.dk>\fP
+\fB<zsh\-announce\-unsubscribe@sunsite\&.dk>\fP
 .TP
-\fB<zsh\-users\-unsubscribe@sunsite\&.auc\&.dk>\fP
+\fB<zsh\-users\-unsubscribe@sunsite\&.dk>\fP
 .TP
-\fB<zsh\-workers\-unsubscribe@sunsite\&.auc\&.dk>\fP
+\fB<zsh\-workers\-unsubscribe@sunsite\&.dk>\fP
 .PD
 .PP
 YOU ONLY NEED TO JOIN ONE OF THE MAILING LISTS AS THEY ARE NESTED\&.
@@ -214,38 +214,47 @@ is \fB<faqmaster@zsh\&.org>\fP\&.
 Zsh has a web page which is located at \fBhttp://www\&.zsh\&.org/\fP\&.  This is
 maintained by Karsten Thygesen \fB<karthy@zsh\&.org>\fP, of SunSITE Denmark\&.
 The contact address for web\-related matters is \fB<webmaster@zsh\&.org>\fP\&.
-.PP
 .SH "THE ZSH USERGUIDE"
 A userguide is currently in preparation\&.  It is intended to complement the
 manual, with explanations and hints on issues where the manual can be
 cabbalistic, hierographic, or downright mystifying (for example, the word
 `hierographic' does not exist)\&.  It can be viewed in its current state at
-\fBhttp://sunsite\&.auc\&.dk/zsh/Guide/\fP\&.  As of this writing, chapters dealing
-with startup files and their contents and the new completion system are
-essentially complete\&.
+\fBhttp://sunsite\&.dk/zsh/Guide/\fP\&.  At the time of writing, chapters
+dealing with startup files and their contents and the new completion system
+were essentially complete\&.
 .\" Yodl file: Zsh/invoke.yo
 .SH "INVOCATION OPTIONS"
-If the \fB\-s\fP flag is not present and an argument is given,
-the first argument is taken to be the pathname of a script to
-execute\&.  The remaining arguments are assigned to the positional
-parameters\&.  The following flags are interpreted by the shell
-when invoked:
+The following flags are interpreted by the shell when invoked to determine
+where the shell will read commands from:
 .PP
 .PD 0
 .TP
 .PD
-\fB\-c\fP \fIstring\fP
-Read commands from \fIstring\fP\&.
+\fB\-c\fP
+Take the first argument as a command to execute, rather than reading commands
+from a script or standard input\&.  If any further arguments are given, the
+first one is assigned to \fB$0\fP, rather than being used as a positional
+parameter\&.
 .TP
 \fB\-i\fP
 Force shell to be interactive\&.
 .TP
 \fB\-s\fP
-Read command from the standard input\&.
+Force shell to read commands from the standard input\&.
+If the \fB\-s\fP flag is not present and an argument is given,
+the first argument is taken to be the pathname of a script to
+execute\&.
+.PP
+After the first one or two arguments have been appropriated as described above,
+the remaining arguments are assigned to the positional parameters\&.
 .PP
 For further options, which are common to invocation and the \fBset\fP
 builtin, see
-\fIzshoptions\fP(1)\&.  Flags may be specified by name using the \fB\-o\fP option\&.  For example,
+\fIzshoptions\fP(1)\&.
+.PP
+Options may be specified by name using the \fB\-o\fP option\&.  \fB\-o\fP acts like
+a single\-letter option, but takes a following string as the option name\&.
+For example,
 .PP
 .RS
 .nf
@@ -255,6 +264,41 @@ builtin, see
 .PP
 runs the script \fBscr\fP, setting the \fBXTRACE\fP option by the corresponding
 letter `\fB\-x\fP' and the \fBSH_WORD_SPLIT\fP option by name\&.
+Options may be turned \fIoff\fP by name by using \fB+o\fP instead of \fB\-o\fP\&.
+\fB\-o\fP can be stacked up with preceding single\-letter options, so for example
+`\fB\-xo shwordsplit\fP' or `\fB\-xoshwordsplit\fP' is equivalent to
+`\fB\-x \-o shwordsplit\fP'\&.
+.PP
+Options may also be specified by name in GNU long option style,
+`\fB\-\-\fP\fIoption\-name\fP'\&.  When this is done, `\fB\-\fP' characters in the
+option name are permitted: they are translated into `\fB_\fP', and thus ignored\&.
+So, for example, `\fBzsh \-\-sh\-word\-split\fP' invokes zsh with the
+\fBSH_WORD_SPLIT\fP option turned on\&.  Like other option syntaxes, options can
+be turned off by replacing the initial `\fB\-\fP' with a `\fB+\fP'; thus
+`\fB+\-sh\-word\-split\fP' is equivalent to `\fB\-\-no\-sh\-word\-split\fP'\&.
+Unlike other option syntaxes, GNU\-style long options cannot be stacked with
+any other options, so for example `\fB\-x\-shwordsplit\fP' is an error,
+rather than being treated like `\fB\-x \-\-shwordsplit\fP'\&.
+.PP
+The special GNU\-style option `\fB\-\-version\fP' is handled; it sends to standard
+output the shell's version information, then exits successfully\&.
+`\fB\-\-help\fP' is also handled; it sends to standard output a list of options
+that can be used when invoking the shell, then exits successfully\&.
+.PP
+Option processing may be finished, allowing following arguments that start with
+`\fB\-\fP' or `\fB+\fP' to be treated as normal arguments, in two ways\&.
+Firstly, a lone `\fB\-\fP' (or `\fB+\fP') as an argument by itself ends option
+processing\&.  Secondly, a special option `\fB\-\-\fP' (or `\fB+\-\fP'), which may
+be specified on its own (which is the standard POSIX usage) or may be stacked
+with preceding options (so `\fB\-x\-\fP' is equivalent to `\fB\-x \-\-\fP')\&.  Options
+are not permitted to be stacked after `\fB\-\-\fP' (so `\fB\-x\-f\fP' is an error),
+but note the GNU\-style option form discussed above, where `\fB\-\-shwordsplit\fP'
+is permitted and does not end option processing\&.
+.PP
+Except when the \fBsh\fP/\fBksh\fP emulation single\-letter options are in effect,
+the option `\fB\-b\fP' (or `\fB+b\fP') ends option processing\&.
+`\fB\-b\fP' is like `\fB\-\-\fP', except that further single\-letter options can be
+stacked after the `\fB\-b\fP' and will take effect as normal\&.
 .PP
 .PP
 .\" Yodl file: Zsh/compat.yo

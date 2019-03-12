@@ -1,4 +1,6 @@
 name=zsh/example
+link=dynamic
+load=no
 
 autobins="example"
 

@@ -116,7 +116,12 @@ mod_export int parbegin;
 
 /**/
 mod_export int parend;
+
+/* don't recognize comments */
  
+/**/
+mod_export int nocomments;
+
 /* text of puctuation tokens */
 
 /**/
@@ -172,7 +177,6 @@ struct lexstack {
     int isfirstch;
     int histactive;
     int histdone;
-    int spaceflag;
     int stophist;
     int hlinesz;
     char *hline;
@@ -228,7 +232,6 @@ lexsave(void)
     ls->isfirstch = isfirstch;
     ls->histactive = histactive;
     ls->histdone = histdone;
-    ls->spaceflag = spaceflag;
     ls->stophist = stophist;
     ls->hline = chline;
     ls->hptr = hptr;
@@ -267,6 +270,7 @@ lexsave(void)
     inredir = 0;
     hdocs = NULL;
     histactive = 0;
+    ecbuf = NULL;
 
     ls->next = lstack;
     lstack = ls;
@@ -289,7 +293,6 @@ lexrestore(void)
     isfirstch = lstack->isfirstch;
     histactive = lstack->histactive;
     histdone = lstack->histdone;
-    spaceflag = lstack->spaceflag;
     stophist = lstack->stophist;
     chline = lstack->hline;
     hptr = lstack->hptr;
@@ -316,6 +319,8 @@ lexrestore(void)
     hwbegin = lstack->hwbegin;
     hwend = lstack->hwend;
     addtoline = lstack->addtoline;
+    if (ecbuf)
+	zfree(ecbuf, eclen);
     eclen = lstack->eclen;
     ecused = lstack->ecused;
     ecnpats = lstack->ecnpats;
@@ -347,13 +352,13 @@ yylex(void)
 	    char *name;
 
 	    hwbegin(0);
-	    cmdpush(hdocs->type == HEREDOC ? CS_HEREDOC : CS_HEREDOCD);
+	    cmdpush(hdocs->type == REDIR_HEREDOC ? CS_HEREDOC : CS_HEREDOCD);
 	    STOPHIST
 	    name = gethere(hdocs->str, hdocs->type);
 	    ALLOWHIST
 	    cmdpop();
 	    hwend();
-	    setheredoc(hdocs->pc, HERESTR, name);
+	    setheredoc(hdocs->pc, REDIR_HERESTR, name);
 	    zfree(hdocs, sizeof(struct heredocs));
 	    hdocs = next;
 	}
@@ -672,7 +677,7 @@ gettok(void)
 
     /* chars in initial position in word */
 
-    if (c == hashchar &&
+    if (c == hashchar && !nocomments &&
 	(isset(INTERACTIVECOMMENTS) ||
 	 (!zleparse && !expanding &&
 	  (!interact || unset(SHINSTDIN) || strin)))) {
@@ -1297,10 +1302,14 @@ dquote_parse(char endchar, int sub)
 	    c = hgetc();
 	    if (c != '\n') {
 		if (c == '$' || c == '\\' || (c == '}' && !intick && bct) ||
-		    c == endchar || c == '`')
+		    c == endchar || c == '`' ||
+		    (endchar == ']' && (c == '[' || c == ']' ||
+					c == '(' || c == ')' ||
+					c == '{' || c == '}' ||
+					(c == '"' && sub))))
 		    add(Bnull);
 		else {
-		    /* lexstop is implicitely handled here */
+		    /* lexstop is implicitly handled here */
 		    add('\\');
 		    goto cont;
 		}
@@ -1382,7 +1391,7 @@ dquote_parse(char endchar, int sub)
 		err = (!brct-- && math);
 	    break;
 	case '"':
-	    if (intick || (!endchar && !bct))
+	    if (intick || ((endchar == ']' || !endchar) && !bct))
 		break;
 	    if (bct) {
 		add(Dnull);
@@ -1419,6 +1428,22 @@ dquote_parse(char endchar, int sub)
 mod_export int
 parsestr(char *s)
 {
+    int err;
+
+    if ((err = parsestrnoerr(s))) {
+	untokenize(s);
+	if (err > 32 && err < 127)
+	    zerr("parse error near `%c'", NULL, err);
+	else
+	    zerr("parse error", NULL, 0);
+    }
+    return err;
+}
+
+/**/
+mod_export int
+parsestrnoerr(char *s)
+{
     int l = strlen(s), err;
 
     lexsave();
@@ -1434,14 +1459,39 @@ parsestr(char *s)
     inpop();
     DPUTS(cmdsp, "BUG: parsestr: cmdstack not empty.");
     lexrestore();
-    if (err) {
-	untokenize(s);
-	if (err > 32 && err < 127)
-	    zerr("parse error near `%c'", NULL, err);
-	else
-	    zerr("parse error", NULL, 0);
-    }
     return err;
+}
+
+/**/
+mod_export char *
+parse_subscript(char *s, int sub)
+{
+    int l = strlen(s), err;
+    char *t;
+
+    if (!*s || *s == ']')
+	return 0;
+    lexsave();
+    untokenize(t = dupstring(s));
+    inpush(t, 0, NULL);
+    strinbeg(0);
+    len = 0;
+    bptr = tokstr = s;
+    bsiz = l + 1;
+    err = dquote_parse(']', sub);
+    if (err) {
+	err = *bptr;
+	*bptr = 0;
+	untokenize(s);
+	*bptr = err;
+	s = 0;
+    } else
+	s = bptr;
+    strinend();
+    inpop();
+    DPUTS(cmdsp, "BUG: parse_subscript: cmdstack not empty.");
+    lexrestore();
+    return s;
 }
 
 /* Tokenize a string given in s. Parsing is done as if s were a normal *
@@ -1449,7 +1499,7 @@ parsestr(char *s)
  * to parse the right-hand side of ${...%...} substitutions.           */
 
 /**/
-int
+mod_export int
 parse_subst_string(char *s)
 {
     int c, l = strlen(s), err, olen;
@@ -1545,14 +1595,13 @@ exalias(void)
 
 	if (tok == STRING) {
 	    /* Check for an alias */
-	    an = noaliases ? NULL :
+	    an = (noaliases || unset(ALIASESOPT)) ? NULL :
 		(Alias) aliastab->getnode(aliastab, yytext);
 	    if (an && !an->inuse && ((an->flags & ALIAS_GLOBAL) || incmdpos ||
 				     inalmore)) {
 		inpush(an->text, INP_ALIAS, an);
-		/* remove from history if it begins with space */
-		if (isset(HISTIGNORESPACE) && an->text[0] == ' ')
-		    remhist();
+		if (an->text[0] == ' ')
+		    aliasspaceflag = 1;
 		lexstop = 0;
 		if (yytext == copy)
 		    yytext = tokstr;

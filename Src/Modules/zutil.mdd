@@ -1,4 +1,6 @@
 name=zsh/zutil
+link=either
+load=yes
 
 moddeps="zsh/complete"
 

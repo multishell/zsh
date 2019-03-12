@@ -1,4 +1,6 @@
 name=zsh/mathfunc
+link=dynamic
+load=no
 
 autobins="mathfunc"
 

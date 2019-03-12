@@ -560,11 +560,14 @@ int
 bin_hashinfo(char *nam, char **args, char *ops, int func)
 {
     HashTable ht;
+
     printf("----------------------------------------------------\n");
+    queue_signals();
     for(ht = firstht; ht; ht = ht->next) {
 	ht->printinfo(ht);
 	printf("----------------------------------------------------\n");
     }
+    unqueue_signals();
     return 0;
 }
 
@@ -1479,8 +1482,9 @@ addhistnode(HashTable ht, char *nam, void *nodeptr)
     if (oldnode && oldnode != (HashNode)nodeptr) {
 	if (he->flags & HIST_MAKEUNIQUE
 	 || (he->flags & HIST_FOREIGN && (Histent)oldnode == he->up)) {
+	    (void) addhashnode2(ht, oldnode->nam, oldnode); /* restore hash */
 	    he->flags |= HIST_DUP;
-	    addhashnode(ht, oldnode->nam, oldnode); /* Remove the new dup */
+	    he->flags &= ~HIST_MAKEUNIQUE;
 	}
 	else {
 	    oldnode->flags |= HIST_DUP;
@@ -1507,7 +1511,7 @@ freehistdata(Histent he, int unlink)
     if (!he)
 	return;
 
-    if (!(he->flags & HIST_DUP))
+    if (!(he->flags & (HIST_DUP | HIST_TMPSTORE)))
 	removehashnode(histtab, he->text);
 
     zsfree(he->text);

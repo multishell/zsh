@@ -117,6 +117,10 @@ BEGIN {
 	dcl = dtype " " dcltor ";"
 	if(locality ~ /E/)
 	    dcl = "extern " dcl
+	if(isfunc)
+	    gsub(/ mod_export /, " mod_import_function ", dcl)
+	else
+	    gsub(/ mod_export /, " mod_import_variable ", dcl)
 	gsub(/@[+-]/, "", dcl)
 	gsub(/ +/, " ", dcl)
 	while(match(dcl, /[^_0-9A-Za-z] ./) || match(dcl, /. [^_0-9A-Za-z]/))

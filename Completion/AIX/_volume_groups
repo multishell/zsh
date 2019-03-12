@@ -1,5 +1,0 @@
-#autoload
-
-local expl
-
-_wanted physicalvolumes expl 'physical volumes' compadd - $(lsvg)

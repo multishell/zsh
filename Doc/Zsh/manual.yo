@@ -31,6 +31,7 @@ menu(Completion System)
 menu(Completion Using compctl)
 menu(Zsh Modules)
 menu(Zftp Function System)
+menu(User Contributions)
 
  --- Indices ---
 
@@ -52,6 +53,11 @@ menu(The Zsh FAQ)
 menu(The Zsh Web Page)
 menu(The Zsh Userguide)
 menu(See Also)
+
+Invocation
+
+menu(Compatibility)
+menu(Restricted Shell)
 
 Shell Grammar
 
@@ -85,7 +91,9 @@ menu(Parameters Used By The Shell)
 
 Options
 
+menu(Specifying Options)
 menu(Description of Options)
+menu(Option Aliases)
 menu(Single Letter Options)
 
 Zsh Line Editor
@@ -102,7 +110,8 @@ Completion Widgets
 menu(Special Parameters)
 menu(Builtin Commands)
 menu(Condition Codes)
-menu(Examples)
+menu(Matching Control)
+menu(Completion Widget Example)
 
 Completion System
 
@@ -124,6 +133,20 @@ menu(Example)
 Zsh Modules
 
 includefile(Zsh/manmodmenu.yo)
+
+Zftp Function System
+
+menu(Installation)
+menu(Zftp Functions)
+menu(Miscellaneous Features)
+
+User Contributions
+
+menu(Utilities)
+menu(Prompt Themes)
+menu(ZLE Functions)
+menu(Other Functions)
+
 endmenu()
 texinode(The Z Shell Manual)(Introduction)(Top)(Top)
 chapter(The Z Shell Manual)
@@ -146,10 +169,10 @@ produce a nicely formatted printed manual.
 item(The HTML manual)(
 An HTML version of this manual is available at the Zsh web site via:
 
-tt(http://sunsite.auc.dk/zsh/Doc/index.html).
+tt(http://sunsite.dk/zsh/Doc/).
 
 (The HTML version is produced with bf(texi2html), which may be obtained
-from tt(http://wwwcn.cern.ch/dci/texi2html/). The command is
+from tt(http://www.mathematik.uni-kl.de/~obachman/Texi2html/). The command is
 `tt(texi2html -split_chapter -expandinfo zsh.texi)'.)
 )
 enditem()

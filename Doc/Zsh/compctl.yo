@@ -305,6 +305,7 @@ completions.  The tt(fignore) special parameter is not applied to the
 resulting files.  Note that tt(-g) is faster for filenames.
 )
 item(tt(-K) var(function))(
+vindex(reply, use of)
 Call the given function to get the completions.  Unless the name
 starts with an underscore, the function is
 passed two arguments: the prefix and the suffix of the word on which
@@ -427,10 +428,11 @@ tt(-K) option) which can examine the word components passed to it
 use its own criteria to decide what matches.  If there is no
 completion, the original word is retained.  Since the produced 
 possible completions seldom have interesting common prefixes
-and suffixes, menucompletion is started immediately if tt(AUTO_MENU) is
+and suffixes, menu completion is started immediately if tt(AUTO_MENU) is
 set and this flag is used.
 )
 item(tt(-y) var(func-or-var))(
+vindex(reply, use of)
 The list provided by var(func-or-var) is displayed instead of the list
 of completions whenever a listing is required; the actual completions
 to be inserted are not affected.  It can be provided in two
@@ -441,7 +443,7 @@ call to a function using the tt(-K) option.  Otherwise it contains the
 name of a function which will be executed to create the list.  The
 function will be passed as an argument list all matching completions,
 including prefixes and suffixes expanded in full, and should set the
-array var(reply) to the result.  In both cases, the display list will
+array tt(reply) to the result.  In both cases, the display list will
 only be retrieved after a complete list of matches has been created.
 
 Note that the returned list does not have to correspond, even in
@@ -497,7 +499,7 @@ words those before the `tt(-x)'.
 )
 item(tt(-J) var(name))(
 This gives the name of the group the matches should be placed in. Groups
-are listed and sorted separately; likewise, menucompletion will offer
+are listed and sorted separately; likewise, menu completion will offer
 the matches in the groups in the order in which the groups were
 defined. If no group name is explicitly given, the matches are stored in
 a group named var(default). The first time a group name is encountered,
@@ -516,7 +518,7 @@ before all variables.
 )
 item(tt(-V) var(name))(
 Like tt(-J), but matches within the group will not be sorted in listings
-nor in menucompletion. These unsorted groups are in a different name
+nor in menu completion. These unsorted groups are in a different name
 space from the sorted ones, so groups defined as tt(-J files) and tt(-V
 files) are distinct.
 )

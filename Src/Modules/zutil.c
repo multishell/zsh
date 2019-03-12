@@ -48,6 +48,7 @@ struct stypat {
     char *pat;			/* pattern string */
     Patprog prog;		/* compiled pattern */
     int weight;			/* how specific is the pattern? */
+    Eprog eval;			/* eval-on-retrieve? */
     char **vals;
 };
     
@@ -64,6 +65,8 @@ freestypat(Stypat p)
     freepatprog(p->prog);
     if (p->vals)
 	freearray(p->vals);
+    if (p->eval)
+	freeeprog(p->eval);
     zfree(p, sizeof(*p));
 }
 
@@ -101,13 +104,25 @@ getstyle(char *name)
 
 /* Store a value for a style. */
 
-static void
-setstypat(Style s, char *pat, Patprog prog, char **vals)
+static int
+setstypat(Style s, char *pat, Patprog prog, char **vals, int eval)
 {
     int weight, tmp, first;
     char *str;
     Stypat p, q, qq;
+    Eprog eprog = NULL;
 
+    if (eval) {
+	int ef = errflag;
+
+	eprog = parse_string(zjoin(vals, ' ', 1), 0);
+	errflag = ef;
+
+	if (!eprog)
+	    return 1;
+
+	eprog = dupeprog(eprog, 0);
+    }
     for (p = s->pats; p; p = p->next)
 	if (!strcmp(pat, p->pat)) {
 
@@ -115,9 +130,12 @@ setstypat(Style s, char *pat, Patprog prog, char **vals)
 
 	    if (p->vals)
 		freearray(p->vals);
+	    if (p->eval)
+		freeeprog(p->eval);
 	    p->vals = zarrdup(vals);
+	    p->eval = eprog;
 
-	    return;
+	    return 0;
 	}
 
     /* New pattern. */
@@ -126,6 +144,7 @@ setstypat(Style s, char *pat, Patprog prog, char **vals)
     p->pat = ztrdup(pat);
     p->prog = prog;
     p->vals = zarrdup(vals);
+    p->eval = eprog;
     p->next = NULL;
 
     /* Calculate the weight. */
@@ -161,6 +180,8 @@ setstypat(Style s, char *pat, Patprog prog, char **vals)
 	qq->next = p;
     else
 	s->pats = p;
+
+    return 0;
 }
 
 /* Add a new style. */
@@ -184,9 +205,36 @@ addstyle(char *name)
     return s;
 }
 
+static char **
+evalstyle(Stypat p)
+{
+    int ef = errflag;
+    char **ret, *str;
+
+    unsetparam("reply");
+    execode(p->eval, 1, 0);
+    if (errflag) {
+	errflag = ef;
+	return NULL;
+    }
+    errflag = ef;
+
+    queue_signals();
+    if ((ret = getaparam("reply")))
+	ret = arrdup(ret);
+    else if ((str = getsparam("reply"))) {
+	ret = (char **) hcalloc(2 * sizeof(char *));
+	ret[0] = dupstring(str);
+    }
+    unqueue_signals();
+    unsetparam("reply");
+
+    return ret;
+}
+
 /* Look up a style for a context pattern. This does the matching. */
 
-static Stypat
+static char **
 lookupstyle(char *ctxt, char *style)
 {
     Style s;
@@ -196,7 +244,7 @@ lookupstyle(char *ctxt, char *style)
 	if (!strcmp(s->name, style))
 	    for (p = s->pats; p; p = p->next)
 		if (pattry(p->prog, ctxt))
-		    return p;
+		    return (p->eval ? evalstyle(p) : p->vals);
 
     return NULL;
 }
@@ -204,7 +252,7 @@ lookupstyle(char *ctxt, char *style)
 static int
 bin_zstyle(char *nam, char **args, char *ops, int func)
 {
-    int min, max, n, add = 0, list = 0;
+    int min, max, n, add = 0, list = 0, eval = 0;
 
     if (!args[0])
 	list = 1;
@@ -218,6 +266,10 @@ bin_zstyle(char *nam, char **args, char *ops, int func)
 	    }
 	    if (oc == 'L')
 		list = 2;
+	    else if (oc == 'e') {
+		eval = add = 1;
+		args++;
+	    }
 	} else {
 	    add = 1;
 	    args++;
@@ -243,9 +295,7 @@ bin_zstyle(char *nam, char **args, char *ops, int func)
 	}
 	if (!(s = getstyle(args[1])))
 	    s = addstyle(args[1]);
-	setstypat(s, args[0], prog, args + 2);
-
-	return 0;
+	return setstypat(s, args[0], prog, args + 2, eval);
     }
     if (list) {
 	Style s;
@@ -259,9 +309,9 @@ bin_zstyle(char *nam, char **args, char *ops, int func)
 	    }
 	    for (p = s->pats; p; p = p->next) {
 		if (list == 1)
-		    printf("    %s", p->pat);
+		    printf("%s  %s", (p->eval ? "(eval)" : "      "), p->pat);
 		else {
-		    printf("zstyle ");
+		    printf("zstyle %s", (p->eval ? "-e " : ""));
 		    quotedzputs(p->pat, stdout);
 		    printf(" %s", s->name);
 		}
@@ -343,12 +393,11 @@ bin_zstyle(char *nam, char **args, char *ops, int func)
 	break;
     case 's':
 	{
-	    Stypat s;
-	    char *ret;
+	    char **vals, *ret;
 	    int val;
 
-	    if ((s = lookupstyle(args[1], args[2])) && s->vals[0]) {
-		ret = sepjoin(s->vals, (args[4] ? args[4] : " "), 0);
+	    if ((vals = lookupstyle(args[1], args[2])) && vals[0]) {
+		ret = sepjoin(vals, (args[4] ? args[4] : " "), 0);
 		val = 0;
 	    } else {
 		ret = ztrdup("");
@@ -361,16 +410,15 @@ bin_zstyle(char *nam, char **args, char *ops, int func)
 	break;
     case 'b':
 	{
-	    Stypat s;
-	    char *ret;
+	    char **vals, *ret;
 	    int val;
 
-	    if ((s = lookupstyle(args[1], args[2])) &&
-		s->vals[0] && !s->vals[1] &&
-		(!strcmp(s->vals[0], "yes") ||
-		 !strcmp(s->vals[0], "true") ||
-		 !strcmp(s->vals[0], "on") ||
-		 !strcmp(s->vals[0], "1"))) {
+	    if ((vals = lookupstyle(args[1], args[2])) &&
+		vals[0] && !vals[1] &&
+		(!strcmp(vals[0], "yes") ||
+		 !strcmp(vals[0], "true") ||
+		 !strcmp(vals[0], "on") ||
+		 !strcmp(vals[0], "1"))) {
 		ret = "yes";
 		val = 0;
 	    } else {
@@ -384,12 +432,11 @@ bin_zstyle(char *nam, char **args, char *ops, int func)
 	break;
     case 'a':
 	{
-	    Stypat s;
-	    char **ret;
+	    char **vals, **ret;
 	    int val;
 
-	    if ((s = lookupstyle(args[1], args[2]))) {
-		ret = zarrdup(s->vals);
+	    if ((vals = lookupstyle(args[1], args[2]))) {
+		ret = zarrdup(vals);
 		val = 0;
 	    } else {
 		char *dummy = NULL;
@@ -405,14 +452,14 @@ bin_zstyle(char *nam, char **args, char *ops, int func)
     case 't':
     case 'T':
 	{
-	    Stypat s;
+	    char **vals;
 
-	    if ((s = lookupstyle(args[1], args[2])) && s->vals[0]) {
+	    if ((vals = lookupstyle(args[1], args[2])) && vals[0]) {
 		if (args[3]) {
 		    char **ap = args + 3, **p;
 
 		    while (*ap) {
-			p = s->vals;
+			p = vals;
 			while (*p)
 			    if (!strcmp(*ap, *p++))
 				return 0;
@@ -420,27 +467,25 @@ bin_zstyle(char *nam, char **args, char *ops, int func)
 		    }
 		    return 1;
 		} else
-		    return !(!strcmp(s->vals[0], "true") ||
-			     !strcmp(s->vals[0], "yes") ||
-			     !strcmp(s->vals[0], "on") ||
-			     !strcmp(s->vals[0], "1"));
+		    return !(!strcmp(vals[0], "true") ||
+			     !strcmp(vals[0], "yes") ||
+			     !strcmp(vals[0], "on") ||
+			     !strcmp(vals[0], "1"));
 	    }
-	    return (args[0][1] == 't' ? (s ? 1 : 2) : 0);
+	    return (args[0][1] == 't' ? (vals ? 1 : 2) : 0);
 	}
 	break;
     case 'm':
 	{
-	    Stypat s;
+	    char **vals;
 	    Patprog prog;
 
 	    tokenize(args[3]);
 
-	    if ((s = lookupstyle(args[1], args[2])) &&
+	    if ((vals = lookupstyle(args[1], args[2])) &&
 		(prog = patcompile(args[3], PAT_STATIC, NULL))) {
-		char **p = s->vals;
-
-		while (*p)
-		    if (pattry(prog, *p++))
+		while (*vals)
+		    if (pattry(prog, *vals++))
 			return 0;
 	    }
 	    return 1;
@@ -682,12 +727,14 @@ savematch(MatchData *m)
 {
     char **a;
 
+    queue_signals();
     a = getaparam("match");
     m->match = a ? zarrdup(a) : NULL;
     a = getaparam("mbegin");
     m->mbegin = a ? zarrdup(a) : NULL;
     a = getaparam("mend");
     m->mend = a ? zarrdup(a) : NULL;
+    unqueue_signals();
 }
 
 static void
@@ -1035,8 +1082,13 @@ rmatch(RParseResult *sm, char *subj, char *var1, char *var2, int comp)
 	    if (next->pattern && pattry(next->patprog, subj) &&
 		(!next->guard || (execstring(next->guard, 1, 0), !lastval))) {
 		LinkNode aln;
-		char **mend = getaparam("mend");
-		int len = atoi(mend[0]);
+		char **mend;
+		int len;
+
+		queue_signals();
+		mend = getaparam("mend");
+		len = atoi(mend[0]);
+		unqueue_signals();
 
 		for (i = len; i; i--)
 		  if (*subj++ == Meta)
@@ -1262,7 +1314,7 @@ static int
 bin_zparseopts(char *nam, char **args, char *ops, int func)
 {
     char *o, *p, *n, **pp, **aval, **ap, *assoc = NULL, **cp, **np;
-    int del = 0, f, extract = 0;
+    int del = 0, f, extract = 0, keep = 0;
     Zoptdesc sopts[256], d;
     Zoptarr a, defarr = NULL;
     Zoptval v;
@@ -1297,6 +1349,14 @@ bin_zparseopts(char *nam, char **args, char *ops, int func)
 		    break;
 		}
 		extract = 1;
+		break;
+	    case 'K':
+		if (o[2]) {
+		    args--;
+		    o = NULL;
+		    break;
+		}
+		keep = 1;
 		break;
 	    case 'a':
 		if (defarr) {
@@ -1478,18 +1538,20 @@ bin_zparseopts(char *nam, char **args, char *ops, int func)
 	    *cp++ = *pp++;
 
     for (a = opt_arrs; a; a = a->next) {
-	aval = (char **) zalloc((a->num + 1) * sizeof(char *));
-	for (ap = aval, v = a->vals; v; ap++, v = v->next) {
-	    if (v->str)
-		*ap = ztrdup(v->str);
-	    else {
-		*ap = ztrdup(v->name);
-		if (v->arg)
-		    *++ap = ztrdup(v->arg);
+	if (!keep || a->num) {
+	    aval = (char **) zalloc((a->num + 1) * sizeof(char *));
+	    for (ap = aval, v = a->vals; v; ap++, v = v->next) {
+		if (v->str)
+		    *ap = ztrdup(v->str);
+		else {
+		    *ap = ztrdup(v->name);
+		    if (v->arg)
+			*++ap = ztrdup(v->arg);
+		}
 	    }
+	    *ap = NULL;
+	    setaparam(a->name, aval);
 	}
-	*ap = NULL;
-	setaparam(a->name, aval);
     }
     if (assoc) {
 	int num;
@@ -1498,31 +1560,33 @@ bin_zparseopts(char *nam, char **args, char *ops, int func)
 	    if (d->vals)
 		num++;
 
-	aval = (char **) zalloc(((num * 2) + 1) * sizeof(char *));
-	for (ap = aval, d = opt_descs; d; d = d->next) {
-	    if (d->vals) {
-		*ap++ = n = (char *) zalloc(strlen(d->name) + 2);
-		*n = '-';
-		strcpy(n + 1, d->name);
+	if (!keep || num) {
+	    aval = (char **) zalloc(((num * 2) + 1) * sizeof(char *));
+	    for (ap = aval, d = opt_descs; d; d = d->next) {
+		if (d->vals) {
+		    *ap++ = n = (char *) zalloc(strlen(d->name) + 2);
+		    *n = '-';
+		    strcpy(n + 1, d->name);
 
-		for (num = 1, v = d->vals; v; v = v->onext) {
-		    num += (v->arg ? strlen(v->arg) : 0);
-		    if (v->next)
-			num++;
-		}
-		*ap++ = n = (char *) zalloc(num);
-		for (v = d->vals; v; v = v->onext) {
-		    if (v->arg) {
-			strcpy(n, v->arg);
-			n += strlen(v->arg);
+		    for (num = 1, v = d->vals; v; v = v->onext) {
+			num += (v->arg ? strlen(v->arg) : 0);
+			if (v->next)
+			    num++;
 		    }
-		    *n = ' ';
+		    *ap++ = n = (char *) zalloc(num);
+		    for (v = d->vals; v; v = v->onext) {
+			if (v->arg) {
+			    strcpy(n, v->arg);
+			    n += strlen(v->arg);
+			}
+			*n = ' ';
+		    }
+		    *n = '\0';
 		}
-		*n = '\0';
 	    }
+	    *ap = NULL;
+	    sethparam(assoc, aval);
 	}
-	*ap = NULL;
-	sethparam(assoc, aval);
     }
     if (del) {
 	if (extract) {

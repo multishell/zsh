@@ -1,4 +1,4 @@
-.TH "ZSHOPTIONS" "1" "June 5, 2000" "zsh 3\&.1\&.9"
+.TH "ZSHOPTIONS" "1" "June 1, 2001" "zsh 4\&.0\&.1"
 .SH "NAME"
 zshoptions \- zsh options
 .\" Yodl file: Zsh/options.yo
@@ -46,6 +46,9 @@ are changed from the default\&.
 .PD 0
 .TP
 .PD
+\fBALIASES\fP <D>
+Expand aliases\&.
+.TP
 \fBALL_EXPORT\fP (\fB\-a\fP, ksh: \fB\-a\fP)
 All parameters subsequently defined are automatically exported\&.
 .TP
@@ -152,6 +155,15 @@ Make the \fBecho\fP builtin compatible with the BSD \fIecho\fP(1) command\&.
 This disables backslashed escape sequences in echo strings unless the
 \fB\-e\fP option is specified\&.
 .TP
+\fBC_BASES\fP
+Output hexadecimal numbers in the standard C format, for example `\fB0xFF\fP'
+instead of the usual `\fB16#FF\fP'\&.  If the option \fBOCTAL_ZEROES\fP is also
+set (it is not by default), octal numbers will be treated similarly and
+hence appear as `\fB077\fP' instead of `\fB8#77\fP'\&.  This option has no effect
+on the choice of the output base, nor on the output of bases other than
+hexadecimal and octal\&.  Note that these formats will be understood on input
+irrespective of the setting of \fBC_BASES\fP\&.
+.TP
 \fBCDABLE_VARS\fP (\fB\-T\fP)
 If the argument to a \fBcd\fP command (or an implied \fBcd\fP with the
 \fBAUTO_CD\fP option set) is not a directory, and does not begin with a
@@ -177,13 +189,21 @@ links in the path will also be resolved\&.
 \fBCHASE_LINKS\fP (\fB\-w\fP)
 Resolve symbolic links to their true values when changing directory\&.
 This also has the effect of \fBCHASE_DOTS\fP, i\&.e\&. a `\fB\&.\&.\fP' path segment
-will be treated as referring to the physical parent, even if the preceeding
+will be treated as referring to the physical parent, even if the preceding
 path segment is a symbolic link\&.
 .TP
 \fBCHECK_JOBS\fP <Z>
 Report the status of background and suspended jobs before exiting a shell
-with job control\&.  \fBNO_CHECK_JOBS\fP is best used only in combination with
-\fBNO_HUP\fP, else such jobs will be killed automatically\&.
+with job control; a second attempt to exit the shell will succeed\&.
+\fBNO_CHECK_JOBS\fP is best used only in combination with \fBNO_HUP\fP, else
+such jobs will be killed automatically\&.
+.RS
+.PP
+The check is omitted if the commands run from the previous command line
+included a `\fBjobs\fP' command, since it is assumed the user is aware that
+there are background or suspended jobs\&.  A `\fBjobs\fP' command run from the
+\fBprecmd\fP function is not counted for this purpose\&.
+.RE
 .TP
 \fBCLOBBER\fP (\fB+C\fP, ksh: \fB+C\fP) <D>
 Allows `\fB>\fP' redirection to truncate existing files,
@@ -234,7 +254,7 @@ If a pattern for filename generation has no matches,
 delete the pattern from the argument list;
 do not report an error unless all the patterns
 in a command have no matches\&.
-Overrides \fBNULL_GLOB\fP\&.
+Overrides \fBNOMATCH\fP\&.
 .TP
 \fBDVORAK\fP
 Use the Dvorak keyboard instead of the standard qwerty keyboard as a basis
@@ -253,6 +273,8 @@ scripts\&.
 \fBEXEC\fP (\fB+n\fP, ksh: \fB+n\fP) <D>
 Do execute commands\&.  Without this option, commands are
 read and checked for syntax errors, but not executed\&.
+This option cannot be turned off in an interactive shell,
+except when `\fB\-n\fP' is supplied to the shell at startup\&.
 .TP
 \fBEXTENDED_GLOB\fP
 Treat the `\fB#\fP', `\fB~\fP' and `\fB^\fP' characters as part of patterns
@@ -332,7 +354,8 @@ Do not require a leading `\fB\&.\fP' in a filename to be matched explicitly\&.
 Treat any characters resulting from parameter expansion as being
 eligible for file expansion and filename generation, and any
 characters resulting from command substitution as being eligible for
-filename generation\&.
+filename generation\&.  Braces (and commas in between) do not become eligible
+for expansion\&.
 .TP
 \fBHASH_CMDS\fP <D>
 Note the location of each command the first time it is executed\&.
@@ -381,15 +404,26 @@ Do not enter command lines into the history list
 if they are duplicates of the previous event\&.
 .TP
 \fBHIST_IGNORE_SPACE\fP (\fB\-g\fP)
-Do not enter command lines into the history list
-if any command on the line begins with a blank\&.
+Remove command lines from the history list when the first character on
+the line is a space, or when one of the expanded aliases contains a
+leading space\&.
+Note that the command lingers in the internal history until the next
+command is entered before it vanishes, allowing you to briefly reuse
+or edit the line\&.  If you want to make it vanish right away without
+entering another command, type a space and press return\&.
 .TP
 \fBHIST_NO_FUNCTIONS\fP
-Do not store function definitions in the history list\&.
+Remove function definitions from the history list\&.
+Note that the function lingers in the internal history until the next
+command is entered before it vanishes, allowing you to briefly reuse
+or edit the definition\&.
 .TP
 \fBHIST_NO_STORE\fP
-Remove the \fBhistory\fP (\fBfc \-l\fP) command from
-the history when invoked\&.
+Remove the \fBhistory\fP (\fBfc \-l\fP) command from the history list
+when invoked\&.
+Note that the command lingers in the internal history until the next
+command is entered before it vanishes, allowing you to briefly reuse
+or edit the line\&.
 .TP
 \fBHIST_REDUCE_BLANKS\fP
 Remove superfluous blanks from each command line
@@ -416,6 +450,13 @@ Do not exit on end\-of\-file\&.  Require the use
 of \fBexit\fP or \fBlogout\fP instead\&.
 However, ten consecutive EOFs will cause the shell to exit anyway,
 to avoid the shell hanging if its tty goes away\&.
+.RS
+.PP
+Also, if this option is set and the Zsh Line Editor is used, widgets
+implemented by shell functions can be bound to EOF (normally
+Control\-D) without printing the normal warning message\&.  This works
+only for normal widgets, not for completion widgets\&.
+.RE
 .TP
 \fBINC_APPEND_HISTORY\fP
 This options works like \fBAPPEND_HISTORY\fP except that new history lines

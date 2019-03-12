@@ -1,4 +1,6 @@
 name=zsh/cap
+link=dynamic
+load=no
 
 autobins="cap getcap setcap"
 

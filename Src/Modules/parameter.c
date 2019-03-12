@@ -51,7 +51,8 @@ createspecialhash(char *name, GetNodeFunc get, ScanTabFunc scan)
     Param pm;
     HashTable ht;
 
-    if (!(pm = createparam(name, PM_SPECIAL|PM_HIDE|PM_REMOVABLE|PM_HASHED)))
+    if (!(pm = createparam(name, PM_SPECIAL|PM_HIDE|PM_HIDEVAL|
+			   PM_REMOVABLE|PM_HASHED)))
 	return NULL;
 
     pm->level = pm->old ? locallevel : 0;
@@ -59,6 +60,7 @@ createspecialhash(char *name, GetNodeFunc get, ScanTabFunc scan)
     pm->sets.hfn = hashsetfn;
     pm->unsetfn = stdunsetfn;
     pm->u.hash = ht = newhashtable(0, name, NULL);
+    pm->ct = 0;
 
     ht->hash        = hasher;
     ht->emptytable  = (TableFunc) shempty;
@@ -122,6 +124,8 @@ paramtypestr(Param pm)
 	    val = dyncat(val, "-unique");
 	if (f & PM_HIDE)
 	    val = dyncat(val, "-hide");
+	if (f & PM_HIDEVAL)
+	    val = dyncat(val, "-hideval");
 	if (f & PM_SPECIAL)
 	    val = dyncat(val, "-special");
     } else
@@ -889,7 +893,8 @@ getpmmodule(HashTable ht, char *name)
 	    m = (Module) getdata(node);
 	    if (m->u.handle && !(m->flags & MOD_UNLOAD) &&
 		!strcmp(name, m->nam)) {
-		type = "loaded";
+		type = ((m->flags & MOD_ALIAS) ?
+			dyncat("alias:", m->u.alias) : "loaded");
 		break;
 	    }
 	}
@@ -932,6 +937,7 @@ scanpmmodules(HashTable ht, ScanFunc func, int flags)
     LinkNode node;
     Module m;
     Conddef p;
+    char *loaded = dupstring("loaded");
 
     pm.flags = PM_SCALAR | PM_READONLY;
     pm.sets.cfn = NULL;
@@ -943,12 +949,12 @@ scanpmmodules(HashTable ht, ScanFunc func, int flags)
     pm.old = NULL;
     pm.level = 0;
 
-    pm.u.str = dupstring("builtin");
-    pm.u.str = dupstring("loaded");
     for (node = firstnode(modules); node; incnode(node)) {
 	m = (Module) getdata(node);
 	if (m->u.handle && !(m->flags & MOD_UNLOAD)) {
 	    pm.nam = m->nam;
+	    pm.u.str = ((m->flags & MOD_ALIAS) ?
+			dyncat("alias:", m->u.alias) : loaded);
 	    addlinknode(done, pm.nam);
 	    func((HashNode) &pm, flags);
 	}
@@ -1217,14 +1223,21 @@ static char *
 pmjobstate(int job)
 {
     Process pn;
-    char buf[256], buf2[128], *ret, *state;
+    char buf[256], buf2[128], *ret, *state, *cp;
+
+    if (job == curjob)
+	cp = ":+";
+    else if (job == prevjob)
+	cp = ":-";
+    else
+	cp = ":";
 
     if (jobtab[job].stat & STAT_DONE)
-	ret = dupstring("done");
+	ret = dyncat("done", cp);
     else if (jobtab[job].stat & STAT_STOPPED)
-	ret = dupstring("suspended");
+	ret = dyncat("suspended", cp);
     else
-	ret = dupstring("running");
+	ret = dyncat("running", cp);
 
     for (pn = jobtab[job].procs; pn; pn = pn->next) {
 
@@ -1243,7 +1256,7 @@ pmjobstate(int job)
 	else
 	    state = sigmsg(WTERMSIG(pn->status));
 
-	sprintf(buf, ":%d=%s", pn->pid, state);
+	sprintf(buf, ":%d=%s", (int)pn->pid, state);
 
 	ret = dyncat(ret, buf);
     }
@@ -1394,11 +1407,15 @@ scanpmjobdirs(HashTable ht, ScanFunc func, int flags)
 static void
 setpmnameddir(Param pm, char *value)
 {
-    if (!value || *value != '/' || strlen(value) >= PATH_MAX)
-	zwarn("invalid value: %s", value, 0);
-    else
-	adduserdir(pm->nam, value, 0, 1);
-    zsfree(value);
+    if (!value)
+	zwarn("invalid value: ''", NULL, 0);
+    else {
+	Nameddir nd = (Nameddir) zcalloc(sizeof(*nd));
+
+	nd->flags = 0;
+	nd->dir = value;
+	nameddirtab->addnode(nameddirtab, ztrdup(pm->nam), nd);
+    }
 }
 
 /**/
@@ -1439,11 +1456,15 @@ setpmnameddirs(Param pm, HashTable ht)
 	    v.arr = NULL;
 	    v.pm = (Param) hn;
 
-	    if (!(val = getstrvalue(&v)) || *val != '/' ||
-		strlen(val) >= PATH_MAX)
-		zwarn("invalid value: %s", val, 0);
-	    else
-		adduserdir(hn->nam, val, 0, 1);
+	    if (!(val = getstrvalue(&v)))
+		zwarn("invalid value: ''", NULL, 0);
+	    else {
+		Nameddir nd = (Nameddir) zcalloc(sizeof(*nd));
+
+		nd->flags = 0;
+		nd->dir = ztrdup(val);
+		nameddirtab->addnode(nameddirtab, ztrdup(hn->nam), nd);
+	    }
 	}
 
     /* The INTERACTIVE stuff ensures that the dirs are not immediatly removed
@@ -1942,8 +1963,8 @@ boot_(Module m)
 	    if (def->hsetfn)
 		def->pm->sets.hfn = def->hsetfn;
 	} else {
-	    if (!(def->pm = createparam(def->name, def->flags | PM_HIDE |
-					PM_REMOVABLE)))
+	    if (!(def->pm = createparam(def->name, def->flags | PM_HIDE|
+					PM_HIDEVAL | PM_REMOVABLE)))
 		return 1;
 	    def->pm->sets.afn = def->setfn;
 	    def->pm->gets.afn = def->getfn;

@@ -1,4 +1,0 @@
-#autoload
-
-compset -P '*:'
-_files -S: -r ': \t\t\-' -/

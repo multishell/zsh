@@ -3,15 +3,15 @@
 #   autoload edit-command-line
 #   zle -N edit-command-line
 #   bindkey -M vicmd v edit-command-line
-# will give ksh-like behaviour for that key.
+# will give ksh-like behaviour for that key,
+# except that it will handle multi-line buffers properly.
 
 local tmpfile=${TMPPREFIX:-/tmp/zsh}ecl$$
 
-print -R - "$BUFFER" >$tmpfile
+print -R - "$PREBUFFER$BUFFER" >$tmpfile
 exec </dev/tty
 ${VISUAL:-${EDITOR:-vi}} $tmpfile
-BUFFER="$(<$tmpfile)"
-CURSOR=$#BUFFER
+print -z - "$(<$tmpfile)" 
 
 command rm -f $tmpfile
-zle redisplay
+zle send-break		# Force reload from the buffer stack

@@ -279,14 +279,17 @@ insert(char *s, int checked)
     char *news = s;
     int statted = 0;
 
+    queue_signals();
     inserts = NULL;
 
     if (gf_listtypes || gf_markdirs) {
 	/* Add the type marker to the end of the filename */
 	mode_t mode;
 	checked = statted = 1;
-	if (statfullpath(s, &buf, 1))
+	if (statfullpath(s, &buf, 1)) {
+	    unqueue_signals();
 	    return;
+	}
 	mode = buf.st_mode;
 	if (gf_follow) {
 	    if (!S_ISLNK(mode) || statfullpath(s, &buf2, 0))
@@ -307,9 +310,10 @@ insert(char *s, int checked)
 	/* Go through the qualifiers, rejecting the file if appropriate */
 	struct qual *qo, *qn;
 
-	if (!statted && statfullpath(s, &buf, 1))
+	if (!statted && statfullpath(s, &buf, 1)) {
+	    unqueue_signals();
 	    return;
-
+	}
 	news = dyncat(pathbuf, news);
 
 	statted = 1;
@@ -330,16 +334,20 @@ insert(char *s, int checked)
 	     * vice versa.                                   */
 	    if ((!((qn->func) (news, bp, qn->data, qn->sdata)) ^ qn->sense) & 1) {
 		/* Try next alternative, or return if there are no more */
-		if (!(qo = qo->or))
+		if (!(qo = qo->or)) {
+		    unqueue_signals();
 		    return;
+		}
 		qn = qo;
 		continue;
 	    }
 	    qn = qn->next;
 	}
     } else if (!checked) {
-	if (statfullpath(s, NULL, 1))
+	if (statfullpath(s, NULL, 1)) {
+	    unqueue_signals();
 	    return;
+	}
 	statted = 1;
 	news = dyncat(pathbuf, news);
     } else
@@ -389,6 +397,7 @@ insert(char *s, int checked)
 	if (!inserts)
 	    break;
     }
+    unqueue_signals();
 }
 
 /* Check to see if str is eligible for filename generation. */
@@ -573,8 +582,7 @@ scanner(Complist q)
 			if (statfullpath(fn, &buf, !q->follow)) {
 			    if (errno != ENOENT && errno != EINTR &&
 				errno != ENOTDIR && !errflag) {
-				zerr("%e: %s", fn, errno);
-				errflag = 0;
+				zwarn("%e: %s", fn, errno);
 			    }
 			    continue;
 			}
@@ -1336,7 +1344,7 @@ glob(LinkList list, LinkNode np, int nountok)
 			    v.pm = NULL;
 			    v.end = -1;
 			    v.inv = 0;
-			    if (getindex(&s, &v) || s == os) {
+			    if (getindex(&s, &v, 0) || s == os) {
 				zerr("invalid subscript", NULL, 0);
 				restore_globstate(saved);
 				return;
@@ -1627,9 +1635,9 @@ xpandredir(struct redir *fn, LinkList tab)
 	char *s = peekfirst(&fake);
 	fn->name = s;
 	untokenize(s);
-	if (fn->type == MERGEIN || fn->type == MERGEOUT) {
+	if (fn->type == REDIR_MERGEIN || fn->type == REDIR_MERGEOUT) {
 	    if (s[0] == '-' && !s[1])
-		fn->type = CLOSE;
+		fn->type = REDIR_CLOSE;
 	    else if (s[0] == 'p' && !s[1]) 
 		fn->fd2 = -2;
 	    else {
@@ -1637,17 +1645,17 @@ xpandredir(struct redir *fn, LinkList tab)
 		    s++;
 		if (!*s && s > fn->name)
 		    fn->fd2 = zstrtol(fn->name, NULL, 10);
-		else if (fn->type == MERGEIN)
+		else if (fn->type == REDIR_MERGEIN)
 		    zerr("file number expected", NULL, 0);
 		else
-		    fn->type = ERRWRITE;
+		    fn->type = REDIR_ERRWRITE;
 	    }
 	}
-    } else if (fn->type == MERGEIN)
+    } else if (fn->type == REDIR_MERGEIN)
 	zerr("file number expected", NULL, 0);
     else {
-	if (fn->type == MERGEOUT)
-	    fn->type = ERRWRITE;
+	if (fn->type == REDIR_MERGEOUT)
+	    fn->type = REDIR_ERRWRITE;
 	while ((nam = (char *)ugetnode(&fake))) {
 	    /* Loop over matches, duplicating the *
 	     * redirection for each file found.   */
@@ -1659,38 +1667,6 @@ xpandredir(struct redir *fn, LinkList tab)
 	}
     }
     return ret;
-}
-
-/* concatenate s1 and s2 in dynamically allocated buffer */
-
-/**/
-mod_export char *
-dyncat(char *s1, char *s2)
-{
-    /* This version always uses space from the current heap. */
-    char *ptr;
-    int l1 = strlen(s1);
-
-    ptr = (char *)zhalloc(l1 + strlen(s2) + 1);
-    strcpy(ptr, s1);
-    strcpy(ptr + l1, s2);
-    return ptr;
-}
-
-/* concatenate s1, s2, and s3 in dynamically allocated buffer */
-
-/**/
-mod_export char *
-tricat(char const *s1, char const *s2, char const *s3)
-{
-    /* This version always uses permanently-allocated space. */
-    char *ptr;
-
-    ptr = (char *)zalloc(strlen(s1) + strlen(s2) + strlen(s3) + 1);
-    strcpy(ptr, s1);
-    strcat(ptr, s2);
-    strcat(ptr, s3);
-    return ptr;
 }
 
 /* brace expansion */
@@ -2388,6 +2364,7 @@ tokenize(char *s)
 	case ')':
 	    if (isset(SHGLOB))
 		break;
+	case '>':
 	case '^':
 	case '#':
 	case '~':

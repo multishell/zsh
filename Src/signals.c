@@ -41,14 +41,19 @@ mod_export int sigtrapped[VSIGCOUNT];
 /**/
 mod_export Eprog sigfuncs[VSIGCOUNT];
 
+/* Total count of trapped signals */
+
+/**/
+mod_export int nsigtrapped;
+
 /* Variables used by signal queueing */
 
 /**/
-int queueing_enabled, queue_front, queue_rear;
+mod_export int queueing_enabled, queue_front, queue_rear;
 /**/
-int signal_queue[MAX_QUEUE_SIZE];
+mod_export int signal_queue[MAX_QUEUE_SIZE];
 /**/
-sigset_t signal_mask_queue[MAX_QUEUE_SIZE];
+mod_export sigset_t signal_mask_queue[MAX_QUEUE_SIZE];
 
 /* This is only used on machines that don't understand signal sets.  *
  * On SYSV machines this will represent the signals that are blocked *
@@ -277,7 +282,7 @@ signal_unblock(sigset_t set)
  * be the given signal mask       */
 
 /**/
-sigset_t
+mod_export sigset_t
 signal_setmask(sigset_t set)
 {
     sigset_t oset;
@@ -541,8 +546,7 @@ handler(int sig)
 		alarm(tmout - idle);
 	    else {
 		errflag = noerrs = 0;
-		zerr("timeout", NULL, 0);
-		errflag = 0;
+		zwarn("timeout", NULL, 0);
 		stopmsg = 1;
 		zexit(SIGALRM, 1);
 	    }
@@ -642,6 +646,7 @@ struct savetrap {
 };
 
 static LinkList savetraps;
+static int dontsavetrap;
 
 /*
  * Save the current trap by copying it.  This does nothing to
@@ -670,9 +675,15 @@ dosavetrap(int sig, int level)
 	    newshf->flags = shf->flags;
 	    newshf->funcdef = dupeprog(shf->funcdef, 0);
 	}
+#ifdef DEBUG
+	else dputs("BUG: no function present with function trap flag set.");
+#endif
 	st->list = newshf;
-    } else {
+    } else if (sigtrapped[sig]) {
 	st->list = sigfuncs[sig] ? dupeprog(sigfuncs[sig], 0) : NULL;
+    } else {
+	DPUTS(sigfuncs[sig], "BUG: sigfuncs not null for untrapped signal");
+	st->list = NULL;
     }
     if (!savetraps)
 	savetraps = znewlinklist();
@@ -697,6 +708,7 @@ settrap(int sig, Eprog l)
      * Call unsettrap() unconditionally, to make sure trap is saved
      * if necessary.
      */
+    queue_signals();
     unsettrap(sig);
 
     sigfuncs[sig] = l;
@@ -709,6 +721,7 @@ settrap(int sig, Eprog l)
             sig != SIGCHLD)
             signal_ignore(sig);
     } else {
+	nsigtrapped++;
         sigtrapped[sig] = ZSIG_TRAPPED;
         if (sig && sig <= SIGCOUNT &&
 #ifdef SIGWINCH
@@ -723,6 +736,7 @@ settrap(int sig, Eprog l)
      * works just the same.
      */
     sigtrapped[sig] |= (locallevel << ZSIG_SHIFT);
+    unqueue_signals();
     return 0;
 }
 
@@ -730,9 +744,13 @@ settrap(int sig, Eprog l)
 void
 unsettrap(int sig)
 {
-    HashNode hn = removetrap(sig);
+    HashNode hn;
+
+    queue_signals();
+    hn = removetrap(sig);
     if (hn)
 	shfunctab->freenode(hn);
+    unqueue_signals();
 }
 
 /**/
@@ -745,19 +763,24 @@ removetrap(int sig)
 	(jobbing && (sig == SIGTTOU || sig == SIGTSTP || sig == SIGTTIN)))
 	return NULL;
 
+    queue_signals();
     trapped = sigtrapped[sig];
     /*
      * Note that we save the trap here even if there isn't an existing
      * one, to aid in removing this one.  However, if there's
      * already one at the current locallevel we just overwrite it.
      */
-    if ((isset(LOCALTRAPS) || sig == SIGEXIT) && locallevel &&
+    if (!dontsavetrap && (isset(LOCALTRAPS) || sig == SIGEXIT) &&
+	locallevel &&
 	(!trapped || locallevel > (sigtrapped[sig] >> ZSIG_SHIFT)))
 	dosavetrap(sig, locallevel);
 
-    if (!trapped)
+    if (!trapped) {
+	unqueue_signals();
         return NULL;
-
+    }
+    if (sigtrapped[sig] & ZSIG_TRAPPED)
+	nsigtrapped--;
     sigtrapped[sig] = 0;
     if (sig == SIGINT && interact) {
 	/* PWS 1995/05/16:  added test for interactive, also noholdintr() *
@@ -783,17 +806,23 @@ removetrap(int sig)
      */
     if (trapped & ZSIG_FUNC) {
 	char func[20];
+	HashNode node;
 
 	sprintf(func, "TRAP%s", sigs[sig]);
 	/*
 	 * As in dosavetrap(), don't call removeshfuncnode() because
 	 * that calls back into unsettrap();
 	 */
-	return removehashnode(shfunctab, func);
+	sigfuncs[sig] = NULL;
+	node = removehashnode(shfunctab, func);
+	unqueue_signals();
+
+	return node;
     } else if (sigfuncs[sig]) {
 	freeeprog(sigfuncs[sig]);
 	sigfuncs[sig] = NULL;
     }
+    unqueue_signals();
 
     return NULL;
 }
@@ -837,9 +866,11 @@ endtrapscope(void)
 	    exitfn = removehashnode(shfunctab, "TRAPEXIT");
 	} else {
 	    exitfn = sigfuncs[SIGEXIT];
-	    sigfuncs[SIGEXIT] = NULL;
 	}
-	unsettrap(SIGEXIT);
+	sigfuncs[SIGEXIT] = NULL;
+	if (sigtrapped[SIGEXIT] & ZSIG_TRAPPED)
+	    nsigtrapped--;
+	sigtrapped[SIGEXIT] = 0;
     }
 
     if (savetraps) {
@@ -850,21 +881,25 @@ endtrapscope(void)
 
 	    remnode(savetraps, ln);
 
-	    if (sigtrapped[sig])
-		unsettrap(sig);
-	    sigtrapped[sig] = st->flags;
-	    if (st->flags) {
+	    if (st->flags && (st->list != NULL)) {
 		Eprog prog = (st->flags & ZSIG_FUNC) ?
 		    ((Shfunc) st->list)->funcdef : (Eprog) st->list;
 		/* prevent settrap from saving this */
-		int oldlt = opts[LOCALTRAPS];
-		opts[LOCALTRAPS] = 0;
+		dontsavetrap++;
 		settrap(sig, prog);
-		opts[LOCALTRAPS] = oldlt;
+		dontsavetrap--;
+		/*
+		 * counting of nsigtrapped should presumably be handled
+		 * in settrap...
+		 */
+		DPUTS((sigtrapped[sig] ^ st->flags) & ZSIG_TRAPPED,
+		      "BUG: settrap didn't restore correct ZSIG_TRAPPED");
 		if ((sigtrapped[sig] = st->flags) & ZSIG_FUNC)
 		    shfunctab->addnode(shfunctab, ((Shfunc)st->list)->nam,
 				       (Shfunc) st->list);
-	    }
+	    } else if (sigtrapped[sig])
+		unsettrap(sig);
+
 	    zfree(st, sizeof(*st));
 	}
     }
@@ -877,6 +912,8 @@ endtrapscope(void)
 	else
 	    freeeprog(exitfn);
     }
+    DPUTS(!locallevel && savetraps && firstnode(savetraps),
+	  "BUG: still saved traps outside all function scope");
 }
 
 /* Execute a trap function for a given signal, possibly
@@ -899,7 +936,9 @@ dotrapargs(int sig, int *sigtr, void *sigfn)
      * function will test for this, but this way we keep status flags *
      * intact without working too hard.  Special cases (e.g. calling  *
      * a trap for SIGINT after the error flag was set) are handled    *
-     * by the calling code.  (PWS 1995/06/08).			      */
+     * by the calling code.  (PWS 1995/06/08).			      *
+     *                                                                *
+     * This test is now replicated in dotrap().                       */
     if ((*sigtr & ZSIG_IGNORED) || !sigfn || errflag)
         return;
 
@@ -945,15 +984,26 @@ dotrapargs(int sig, int *sigtr, void *sigfn)
 	    breaks = loops;
     }
 
+    /*
+     * If zle was running while the trap was executed, see if we
+     * need to restore the display.
+     */
+    if (zleactive && resetneeded)
+	zrefresh();
+
     if (*sigtr != ZSIG_IGNORED)
 	*sigtr &= ~ZSIG_IGNORED;
 }
 
-/* Standard call to execute a trap for a given signal */
+/* Standard call to execute a trap for a given signal. */
 
 /**/
 void
 dotrap(int sig)
 {
+    /* Copied from dotrapargs(). */
+    if ((sigtrapped[sig] & ZSIG_IGNORED) || !sigfuncs[sig] || errflag)
+	return;
+
     dotrapargs(sig, sigtrapped+sig, sigfuncs[sig]);
 }

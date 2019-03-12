@@ -1,4 +1,4 @@
-.TH "ZSHCOMPWID" "1" "June 5, 2000" "zsh 3\&.1\&.9"
+.TH "ZSHCOMPWID" "1" "June 1, 2001" "zsh 4\&.0\&.1"
 .SH "NAME"
 zshcompwid \- zsh completion widgets
 .\" Yodl file: Zsh/compwid.yo
@@ -12,7 +12,7 @@ and users with no interest in adding to that system (or, potentially,
 writing their own \-\-\- see dictionary entry for `hubris') should skip this
 section\&.  The older system based on the \fBcompctl\fP builtin command is
 described in
-\fIzshcompctly\fP(1)\&.
+\fIzshcompctl\fP(1)\&.
 .PP
 Completion widgets are defined by the \fB\-C\fP option to the \fBzle\fP
 builtin command provided by the \fBzsh/zle\fP module (see
@@ -46,8 +46,8 @@ widget, in this case \fBexpand\-or\-complete\fP\&.
 .PP
 .SH "SPECIAL PARAMETERS"
 .PP
-Inside completion widgets, and any functions called from those, some
-parameters have special meaning; outside these function they are not
+Inside completion widgets, and any functions called from them, some
+parameters have special meaning; outside these functions they are not
 special to the shell in any way\&.  These parameters are used to pass
 information between the completion code and the completion widget\&. Some of
 the builtin commands and the condition codes use or change the current
@@ -60,19 +60,10 @@ entered\&.
 .PD 0
 .TP
 .PD
-\fBwords\fP
-This array contains the words present on the command line currently being
-edited\&.
-.TP
 \fBCURRENT\fP
 This is the number of the current word, i\&.e\&. the word the cursor is
 currently on in the \fBwords\fP array\&.  Note that this value is only
-correct if the \fBksharrays\fP options is not set\&.
-.TP
-\fBPREFIX\fP
-Initially this will be set to the part of the current word from the
-beginning of the word up to the position of the cursor; it may be altered
-to give a common prefix for all matches\&.
+correct if the \fBksharrays\fP option is not set\&.
 .TP
 \fBIPREFIX\fP
 Initially this will be set to the empty string\&.  This parameter functions
@@ -94,6 +85,16 @@ to be treated as part of a matched string\&.  This can be done automatically
 by the \fBcompset\fP builtin, see below\&.
 .RE
 .TP
+\fBISUFFIX\fP
+As \fBIPREFIX\fP, but for a suffix that should not be considered part
+of the matches; note that the \fBISUFFIX\fP string follows the \fBSUFFIX\fP
+string\&.
+.TP
+\fBPREFIX\fP
+Initially this will be set to the part of the current word from the
+beginning of the word up to the position of the cursor; it may be altered
+to give a common prefix for all matches\&.
+.TP
 \fBQIPREFIX\fP
 This parameter is read\-only and contains the quoted string up to the
 word being completed\&. E\&.g\&. when completing `\fB"foo\fP', this parameter
@@ -101,20 +102,15 @@ contains the double quote\&. If the \fB\-q\fP option of \fBcompset\fP is used
 (see below), and the original string was `\fB"foo bar\fP' with the
 cursor on the `\fBbar\fP', this parameter contains `\fB"foo \fP'\&.
 .TP
+\fBQISUFFIX\fP
+Like \fBQIPREFIX\fP, but containing the suffix\&.
+.TP
 \fBSUFFIX\fP
 Initially this will be set to the part of the current word from the
 cursor position to the end; it may be altered to give a common suffix for
 all matches\&.  It is most useful when the option \fBCOMPLETE_IN_WORD\fP is
 set, as otherwise the whole word on the command line is treated as a
 prefix\&.
-.TP
-\fBISUFFIX\fP
-As \fBIPREFIX\fP, but for a suffix that should not be considered part
-of the matches; note that the \fBISUFFIX\fP string follows the \fBSUFFIX\fP
-string\&.
-.TP
-\fBQISUFFIX\fP
-Like \fBQIPREFIX\fP, but containing the suffix\&.
 .TP
 \fBcompstate\fP
 This is an associative array with various keys and values that the
@@ -125,74 +121,6 @@ The keys are:
 .PD 0
 .TP
 .PD
-\fBcontext\fP
-This will be set by the completion code to the overall context
-in which completion is attempted\&. Possible values are:
-.RS
-.PP
-.PD 0
-.TP
-.PD
-\fBcommand\fP
-when completing for a normal command (either in command position or for
-an argument of the command)\&.
-.TP
-\fBredirect\fP
-when completing after a redirection operator\&.
-.TP
-\fBcondition\fP
-when completing inside a `\fB[[\fP\&.\&.\&.\fB]]\fP' conditional expression; in
-this case the \fBwords\fP array contains only the words inside the
-conditional expression\&.
-.TP
-\fBmath\fP
-when completing in a mathematical environment such as a
-`\fB((\fP\&.\&.\&.\fB))\fP' construct\&.
-.TP
-\fBvalue\fP
-when completing the value of a parameter assignment\&.
-.TP
-\fBarray_value\fP
-when completing inside the value of an array parameter assignment; in
-this case the \fBwords\fP array contains the words inside the parentheses\&.
-.TP
-\fBsubscript\fP
-when completing inside a parameter subscript\&.
-.TP
-\fBparameter\fP
-when completing the name of a parameter in a parameter expansion beginning
-with \fB$\fP but not \fB${\fP\&.
-.TP
-\fBbrace_parameter\fP
-when completing the name of a parameter in a parameter expansion beginning
-with \fB${\fP\&.
-.RE
-.TP
-\fBvared\fP
-If completion is called while editing a line using the \fBvared\fP
-builtin, the value of this key is set to the name of the parameter
-given as argument to \fBvared\fP\&.  This key is only set while a \fBvared\fP
-command is active\&.
-.TP
-\fBparameter\fP
-The name of the parameter when completing in a subscript or in the
-value of a parameter assignment\&.
-.TP
-\fBredirect\fP
-The redirection operator when completing in a redirection position,
-i\&.e\&. one of \fB<\fP, \fB>\fP, etc\&.
-.TP
-\fBquoting\fP
-When completing inside single quotes, this is set to the string
-\fBsingle\fP; inside double quotes, the string
-\fBdouble\fP; inside backticks, the string \fBbacktick\fP\&.
-Otherwise it is unset\&.
-.TP
-\fBquote\fP
-When completing inside quotes, this contains the quotation character
-(i\&.e\&. either a single quote, a double quote, or a backtick)\&.  Otherwise it
-is unset\&.
-.TP
 \fBall_quotes\fP
 The \fB\-q\fP option of the \fBcompset\fP builtin command (see below)
 allows a quoted string to be broken into separate words; if the cursor is
@@ -205,21 +133,115 @@ these characters and a backslash for strings not starting with a quote
 character\&.  The first character in the value always corresponds to the
 innermost quoting level\&.
 .TP
-\fBnmatches\fP
-The number of matches generated and accepted by the completion code so
-far\&.
+\fBcontext\fP
+This will be set by the completion code to the overall context
+in which completion is attempted\&. Possible values are:
+.RS
+.PP
+.PD 0
+.TP
+.PD
+\fBarray_value\fP
+when completing inside the value of an array parameter assignment; in
+this case the \fBwords\fP array contains the words inside the parentheses\&.
+.TP
+\fBbrace_parameter\fP
+when completing the name of a parameter in a parameter expansion beginning
+with \fB${\fP\&.
+.TP
+\fBcommand\fP
+when completing for a normal command (either in command position or for
+an argument of the command)\&.
+.TP
+\fBcondition\fP
+when completing inside a `\fB[[\fP\&.\&.\&.\fB]]\fP' conditional expression; in
+this case the \fBwords\fP array contains only the words inside the
+conditional expression\&.
+.TP
+\fBmath\fP
+when completing in a mathematical environment such as a
+`\fB((\fP\&.\&.\&.\fB))\fP' construct\&.
+.TP
+\fBparameter\fP
+when completing the name of a parameter in a parameter expansion beginning
+with \fB$\fP but not \fB${\fP\&.
+.TP
+\fBredirect\fP
+when completing after a redirection operator\&.
+.TP
+\fBsubscript\fP
+when completing inside a parameter subscript\&.
+.TP
+\fBvalue\fP
+when completing the value of a parameter assignment\&.
+.RE
+.TP
+\fBexact\fP
+Controls the behaviour when the \fBREC_EXACT\fP option is set\&.  It will be
+set to \fBaccept\fP if an exact match would be accepted, and will be unset
+otherwise\&.
+.RS
+.PP
+If it was set when at least one match equal to the string on the line
+was generated, the match is accepted\&.
+.RE
+.TP
+\fBexact_string\fP
+The string of an exact match if one was found, otherwise unset\&.
 .TP
 \fBignored\fP
 The number of words that were ignored because they matched one of the
 patterns given with the \fB\-F\fP option to the \fBcompadd\fP builtin
 command\&.
 .TP
-\fBrestore\fP
-This is set to \fBauto\fP before a function is entered, which forces the
-special parameters mentioned above (\fBwords\fP, \fBCURRENT\fP, \fBPREFIX\fP,
-\fBIPREFIX\fP, \fBSUFFIX\fP, and \fBISUFFIX\fP) to be restored to their
-previous values when the function exits\&.   If a function unsets it or
-sets it to any other string, they will not be restored\&.
+\fBinsert\fP
+This controls the manner in which a match is inserted into the command
+line\&.  On entry to the widget function, if it is unset the command line is
+not to be changed; if set to \fBunambiguous\fP, any prefix common to all
+matches is to be inserted; if set to \fBautomenu\-unambiguous\fP, the
+common prefix is to be inserted and the next invocation of the
+completion code may start menu completion (due to the \fBAUTO_MENU\fP
+option being set); if set to \fBmenu\fP or \fBautomenu\fP menu completion
+will be started for the matches currently generated (in the
+latter case this will happen because the \fBAUTO_MENU\fP is set)\&. The
+value may also contain the string `\fBtab\fP' when the completion code
+would normally not really do completion, but only insert the TAB
+character\&.
+.RS
+.PP
+On exit it may be set to any of the values above (where setting it to
+the empty string is the same as unsetting it), or to a number, in which
+case the match whose number is given will be inserted into the command line\&.
+Negative numbers count backward from the last match (with `\fB\-1\fP'
+selecting the last match) and out\-of\-range values are wrapped
+around, so that a value of zero selects the last match and a value
+one more than the maximum selects the first\&. Unless the value of this
+key ends in a space, the match is inserted as in a menu completion,
+i\&.e\&. without automatically appending a space\&.
+.PP
+Both \fBmenu\fP and \fBautomenu\fP may also specify the the number of the
+match to insert, given after a colon\&.  For example, `\fBmenu:2\fP' says
+to start menu completion, beginning with the second match\&.
+.PP
+Note that a value containing the substring `\fBtab\fP' makes the
+matches generated be ignored and only the TAB be inserted\&.
+.PP
+Finally, it may also be set to \fBall\fP, which makes all matches
+generated be inserted into the line\&.
+.RE
+.TP
+\fBinsert_positions\fP
+When the completion system inserts an unambiguous string into the
+line, there may be multiple places where characters are missing or
+where the character inserted differs from at least one match\&.  The
+value of this key contains a colon separated list of all these
+positions, as indexes into the command line\&.
+.TP
+\fBlast_prompt\fP
+If this is set to a non\-empty string for every match added, the
+completion code will move the cursor back to the previous prompt after
+the list of completions has been displayed\&.  Initially this is set or
+unset according to the \fBALWAYS_LAST_PROMPT\fP option\&.
 .TP
 \fBlist\fP
 This controls whether or how the list of matches will be displayed\&.  If it
@@ -235,7 +257,7 @@ list be shown even if there is only one match\&. Normally, the list
 would be shown only if there are at least two matches\&.
 .PP
 The value contains the substring \fBpacked\fP if the \fBLIST_PACKED\fP
-option is set\&. If this substring is given for all matches added of a
+option is set\&. If this substring is given for all matches added to a
 group, this group will show the \fBLIST_PACKED\fP behavior\&. The same is
 done for the \fBLIST_ROWS_FIRST\fP option with the substring \fBrows\fP\&.
 .PP
@@ -248,11 +270,6 @@ will be set appropriately on entry to a completion widget and may be
 changed there\&.
 .RE
 .TP
-\fBlist_max\fP
-Initially this is set to the value of the \fBLISTMAX\fP parameter\&.
-It may be set to any other value; when the widget exits this value
-will be used in the same way as the value of \fBLISTMAX\fP\&.
-.TP
 \fBlist_lines\fP
 This gives the number of lines that are needed to display the full
 list of completions\&.  Note that to calculate the total number of lines
@@ -260,61 +277,26 @@ to display you need to add the number of lines needed for the command
 line to this value, this is available as the value of the \fBBUFFERLINES\fP
 special parameter\&.
 .TP
-\fBlast_prompt\fP
-If this is set to an non\-empty string for every match added, the
-completion code will move the cursor back to the previous prompt after
-the list of completions has been displayed\&.  Initially this is set or
-unset according to the \fBALWAYS_LAST_PROMPT\fP option\&.
+\fBlist_max\fP
+Initially this is set to the value of the \fBLISTMAX\fP parameter\&.
+It may be set to any other value; when the widget exits this value
+will be used in the same way as the value of \fBLISTMAX\fP\&.
 .TP
-\fBinsert\fP
-This controls the manner in which a match is inserted into the command
-line\&.  On entry to the widget function, if it is unset the command line is
-not to be changed; if set to \fBunambiguous\fP, any prefix common to all
-matches is to be inserted; if set to \fBautomenu\-unambiguous\fP, the
-common prefix is to be inserted and the next invocation of the
-completion code may start menucompletion (due to the \fBAUTO_MENU\fP
-option being set); if set to \fBmenu\fP or \fBautomenu\fP menucompletion
-will be started for the matches currently generated (in the
-latter case this will happen because the \fBAUTO_MENU\fP is set)\&. The
-value may also contain the string `\fBtab\fP' when the completion code
-would normally not really do completion, but only insert the TAB
-character\&.
+\fBnmatches\fP
+The number of matches generated and accepted by the completion code so
+far\&.
+.TP
+\fBold_insert\fP
+On entry to the widget this will be set to the number of the match of
+an old list of completions that is currently inserted into the command
+line\&. If no match has been inserted, this is unset\&.
 .RS
 .PP
-On exit it may be set to any of the values above (where setting it to
-the empty string is the same as unsetting it), or to a number, in which
-case the match whose number is given will be inserted into the command line\&.
-Negative numbers count backward from the last match (with `\fB\-1\fP'
-selecting the last match) and out\-of\-range values are wrapped
-around, so that a value of zero selects the last match and a value
-one more than the maximum selects the first\&. Unless the value of this
-key ends in a space, the match is inserted as in a menucompletion,
-i\&.e\&. without automatically appending a space\&.
-.PP
-Both \fBmenu\fP and \fBautomenu\fP may also specify the the number of the
-match to insert, given after a colon\&.  For example, `\fBmenu:2\fP' says
-to start menucompletion, beginning with the second match\&.
-.PP
-Note that a value containing the substring `\fBtab\fP' makes the
-matches generated be ignored and only the TAB be inserted\&.
-.PP
-Finally, it may also be set to \fBall\fP, which makes all matches
-generated be inserted into the line\&.
-.RE
-.TP
-\fBto_end\fP
-Specifies the occasions on which the cursor is moved to the end of a string
-when a match is inserted\&.  On entry to a widget function, it may be
-\fBsingle\fP if this will happen when a single unambiguous match was inserted
-or \fBmatch\fP if it will happen any time a match is inserted (for example,
-by menucompletion; this is likely to be the effect of the \fBALWAYS_TO_END\fP
-option)\&.
-.RS
-.PP
-On exit, it may be set to \fBsingle\fP as above\&.  It may also be set to
-\fBalways\fP, or to the empty string or unset; in those cases the cursor will
-be moved to the end of the string always or never respectively\&.  Any
-other string is treated as \fBmatch\fP\&.
+As with \fBold_list\fP, the value of this key will only be used if it is the
+string \fBkeep\fP\&. If it was set to this value by the widget and there was an
+old match inserted into the command line, this match will be kept and if
+the value of the \fBinsert\fP key specifies that another match should be
+inserted, this will be inserted after the old one\&.
 .RE
 .TP
 \fBold_list\fP
@@ -332,31 +314,16 @@ to use this old list\&.  If the widget generated new matches, they will
 not be used\&.
 .RE
 .TP
-\fBold_insert\fP
-On entry to the widget this will be set to the number of the match of
-an old list of completions that is currently inserted into the command
-line\&. If no match has been inserted, this is unset\&.
-.RS
-.PP
-As with \fBold_list\fP, the value of this key will only be used if it is the
-string \fBkeep\fP\&. If it was set to this value by the widget and there was an
-old match inserted into the command line, this match will be kept and if
-the value of the \fBinsert\fP key specifies that another match should be
-inserted, this will be inserted after the old one\&.
-.RE
+\fBparameter\fP
+The name of the parameter when completing in a subscript or in the
+value of a parameter assignment\&.
 .TP
-\fBexact\fP
-Controls the behaviour when the \fBREC_EXACT\fP option is set\&.  It will be
-set to \fBaccept\fP if an exact match would be accepted, and will be unset
-otherwise\&.
-.RS
-.PP
-If it was set when at least one match equal to the string on the line
-was generated, the match is accepted\&.
-.RE
-.TP
-\fBexact_string\fP
-The string of an exact match if one was found, otherwise unset\&.
+\fBpattern_insert\fP
+Normally this is set to \fBmenu\fP, which specifies that menu completion will
+be used whenever a set of matches was generated using pattern matching\&.  If
+it is set to any other non\-empty string by the user and menu completion is
+not selected by other option settings, the code will instead insert any
+common prefix for the generated matches as with normal completion\&.
 .TP
 \fBpattern_match\fP
 Locally controls the behaviour given by the \fBGLOB_COMPLETE\fP option\&.
@@ -373,12 +340,42 @@ Note that the matcher specifications given to the \fBcompadd\fP builtin
 command are not used if this is set to a non\-empty string\&.
 .RE
 .TP
-\fBpattern_insert\fP
-Normally this is set to \fBmenu\fP, which specifies that menucompletion will
-be used whenever a set of matches was generated using pattern matching\&.  If
-it is set to any other non\-empty string by the user and menucompletion is
-not selected by other option settings, the code will instead insert any
-common prefix for the generated matches as with normal completion\&.
+\fBquote\fP
+When completing inside quotes, this contains the quotation character
+(i\&.e\&. either a single quote, a double quote, or a backtick)\&.  Otherwise it
+is unset\&.
+.TP
+\fBquoting\fP
+When completing inside single quotes, this is set to the string
+\fBsingle\fP; inside double quotes, the string
+\fBdouble\fP; inside backticks, the string \fBbacktick\fP\&.
+Otherwise it is unset\&.
+.TP
+\fBredirect\fP
+The redirection operator when completing in a redirection position,
+i\&.e\&. one of \fB<\fP, \fB>\fP, etc\&.
+.TP
+\fBrestore\fP
+This is set to \fBauto\fP before a function is entered, which forces the
+special parameters mentioned above (\fBwords\fP, \fBCURRENT\fP, \fBPREFIX\fP,
+\fBIPREFIX\fP, \fBSUFFIX\fP, and \fBISUFFIX\fP) to be restored to their
+previous values when the function exits\&.   If a function unsets it or
+sets it to any other string, they will not be restored\&.
+.TP
+\fBto_end\fP
+Specifies the occasions on which the cursor is moved to the end of a string
+when a match is inserted\&.  On entry to a widget function, it may be
+\fBsingle\fP if this will happen when a single unambiguous match was inserted
+or \fBmatch\fP if it will happen any time a match is inserted (for example,
+by menu completion; this is likely to be the effect of the \fBALWAYS_TO_END\fP
+option)\&.
+.RS
+.PP
+On exit, it may be set to \fBsingle\fP as above\&.  It may also be set to
+\fBalways\fP, or to the empty string or unset; in those cases the cursor will
+be moved to the end of the string always or never respectively\&.  Any
+other string is treated as \fBmatch\fP\&.
+.RE
 .TP
 \fBunambiguous\fP
 This key is read\-only and will always be set to the common (unambiguous)
@@ -389,14 +386,29 @@ This gives the position the cursor would be placed at if the
 common prefix in the \fBunambiguous\fP key were inserted, relative to
 the value of that key\&. The cursor would be placed before the character
 whose index is given by this key\&.
+.TP
+\fBunambiguous_positions\fP
+This contains all positions where characters in the unambiguous string
+are missing or where the character inserted differs from at least one
+of the matches\&.  The positions are given as indexes into the string
+given by the value of the \fBunambiguous\fP key\&.
+.TP
+\fBvared\fP
+If completion is called while editing a line using the \fBvared\fP
+builtin, the value of this key is set to the name of the parameter
+given as an argument to \fBvared\fP\&.  This key is only set while a \fBvared\fP
+command is active\&.
 .RE
-.RE
+.TP
+\fBwords\fP
+This array contains the words present on the command line currently being
+edited\&.
 .PP
 .SH "BUILTIN COMMANDS"
 .PD 0
 .TP
 .PD 0
-\fBcompadd\fP [ \fB\-akqQfenUl12\fP ] [ \fB\-F\fP \fIarray\fP ]
+\fBcompadd\fP [ \fB\-akqQfenUl12C\fP ] [ \fB\-F\fP \fIarray\fP ]
 .TP
 .PD 0
 [ \fB\-P\fP \fIprefix\fP ] [ \fB\-S\fP \fIsuffix\fP ]
@@ -486,17 +498,20 @@ Like \fB\-i\fP, but gives an ignored suffix\&.
 .TP
 \fB\-a\fP
 With this flag the \fIwords\fP are taken as names of arrays and the
-possible matches are their values\&.
+possible matches are their values\&.  If only some elements of the
+arrays are needed, the \fIwords\fP may also contain subscripts, as in
+`\fBfoo[2,\-1]\fP'\&.
 .TP
 \fB\-k\fP
 With this flag the \fIwords\fP are taken as names of associative arrays
-and the possible matches are their keys\&.
+and the possible matches are their keys\&.  As for \fB\-a\fP, the
+\fIwords\fP may also contain subscripts, as in `\fBfoo[(R)*bar*]\fP'\&.
 .TP
 \fB\-d\fP \fIarray\fP
 This adds per\-match display strings\&. The \fIarray\fP should contain one 
 element per \fIword\fP given\&. The completion code will then display the 
 first element instead of the first \fIword\fP, and so on\&. The
-\fIarray\fP may be given as the name of a array parameter or directly
+\fIarray\fP may be given as the name of an array parameter or directly
 as a space\-separated list of words in parentheses\&.
 .RS
 .PP
@@ -640,7 +655,20 @@ in turn matches what is on the line\&.  If the \fIn\fP'th \fIword\fP does not
 match, the \fIn\fP'th element of the \fIarray\fP is removed\&.  Elements
 for which the corresponding \fIword\fP is matched are retained\&.
 .TP
-\fB\-\fP, \fB\-\-\fP
+\fB\-C\fP
+This option adds a special match which expands to all other matches
+when inserted into the line, even those that are added after this
+option is used\&.  Together with the \fB\-d\fP option it is possible to
+specify a string that should be displayed in the list for this special 
+match\&.  If no string is given, it will be shown as a string containing 
+the strings that would be inserted for the other matches, truncated to 
+the width of the screen\&.
+.TP
+.PD 0
+\fB\-\fP
+.TP
+.PD
+\fB\-\fP\fB\-\fP
 This flag ends the list of flags and options\&. All arguments after it
 will be taken as the words to use as matches even if they begin with
 hyphens\&.
@@ -807,7 +835,7 @@ true if the test for the \fB\-N\fP option with both patterns would succeed\&.
 .PP
 .SH "MATCHING CONTROL"
 .PP
-It is possible by use of the 
+It is possible by use of the
 \fB\-M\fP option of the \fBcompadd\fP builtin command to specify how the
 characters in the string to be completed (referred to here as the
 command line) map onto the characters in the list of matches produced by
@@ -816,14 +844,14 @@ that this is not used if the command line contains a glob pattern and
 the \fBGLOB_COMPLETE\fP option is set or the \fBpattern_match\fP of the
 \fBcompstate\fP special association is set to a non\-empty string\&.
 .PP
-The \fIspec\fP given as argument to the \fB\-m\fP option consists of one
-or more matching descriptions separated by
+The \fImatch\-spec\fP given as the argument to the \fB\-M\fP option (see
+`Builtin Commands' above) consists of one or more matching descriptions separated by
 whitespace\&.  Each description consists of a letter followed by a colon
 and then the patterns describing which character sequences on the line match
 which character sequences in the trial completion\&.  Any sequence of
 characters not handled in this fashion must match exactly, as usual\&.
 .PP
-The forms of \fIspec\fP understood are as follows\&. In each case, the
+The forms of \fImatch\-spec\fP understood are as follows\&. In each case, the
 form with an uppercase initial character retains the string already
 typed on the command line as the final result of completion, while with
 a lowercase initial character the string on the command line is changed
@@ -848,12 +876,18 @@ corresponding to \fItpat\fP which matches in the trial completion\&.
 .PD 0
 \fBl:\fP\fIlanchor\fP\fB||\fP\fIranchor\fP\fB=\fP\fItpat\fP
 .TP
-.PD
+.PD 0
 \fBL:\fP\fIlanchor\fP\fB||\fP\fIranchor\fP\fB=\fP\fItpat\fP
+.TP
+.PD 0
+\fBb:\fP\fIlpat\fP\fB=\fP\fItpat\fP
+.TP
+.PD
+\fBB:\fP\fIlpat\fP\fB=\fP\fItpat\fP
 These letters are for patterns that are anchored by another pattern on
 the left side\&. Matching for \fIlpat\fP and \fItpat\fP is as for \fBm\fP and
 \fBM\fP, but the pattern \fIlpat\fP matched on the command line must be
-preceeded by the pattern \fIlanchor\fP\&.  The \fIlanchor\fP can be blank to
+preceded by the pattern \fIlanchor\fP\&.  The \fIlanchor\fP can be blank to
 anchor the match to the start of the command line string; otherwise the
 anchor can occur anywhere, but must match in both the command line and
 trial completion strings\&.
@@ -863,6 +897,10 @@ If no \fIlpat\fP is given but a \fIranchor\fP is, this matches the gap
 between substrings matched by \fIlanchor\fP and \fIranchor\fP\&. Unlike
 \fIlanchor\fP, the \fIranchor\fP only needs to match the trial
 completion string\&.
+.PP
+The \fBb\fP and \fBB\fP forms are similar to \fBl\fP and \fBL\fP with an empty 
+anchor, but need to match only the beginning of the trial completion
+or the word on the command line, respectively\&.
 .RE
 .TP
 .PD 0
@@ -874,11 +912,18 @@ completion string\&.
 .PD 0
 \fBr:\fP\fIlanchor\fP\fB||\fP\fIranchor\fP\fB=\fP\fItpat\fP
 .TP
-.PD
+.PD 0
 \fBR:\fP\fIlanchor\fP\fB||\fP\fIranchor\fP\fB=\fP\fItpat\fP
-As \fBl\fP and \fBL\fP, with the difference that the command line and trial
-completion patterns are anchored on the right side\&.  Here an empty
-\fIranchor\fP forces the match to the end of the command line string\&.
+.TP
+.PD 0
+\fBe:\fP\fIlpat\fP\fB=\fP\fItpat\fP
+.TP
+.PD
+\fBE:\fP\fIlpat\fP\fB=\fP\fItpat\fP
+As \fBl\fP, \fBL\fP, \fBb\fP and \fBB\fP, with the difference that the command
+line and trial completion patterns are anchored on the right side\&.
+Here an empty \fIranchor\fP and the \fBe\fP and \fBE\fP forms force the
+match to the end of the trial completion or command line string\&.
 .PP
 Each \fIlpat\fP, \fItpat\fP or \fIanchor\fP is either an empty string or
 consists of a sequence of literal characters (which may be quoted with a
@@ -943,6 +988,18 @@ specification characters (\fBL\fP and \fBM\fP) guarantees that what has
 already been typed on the command line (in particular the prefix
 \fBno\fP) will not be deleted\&.
 .PP
+Note that the use of \fBL\fP in the first part means that it matches
+only when at the beginning of both the command line string and the
+trial completion\&. I\&.e\&., the string `\fB_NO_f\fP' would not be
+completed to `\fB_NO_foo\fP', nor would `\fBNONO_f\fP' be completed to
+`\fBNONO_foo\fP' because of the leading underscore or the second
+`\fBNO\fP' on the line which makes the pattern fail even though they are 
+otherwise ignored\&. To fix this, one would use `\fBB:[nN][oO]=\fP'
+instead of the first part\&. As described above, this matches at the
+beginning of the trial completion, independent of other characters or
+substrings at the beginning of the command line word which are ignored
+by the same or other \fImatch\-spec\fPs\&.
+.PP
 The second example makes completion case insensitive\&.  This is just
 the same as in the option example, except here we wish to retain the
 characters in the list of completions:
@@ -968,7 +1025,8 @@ complete to strings like `\fBcomp\&.source\&.unix\fP', i\&.e\&. the word on the
 command line consists of multiple parts, separated by a dot in this
 example, where each part should be completed separately \-\-\- note,
 however, that the case where each part of the word, i\&.e\&. `\fBcomp\fP',
-`\fBsource\fP' and `\fBunix\fP' in this example, is to be completed separately
+`\fBsource\fP' and `\fBunix\fP' in this example, is to be completed from
+separate sets of matches
 is a different problem to be solved by the implementation of the
 completion widget\&.  The example can be handled by:
 .PP
@@ -1061,7 +1119,7 @@ When using the completion system (see
 specific contexts by using the \fBmatcher\fP and \fBmatcher\-list\fP
 styles\&. The values for the latter will be used everywhere\&.
 .PP
-.SH "EXAMPLES"
+.SH "COMPLETION WIDGET EXAMPLE"
 .PP
 The first step is to define the widget:
 .PP

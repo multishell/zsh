@@ -342,21 +342,34 @@ zzlex(void)
 	    return EOI;
 	case '[':
 	    {
-		int base, setradix = 0;
-		if (*ptr == '#') {
-		    ptr++;
-		    setradix = 1;
-		}
-		base = zstrtol(ptr, &ptr, 10);
+		int n;
 
-		if (*ptr == ']')
-		    ptr++;
-		if (setradix)
-		    outputradix = base;
-		else {
-		    yyval.u.l = zstrtol(ptr, &ptr, lastbase = base);
+		if (idigit(*ptr)) {
+		    n = zstrtol(ptr, &ptr, 10);
+		    if (*ptr != ']' || !idigit(*++ptr)) {
+			zerr("bad base syntax", NULL, 0);
+			return EOI;
+		    }
+		    yyval.u.l = zstrtol(ptr, &ptr, lastbase = n);
 		    return NUM;
 		}
+		if (*ptr == '#') {
+		    n = 1;
+		    if (*++ptr == '#') {
+			n = -1;
+			ptr++;
+		    }
+		    if (!idigit(*ptr))
+			goto bofs;
+		    outputradix = n * zstrtol(ptr, &ptr, 10);
+		} else {
+		    bofs:
+		    zerr("bad output format specification", NULL, 0);
+		    return EOI;
+		}
+		if(*ptr != ']')
+			goto bofs;
+		ptr++;
 		break;
 	    }
 	case ' ':
@@ -482,10 +495,12 @@ getcvar(char *s)
     mnumber mn;
     mn.type = MN_INTEGER;
 
+    queue_signals();
     if (!(t = getsparam(s)))
 	mn.u.l = 0;
     else
         mn.u.l = STOUC(*t == Meta ? t[1] ^ 32 : *t);
+    unqueue_signals();
     return mn;
 }
 
@@ -502,6 +517,7 @@ setvar(char *s, mnumber v)
     }
     if (noeval)
 	return v;
+    untokenize(s);
     setnparam(s, v);
     return v;
 }
@@ -946,7 +962,9 @@ matheval(char *s)
     char *junk;
     mnumber x;
     int xmtok = mtok;
-    outputradix = 0;
+    /* maintain outputradix across levels of evaluation */
+    if (!mlevel)
+	outputradix = 0;
 
     if (!*s) {
 	x.type = MN_INTEGER;
