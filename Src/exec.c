@@ -77,7 +77,7 @@ long lastval2;
  * by zclose.                                                      */
 
 /**/
-char *fdtable;
+unsigned char *fdtable;
 
 /* The allocated size of fdtable */
 
@@ -228,7 +228,15 @@ zfork(struct timeval *tv)
     }
     if (tv)
 	gettimeofday(tv, &dummy_tz);
+    /*
+     * Queueing signals is necessary on Linux because fork()
+     * manipulates mutexes, leading to deadlock in memory
+     * allocation.  We don't expect fork() to be particularly
+     * zippy anyway.
+     */
+    queue_signals();
     pid = fork();
+    unqueue_signals();
     if (pid == -1) {
 	zerr("fork failed: %e", NULL, errno);
 	return -1;
@@ -375,7 +383,7 @@ zexecve(char *pth, char **argv)
      * then check for an errno equal to ENOEXEC.  This errno is set *
      * if the process file has the appropriate access permission,   *
      * but has an invalid magic number in its header.               */
-    if ((eno = errno) == ENOEXEC) {
+    if ((eno = errno) == ENOEXEC || eno == ENOENT) {
 	char execvebuf[POUNDBANGLIMIT + 1], *ptr, *ptr2, *argv0;
 	int fd, ct, t0;
 
@@ -395,7 +403,17 @@ zexecve(char *pth, char **argv)
 			execvebuf[POUNDBANGLIMIT] = '\0';
 			for (ptr = execvebuf + 2; *ptr && *ptr == ' '; ptr++);
 			for (ptr2 = ptr; *ptr && *ptr != ' '; ptr++);
-			if (*ptr) {
+			if (eno == ENOENT) {
+			    char *buf;
+			    if (*ptr)
+				*ptr = '\0';
+			    /*
+			     * TODO: needs variable argument handling
+			     * in zerrmsg() etc. to do this properly.
+			     */
+			    buf = dyncat(pth, ": bad interpreter: %s: %e");
+			    zerr(buf, ptr2, eno);
+			} else if (*ptr) {
 			    *ptr = '\0';
 			    argv[-2] = ptr2;
 			    argv[-1] = ptr + 1;
@@ -404,11 +422,11 @@ zexecve(char *pth, char **argv)
 			    argv[-1] = ptr2;
 			    execve(ptr2, argv - 1, environ);
 			}
-		    } else {
+		    } else if (eno == ENOEXEC) {
 			argv[-1] = "sh";
 			execve("/bin/sh", argv - 1, environ);
 		    }
-		} else {
+		} else if (eno == ENOEXEC) {
 		    for (t0 = 0; t0 != ct; t0++)
 			if (!execvebuf[t0])
 			    break;
@@ -498,7 +516,11 @@ execute(UNUSED(Cmdnam cmdname), int dash, int defpath)
     }
 
     argv = makecline(args);
-    closem(3);
+    /*
+     * Note that we don't close fd's attached to process substitution
+     * here, which should be visible to external processes.
+     */
+    closem(FDT_XTRACE);
     child_unblock();
     if ((int) strlen(arg0) >= PATH_MAX) {
 	zerr("command too long: %s", arg0, 0);
@@ -1033,10 +1055,10 @@ execpline(Estate state, wordcode slcode, int how, int last1)
     child_block();
 
     /*
-     * Get free entry in job table and initialize it.
-     * This is currently the only call to initjob(), so this
-     * is also the only place where we can expand the job table
-     * under us.
+     * Get free entry in job table and initialize it.  This is currently
+     * the only call to initjob() (apart from a minor exception in
+     * clearjobtab()), so this is also the only place where we can
+     * expand the job table under us.
      */
     if ((thisjob = newjob = initjob()) == -1) {
 	child_unblock();
@@ -1055,7 +1077,7 @@ execpline(Estate state, wordcode slcode, int how, int last1)
 	mpipe(opipe);
 	coprocin = ipipe[0];
 	coprocout = opipe[1];
-	fdtable[coprocin] = fdtable[coprocout] = 0;
+	fdtable[coprocin] = fdtable[coprocout] = FDT_UNUSED;
     }
     /* This used to set list_pipe_pid=0 unconditionally, but in things
      * like `ls|if true; then sleep 20; cat; fi' where the sleep was
@@ -1448,20 +1470,29 @@ closemn(struct multio **mfds, int fd)
 	pid_t pid;
 	struct timeval bgtime;
 
+	/*
+	 * We need to block SIGCHLD in case the process
+	 * we are spawning terminates before the job table
+	 * is set up to handle it.
+	 */
+	child_block();
 	if ((pid = zfork(&bgtime))) {
 	    for (i = 0; i < mn->ct; i++)
 		zclose(mn->fds[i]);
 	    zclose(mn->pipe);
-	    if (pid == -1) { 
+	    if (pid == -1) {
 		mfds[fd] = NULL;
+		child_unblock();
 		return;
 	    }
 	    mn->ct = 1;
 	    mn->fds[0] = fd;
 	    addproc(pid, NULL, 1, &bgtime);
+	    child_unblock();
 	    return;
 	}
 	/* pid == 0 */
+	child_unblock();
 	closeallelse(mn);
 	if (mn->rflag) {
 	    /* tee process */
@@ -1578,7 +1609,7 @@ addfd(int forked, int *save, struct multio **mfds, int fd1, int fd2, int rflag)
 	    mfds[fd1]->fds[mfds[fd1]->ct++] = movefd(fd2);
 	}
     }
-    if (subsh_close >= 0 && !fdtable[subsh_close])
+    if (subsh_close >= 0 && fdtable[subsh_close] == FDT_UNUSED)
 	subsh_close = -1;
 }
 
@@ -1753,7 +1784,7 @@ execcmd(Estate state, int input, int output, int how, int last1)
     int nullexec = 0, assign = 0, forked = 0;
     int is_shfunc = 0, is_builtin = 0, is_exec = 0, use_defpath = 0;
     /* Various flags to the command. */
-    int cflags = 0, checked = 0, oautocont = opts[AUTOCONTINUE];
+    int cflags = 0, checked = 0, oautocont = -1;
     LinkList redir;
     wordcode code;
     Wordcode beg = state->pc, varspc;
@@ -1788,8 +1819,10 @@ execcmd(Estate state, int input, int output, int how, int last1)
      * reference to a job in the job table.                */
     if (type == WC_SIMPLE && args && nonempty(args) &&
 	*(char *)peekfirst(args) == '%') {
-        if (how & Z_DISOWN)
+        if (how & Z_DISOWN) {
+	    oautocont = opts[AUTOCONTINUE];
             opts[AUTOCONTINUE] = 1;
+	}
 	pushnode(args, dupstring((how & Z_DISOWN)
 				 ? "disown" : (how & Z_ASYNC) ? "bg" : "fg"));
 	how = Z_SYNC;
@@ -1930,7 +1963,7 @@ execcmd(Estate state, int input, int output, int how, int last1)
 		    lastval = 0;
 		    return;
 		} else {
-		    cmdoutval = 0;
+		    cmdoutval = lastval;
 		    if (varspc)
 			addvars(state, varspc, 0);
 		    if (errflag)
@@ -1975,7 +2008,8 @@ execcmd(Estate state, int input, int output, int how, int last1)
 		if (cflags & BINF_BUILTIN) {
 		    zwarn("no such builtin: %s", cmdarg, 0);
 		    lastval = 1;
-                    opts[AUTOCONTINUE] = oautocont;
+		    if (oautocont >= 0)
+			opts[AUTOCONTINUE] = oautocont;
 		    return;
 		}
 		break;
@@ -1999,7 +2033,8 @@ execcmd(Estate state, int input, int output, int how, int last1)
 
     if (errflag) {
 	lastval = 1;
-        opts[AUTOCONTINUE] = oautocont;
+	if (oautocont >= 0)
+	    opts[AUTOCONTINUE] = oautocont;
 	return;
     }
 
@@ -2043,7 +2078,8 @@ execcmd(Estate state, int input, int output, int how, int last1)
 
     if (errflag) {
 	lastval = 1;
-        opts[AUTOCONTINUE] = oautocont;
+	if (oautocont >= 0)
+	    opts[AUTOCONTINUE] = oautocont;
 	return;
     }
 
@@ -2127,14 +2163,15 @@ execcmd(Estate state, int input, int output, int how, int last1)
 	if ((pid = zfork(&bgtime)) == -1) {
 	    close(synch[0]);
 	    close(synch[1]);
-            opts[AUTOCONTINUE] = oautocont;
+	    if (oautocont >= 0)
+		opts[AUTOCONTINUE] = oautocont;
 	    return;
 	} if (pid) {
 	    close(synch[1]);
 	    read(synch[0], &dummy, 1);
 	    close(synch[0]);
 #ifdef PATH_DEV_FD
-	    closem(2);
+	    closem(FDT_PROC_SUBST);
 #endif
 	    if (how & Z_ASYNC) {
 		lastpid = (zlong) pid;
@@ -2153,7 +2190,8 @@ execcmd(Estate state, int input, int output, int how, int last1)
 		}
 	    }
 	    addproc(pid, text, 0, &bgtime);
-            opts[AUTOCONTINUE] = oautocont;
+	    if (oautocont >= 0)
+		opts[AUTOCONTINUE] = oautocont;
 	    return;
 	}
 	/* pid == 0 */
@@ -2198,7 +2236,7 @@ execcmd(Estate state, int input, int output, int how, int last1)
 	if (!(xtrerr = fdopen(movefd(dup(fileno(stderr))), "w")))
 	    xtrerr = stderr;
 	else
-	    fdtable[fileno(xtrerr)] = 3;
+	    fdtable[fileno(xtrerr)] = FDT_XTRACE;
     }
 
     /* Add pipeline input/output to mnodes */
@@ -2288,7 +2326,7 @@ execcmd(Estate state, int input, int output, int how, int last1)
 		if (fn->fd2 < 10)
 		    closemn(mfds, fn->fd2);
 		if (fn->fd2 > 9 &&
-		    (fdtable[fn->fd2] ||
+		    (fdtable[fn->fd2] != FDT_UNUSED ||
 		     fn->fd2 == coprocin ||
 		     fn->fd2 == coprocout)) {
 		    fil = -1;
@@ -2416,7 +2454,7 @@ execcmd(Estate state, int input, int output, int how, int last1)
 		int i;
 
 		for (i = 10; i <= max_zsh_fd; i++)
-		    if (fdtable[i] > 1)
+		    if (fdtable[i] >= FDT_PROC_SUBST)
 			fdtable[i]++;
 #endif
 		if (subsh_close >= 0)
@@ -2426,17 +2464,17 @@ execcmd(Estate state, int input, int output, int how, int last1)
 		execshfunc((Shfunc) hn, args);
 #ifdef PATH_DEV_FD
 		for (i = 10; i <= max_zsh_fd; i++)
-		    if (fdtable[i] > 1)
-			if (--(fdtable[i]) <= 2)
+		    if (fdtable[i] >= FDT_PROC_SUBST)
+			if (--(fdtable[i]) <= FDT_PROC_SUBST)
 			    zclose(i);
 #endif
 	    } else {
 		/* It's a builtin */
 		if (forked)
-		    closem(1);
+		    closem(FDT_INTERNAL);
 		lastval = execbuiltin(args, (Builtin) hn);
 #ifdef PATH_DEV_FD
-		closem(2);
+		closem(FDT_PROC_SUBST);
 #endif
 		fflush(stdout);
 		if (save[1] == -2) {
@@ -2480,7 +2518,7 @@ execcmd(Estate state, int input, int output, int how, int last1)
 		    if (errflag)
 			_exit(1);
 		}
-		closem(1);
+		closem(FDT_INTERNAL);
 		if (coprocin)
 		    zclose(coprocin);
 		if (coprocout)
@@ -2512,8 +2550,39 @@ execcmd(Estate state, int input, int output, int how, int last1)
     }
 
   err:
-    if (forked)
+    if (forked) {
+	/*
+	 * So what's going on here then?  Well, I'm glad you asked.
+	 *
+	 * If we create multios for use in a subshell we do
+	 * this after forking, in this function above.  That
+	 * means that the current (sub)process is responsible
+	 * for clearing them up.  However, the processes won't
+	 * go away until we have closed the fd's talking to them.
+	 * Since we're about to exit the shell there's nothing
+	 * to stop us closing all fd's (including the ones 0 to 9
+	 * that we usually leave alone).
+	 *
+	 * Then we wait for any processes.  When we forked,
+	 * we cleared the jobtable and started a new job just for
+	 * any oddments like this, so if there aren't any we won't
+	 * need to wait.  The result of not waiting is that
+	 * the multios haven't flushed the fd's properly, leading
+	 * to obscure missing data.
+	 *
+	 * It would probably be cleaner to ensure that the
+	 * parent shell handled multios, but that requires
+	 * some architectural changes which are likely to be
+	 * hairy.
+	 */
+	for (i = 0; i < 10; i++)
+	    if (fdtable[i] != FDT_UNUSED)
+		close(i);
+	closem(FDT_UNUSED);
+	if (thisjob != -1)
+	    waitjobs();
 	_exit(lastval);
+    }
     fixfds(save);
 
  done:
@@ -2526,7 +2595,8 @@ execcmd(Estate state, int input, int output, int how, int last1)
 
     zsfree(STTYval);
     STTYval = 0;
-    opts[AUTOCONTINUE] = oautocont;
+    if (oautocont >= 0)
+	opts[AUTOCONTINUE] = oautocont;
 }
 
 /* Arrange to have variables restored. */
@@ -2713,7 +2783,12 @@ entersubsh(int how, int cl, int fake, int revertpgrp)
     forklevel = locallevel;
 }
 
-/* close internal shell fds */
+/*
+ * Close internal shell fds.
+ *
+ * Close any that are marked as used if "how" is FDT_UNUSED, else
+ * close any with the value "how".
+ */
 
 /**/
 mod_export void
@@ -2722,7 +2797,8 @@ closem(int how)
     int i;
 
     for (i = 10; i <= max_zsh_fd; i++)
-	if (fdtable[i] && (!how || fdtable[i] == how))
+	if (fdtable[i] != FDT_UNUSED &&
+	    (how == FDT_UNUSED || fdtable[i] == how))
 	    zclose(i);
 }
 
@@ -2867,8 +2943,8 @@ getoutput(char *cmd, int qt)
 
 	zclose(pipes[1]);
 	retval = readoutput(pipes[0], qt);
-	fdtable[pipes[0]] = 0;
-	waitforpid(pid);		/* unblocks */
+	fdtable[pipes[0]] = FDT_UNUSED;
+	waitforpid(pid, 0);		/* unblocks */
 	lastval = cmdoutval;
 	return retval;
     }
@@ -2997,7 +3073,7 @@ getoutputfile(char *cmd)
 
 	close(fd);
 	os = jobtab[thisjob].stat;
-	waitforpid(pid);
+	waitforpid(pid, 0);
 	cmdoutval = 0;
 	jobtab[thisjob].stat = os;
 	return nam;
@@ -3071,7 +3147,7 @@ getproc(char *cmd)
 	    addproc(pid, NULL, 1, &bgtime);
 	return pnam;
     }
-    closem(0);
+    closem(FDT_UNUSED);
     fd = open(pnam, out ? O_WRONLY | O_NOCTTY : O_RDONLY | O_NOCTTY);
     if (fd == -1) {
 	zerr("can't open %s: %e", pnam, errno);
@@ -3096,7 +3172,7 @@ getproc(char *cmd)
 	    zclose(pipes[!out]);
 	    return NULL;
 	}
-	fdtable[pipes[!out]] = 2;
+	fdtable[pipes[!out]] = FDT_PROC_SUBST;
 	if (!out)
 	{
 	    addproc(pid, NULL, 1, &bgtime);
@@ -3105,7 +3181,7 @@ getproc(char *cmd)
     }
     entersubsh(Z_ASYNC, 1, 0, 0);
     redup(pipes[out], out);
-    closem(0);   /* this closes pipes[!out] as well */
+    closem(FDT_UNUSED);   /* this closes pipes[!out] as well */
 #endif /* PATH_DEV_FD */
 
     cmdpush(CS_CMDSUBST);
@@ -3149,7 +3225,7 @@ getpipe(char *cmd, int nullexec)
     }
     entersubsh(Z_ASYNC, 1, 0, 0);
     redup(pipes[out], out);
-    closem(0);	/* this closes pipes[!out] as well */
+    closem(FDT_UNUSED);	/* this closes pipes[!out] as well */
     cmdpush(CS_CMDSUBST);
     execode(prog, 0, 1);
     cmdpop();
@@ -3256,7 +3332,10 @@ execarith(Estate state, UNUSED(int do_exec))
 	fprintf(xtrerr, " ))\n");
 	fflush(xtrerr);
     }
-    errflag = 0;
+    if (errflag) {
+	errflag = 0;
+	return 2;
+    }
     /* should test for fabs(val.u.d) < epsilon? */
     return (val.type == MN_INTEGER) ? val.u.l == 0 : val.u.d == 0.0;
 }
@@ -3590,6 +3669,8 @@ doshfunc(char *name, Eprog prog, LinkList doshargs, int flags, int noreturnval)
     }
 #endif
     fstack.name = dupstring(name);
+    fstack.caller = dupstring(oargv0 ? oargv0 : argzero);
+    fstack.lineno = lineno;
     fstack.prev = funcstack;
     funcstack = &fstack;
 
@@ -3657,7 +3738,7 @@ doshfunc(char *name, Eprog prog, LinkList doshargs, int flags, int noreturnval)
     popheap();
 
     if (exit_pending) {
-	if (locallevel) {
+	if (locallevel > forklevel) {
 	    /* Still functions to return: force them to do so. */
 	    retflag = 1;
 	    breaks = loops;

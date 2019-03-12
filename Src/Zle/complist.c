@@ -1563,6 +1563,8 @@ singledraw()
     g = mgtab[ml1 * columns + mc1];
     clprintm(g, mtab[ml1 * columns + mc1], mcc1, ml1, lc1,
              (g->widths ? g->widths[mcc1] : g->width));
+    if (mlprinted)
+	(void) tcmultout(TCUP, TCMULTUP, mlprinted);
     putc('\r', shout);
 
     if (md2 != md1)
@@ -1572,6 +1574,8 @@ singledraw()
     g = mgtab[ml2 * columns + mc2];
     clprintm(g, mtab[ml2 * columns + mc2], mcc2, ml2, lc2,
              (g->widths ? g->widths[mcc2] : g->width));
+    if (mlprinted)
+	(void) tcmultout(TCUP, TCMULTUP, mlprinted);
     putc('\r', shout);
 
     if (mstatprinted) {
@@ -1845,6 +1849,9 @@ msearchpop(int *backp)
 {
     Menusearch s = msearchstack;
 
+    if (!s)
+        return NULL;
+
     if (s->prev)
         msearchstack = s->prev;
 
@@ -2041,9 +2048,15 @@ domenuselect(Hookdef dummy, Chdata dat)
 	    if (y < mlines)
 		mline = y;
 	}
+	DPUTS(mline < 0,
+	      "BUG: mline < 0 after re-scanning mtab in domenuselect()");
 	while (mline < mlbeg)
-	    if ((mlbeg -= step) < 0)
+	    if ((mlbeg -= step) < 0) {
 		mlbeg = 0;
+		/* Crude workaround for BUG above */
+		if (mline < 0)
+		    break;
+	    }
 
 	if (mlbeg && lbeg != mlbeg) {
 	    Cmatch **p = mtab + ((mlbeg - 1) * columns), **q;
@@ -2828,7 +2841,7 @@ domenuselect(Hookdef dummy, Chdata dat)
 
         } else if ((mode == MM_FSEARCH || mode == MM_BSEARCH) &&
                    cmd == Th(z_backwarddeletechar)) {
-            int back;
+            int back = 1;
             Cmatch **np = msearchpop(&back);
 
             mode = (back ? MM_BSEARCH : MM_FSEARCH);

@@ -33,7 +33,7 @@
 /* tokens */
 
 /**/
-mod_export char ztokens[] = "#$^*()$=|{}[]`<>?~`,'\"\\";
+mod_export char ztokens[] = "#$^*()$=|{}[]`<>?~`,'\"\\\\";
 
 /* parts of the current token */
 
@@ -66,7 +66,12 @@ int isfirstch;
 /**/
 int inalmore;
 
-/* don't do spelling correction */
+/*
+ * Don't do spelling correction.
+ * Bit 1 is only valid for the current word.  It's
+ * set when we detect a lookahead that stops the word from
+ * needing correction.
+ */
  
 /**/
 int nocorrect;
@@ -158,6 +163,7 @@ mod_export char *tokstrings[WHILE + 1] = {
     "))",	/* DOUTPAR	     */
     "&|",	/* AMPERBANG	  30 */
     ";&",	/* SEMIAMP	     */
+    ";|",	/* SEMIBAR	     */
 };
 
 /* lexical state */
@@ -346,6 +352,7 @@ yylex(void)
     do
 	tok = gettok();
     while (tok != ENDINPUT && exalias());
+    nocorrect &= 1;
     if (tok == NEWLIN || tok == ENDINPUT) {
 	while (hdocs) {
 	    struct heredocs *next = hdocs->next;
@@ -384,6 +391,7 @@ ctxtlex(void)
     case SEMI:
     case DSEMI:
     case SEMIAMP:
+    case SEMIBAR:
     case AMPER:
     case AMPERBANG:
     case INPAR:
@@ -620,7 +628,7 @@ isnumglob(void)
 }
 
 /**/
-int
+static int
 gettok(void)
 {
     int c, d;
@@ -716,6 +724,8 @@ gettok(void)
 	    return DSEMI;
 	else if(d == '&')
 	    return SEMIAMP;
+	else if (d == '|')
+	    return SEMIBAR;
 	hungetc(d);
 	lexstop = 0;
 	return SEMI;
@@ -1025,8 +1035,16 @@ gettokstr(int c, int sub)
 		     *   pws 1999/6/14
 		     */
 		    if (e == ')' || (isset(SHGLOB) && inblank(e) && !bct &&
-				     !brct && !intpos && incmdpos))
+				     !brct && !intpos && incmdpos)) {
+			/*
+			 * Either a () token, or a command word with
+			 * something suspiciously like a ksh function
+			 * definition.
+			 * The current word isn't spellcheckable.
+			 */
+			nocorrect |= 2;
 			goto brk;
+		    }
 		}
 		/*
 		 * This also handles the [k]sh `foo( )' function definition.
@@ -1536,9 +1554,13 @@ parse_subst_string(char *s)
 	return 1;
     }
 #ifdef DEBUG
-    if (c != STRING || olen != l || errflag) {
+    /*
+     * Historical note: we used to check here for olen == l, but
+     * that's not necessarily the case if we stripped an RCQUOTE.
+     */
+    if (c != STRING || errflag) {
 	fprintf(stderr, "Oops. Bug in parse_subst_string: %s\n",
-		olen < l ? "len < l" : errflag ? "errflag" : "c != STRING");
+		errflag ? "errflag" : "c != STRING");
 	fflush(stderr);
 	untokenize(s);
 	return 1;

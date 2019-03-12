@@ -26,7 +26,7 @@ dnl  support, updates, enhancements, or modifications.
 dnl
 
 AC_INIT(Src/zsh.h)
-AC_PREREQ(2.50)
+AC_PREREQ(2.53b)
 AC_CONFIG_HEADER(config.h)
 
 dnl What version of zsh are we building ?
@@ -489,7 +489,10 @@ AC_PROG_MAKE_SET            dnl Does make define $MAKE
 AC_PROG_INSTALL             dnl Check for BSD compatible `install'
 AC_PROG_AWK                 dnl Check for mawk,gawk,nawk, then awk.
 AC_PROG_LN                  dnl Check for working ln, for "make install"
+AC_PROG_EGREP               dnl sets $EGREP to grep -E or egrep
 AC_CHECK_PROGS([YODL], [yodl], [: yodl])
+AC_CHECK_PROGS([PDFETEX], [pdfetex], [: pdfetex])
+AC_CHECK_PROGS([TEXI2PDF], [texi2pdf], [])
 AC_CHECK_PROGS([ANSI2KNR], [ansi2knr], [: ansi2knr])
 
 if test x"$ansi2knr" = xyes && test x"$ANSI2KNR" = x": ansi2knr"; then
@@ -550,18 +553,15 @@ if test $ac_cv_header_sys_time_h = yes && test $ac_cv_header_sys_select_h = yes;
   fi
 fi
 
-AC_CACHE_CHECK(POSIX termios, zsh_cv_sys_posix_termios,
-[AC_TRY_LINK([#include <sys/types.h>
-#include <unistd.h>
-#include <termios.h>],
-[/* SunOS 4.0.3 has termios.h but not the library calls.  */
-tcgetattr(0, 0);],
-  zsh_cv_sys_posix_termios=yes, zsh_cv_sys_posix_termios=no)])
-
-if test $zsh_cv_sys_posix_termios = yes; then
+AH_TEMPLATE([GWINSZ_IN_SYS_IOCTL],
+[Define if TIOCGWINSZ is defined in sys/ioctl.h but not in termios.h.])
+if test $ac_cv_header_termios_h = yes; then
   AC_CACHE_CHECK(TIOCGWINSZ in termios.h,
   zsh_cv_header_termios_h_tiocgwinsz,
-  [AC_TRY_LINK([#include <sys/types.h>
+  [AC_TRY_LINK([
+#ifdef HAVE_SYS_TYPES_H
+# include <sys/types.h>
+#endif
 #include <termios.h>],
   [int x = TIOCGWINSZ;],
   zsh_cv_header_termios_h_tiocgwinsz=yes,
@@ -569,13 +569,13 @@ if test $zsh_cv_sys_posix_termios = yes; then
 else
   zsh_cv_header_termios_h_tiocgwinsz=no
 fi
- 
-AH_TEMPLATE([GWINSZ_IN_SYS_IOCTL],
-[Define if your system defines TIOCGWINSZ in sys/ioctl.h.])
 if test $zsh_cv_header_termios_h_tiocgwinsz = no; then
   AC_CACHE_CHECK(TIOCGWINSZ in sys/ioctl.h,
   zsh_cv_header_sys_ioctl_h_tiocgwinsz,
-  [AC_TRY_LINK([#include <sys/types.h>
+  [AC_TRY_LINK([
+#ifdef HAVE_SYS_TYPES_H
+# include <sys/types.h>
+#endif
 #include <sys/ioctl.h>],
   [int x = TIOCGWINSZ;],
   zsh_cv_header_sys_ioctl_h_tiocgwinsz=yes,
@@ -612,20 +612,24 @@ AC_CHECK_LIB(c, printf, [LIBS="$LIBS -lc"])
 AC_CHECK_LIB(m, pow)
 
 dnl Prefer BSD termcap library to SysV curses library, except on certain
-dnl SYSV-derived systems.
+dnl SYSV-derived systems.  However, if we find terminfo and termcap
+dnl stuff in the same library we will use that; typically this
+dnl is ncurses or curses.
 dnl On HPUX, Hcurses is reported to work better than curses.
+dnl Prefer ncurses to curses on all systems; prefer it to tinfo
+dnl if we were told to use curses.  tinfo isn't very common now.
 AC_ARG_WITH(curses-terminfo,
 [  --with-curses-terminfo     use terminfo support from curses library],
 [if test x$withval = xyes; then
-  termcap_curses_order="tinfo curses ncurses termcap"
+  termcap_curses_order="ncurses tinfo curses termcap"
   AC_SEARCH_LIBS(tigetstr, [$termcap_curses_order])
 else
-  termcap_curses_order="tinfo termcap curses ncurses"
+  termcap_curses_order="tinfo termcap ncurses curses"
 fi],
 [case "$host_os" in
   hpux10.*|hpux11.*|solaris*)
-      termcap_curses_order="Hcurses curses ncurses termcap" ;;
-  *)             termcap_curses_order="tinfo termcap curses ncurses" ;;
+      termcap_curses_order="Hcurses ncurses curses termcap" ;;
+  *)             termcap_curses_order="tinfo termcap ncurses curses" ;;
 esac])dnl
 
 AH_TEMPLATE([HAVE_BOOLCODES],
@@ -642,8 +646,13 @@ AH_TEMPLATE([HAVE_STRNAMES],
 [Define if you have the terminfo strnames symbol.])
 AH_TEMPLATE([TERM_H_NEEDS_CURSES_H],
 [Define if term.h chokes without curses.h.])
-AC_SEARCH_LIBS(tgetent, [$termcap_curses_order])
+dnl Check for tigetflag (terminfo) before tgetent (termcap).
+dnl That's so that on systems where termcap and [n]curses are
+dnl both available and both contain termcap functions, while
+dnl only [n]curses contains terminfo functions, we only link against
+dnl [n]curses.
 AC_SEARCH_LIBS(tigetflag, [$termcap_curses_order])
+AC_SEARCH_LIBS(tgetent, [$termcap_curses_order])
 AC_CHECK_HEADERS(curses.h, [],
 [AC_CACHE_CHECK(for Solaris 8 curses.h mistake, ac_cv_header_curses_solaris,
 AC_TRY_COMPILE([#include <curses.h>], [],
@@ -707,10 +716,18 @@ AC_DEFINE(HAVE_STRNAMES) strnames=yes, strnames=no)
 AC_MSG_RESULT($strnames)
 ])
 
-dnl Some systems (Solaris 2.x, Linux Redhat 5.x) require
-dnl libnsl (Network Services Library) to find yp_all
 
-AC_SEARCH_LIBS(yp_all, nsl)
+dnl If our terminal library is not ncurses, don't try including
+dnl any ncurses headers.
+AH_TEMPLATE([ZSH_IGNORE_NCURSES],
+[Define to 1 to ignore any ncurses library headers found on the system.])
+case $LIBS in
+  *-lncurses*) ;;
+  *)
+  AC_DEFINE(ZSH_IGNORE_NCURSES) ;;
+esac
+
+AC_SEARCH_LIBS(getpwnam, nsl)
 
 dnl I am told that told that unicos reqire these for nis_list
 if test `echo $host_os | sed 's/^\(unicos\).*/\1/'` = unicos; then
@@ -742,6 +759,11 @@ if test "x$ac_cv_header_iconv_h" = "xyes"; then
     if test "x$ac_found_iconv" != "xno"; then
       LIBS="-liconv $LIBS"
     fi
+  else
+    dnl Handle case where there is a native iconv but iconv.h is from libiconv
+    AC_CHECK_DECL(_libiconv_version,
+      [ AC_CHECK_LIB(iconv, libiconv, LIBS="-liconv $LIBS") ],,
+      [ #include <iconv.h> ])
   fi
 fi
 if test "x$ac_found_iconv" = xyes; then
@@ -1233,7 +1255,7 @@ sigfile_list="`$CPP nametmp.c |
 sed -n -e 's/^#line[ 	].*\"\(.*\)\"/\1/p' \
        -e 's/^#[ 	].*\"\(.*\)\"/\1/p' |
 sed 's/\\\\\\\\/\//g' |
-$AWK '{ if (\$1 ~ \"sig\") files[[\$1]] = \$1 }
+$AWK '{ if ($1 ~ /sig/) files[[$1]] = $1 }
   END { for (var in files) print var }'`"
 rm -f nametmp.c
 if test -z "$sigfile_list"; then
@@ -1281,7 +1303,7 @@ errfile_list="`$CPP nametmp.c |
 sed -n -e 's/^#line[ 	].*\"\(.*\)\"/\1/p' \
        -e 's/^#[ 	0-9].*\"\(.*\)\"/\1/p' |
 sed 's/\\\\\\\\/\//g' |
-$AWK '{ if (\$1 ~ \"err\") files[[\$1]] = \$1 }
+$AWK '{ if ($1 ~ /err/) files[[$1]] = $1 }
   END { for (var in files) print var }'`"
 rm -f nametmp.c
 for ERRNO_H in $errfile_list /dev/null
@@ -1289,7 +1311,7 @@ do
   dnl Try to make sure it doesn't get confused by files that don't
   dnl have real error definitions in.  Count definitions to make sure.
   nerrs=`test -f $ERRNO_H && \
-  grep '#[ 	]*define[ 	][ 	]*E[0-9A-Z]*[ 	]*[0-9][0-9]*' $ERRNO_H | \
+  $EGREP '#[ 	]*define[ 	][ 	]*E[0-9A-Z]*[ 	]*(_HURD_ERRNO \()?[0-9]+\)?' $ERRNO_H | \
   wc -l | sed 's/[ 	]//g'`
   test "x$nerrs" != x && test "$nerrs" -ge 7 && break
 done
@@ -1313,7 +1335,7 @@ resourcefile_list="`$CPP restmp.c |
 sed -n -e 's/^#line[ 	].*\"\(.*\)\"/\1/p' \
        -e 's/^#[ 	].*\"\(.*\)\"/\1/p' |
 sed 's/\\\\\\\\/\//g' |
-$AWK '{ if (\$1 ~ \"resource\") files[[\$1]] = \$1 }
+$AWK '{ if ($1 ~ /resource/) files[[$1]] = $1 }
   END { for (var in files) print var }'`"
 rm -f restmp.c
 if test -z "$resourcefile_list"; then
@@ -1446,6 +1468,8 @@ zsh_LIMIT_PRESENT(RLIMIT_TCACHE)
 zsh_LIMIT_PRESENT(RLIMIT_VMEM)
 zsh_LIMIT_PRESENT(RLIMIT_SIGPENDING)
 zsh_LIMIT_PRESENT(RLIMIT_MSGQUEUE)
+zsh_LIMIT_PRESENT(RLIMIT_NICE)
+zsh_LIMIT_PRESENT(RLIMIT_RTPRIO)
 
 AH_TEMPLATE([RLIMIT_VMEM_IS_RSS],
 [Define to 1 if RLIMIT_VMEM and RLIMIT_RSS both exist and are equal.])
@@ -1572,11 +1596,16 @@ AC_DEFINE_UNQUOTED(DEFAULT_PATH, "$zsh_cv_cs_path",
 dnl ----------------------------
 dnl CHECK FOR /dev/fd FILESYSTEM
 dnl ----------------------------
+dnl FreeBSD 5 only supports /dev/fd/0 to /dev/fd/2 without mounting
+dnl a special file system.  As zsh needs arbitrary /dev/fd (typically
+dnl >10) for its own use, we need to make sure higher fd's are available.
+dnl Since we're using the shell, we're restricted to 0 to 9 but 3 should
+dnl be good enough.
 AH_TEMPLATE([PATH_DEV_FD],
 [Define to the path of the /dev/fd filesystem.])
 AC_CACHE_CHECK(for /dev/fd filesystem, zsh_cv_sys_path_dev_fd,
 [for zsh_cv_sys_path_dev_fd in /proc/self/fd /dev/fd no; do
-   test x`echo ok|cat $zsh_cv_sys_path_dev_fd/0 2>/dev/null` = xok && break
+   test x`echo ok|(exec 3<&0; cat $zsh_cv_sys_path_dev_fd/3 2>/dev/null;)` = xok && break
  done])
 if test $zsh_cv_sys_path_dev_fd != no; then
   AC_DEFINE_UNQUOTED(PATH_DEV_FD, "$zsh_cv_sys_path_dev_fd")
@@ -1616,6 +1645,9 @@ AC_CACHE_CHECK(for NIS, zsh_cv_sys_nis,
 zsh_cv_sys_nis=yes || zsh_cv_sys_nis=no])
 if test $zsh_cv_sys_nis = yes; then
   AC_DEFINE(HAVE_NIS)
+dnl Some systems (Solaris 2.x, Linux Redhat 5.x) require
+dnl libnsl (Network Services Library) to find yp_all
+  AC_SEARCH_LIBS(yp_all, nsl)
 fi
 
 dnl -----------------
@@ -1664,24 +1696,12 @@ if test $zsh_cv_header_unistd_h_sbrk_proto = yes; then
   AC_DEFINE(HAVE_SBRK_PROTO)
 fi
 
-dnl ----------------------------------
-dnl ioctl and mknod prototypes for OSF
-dnl ----------------------------------
-
-AH_TEMPLATE([HAVE_IOCTL_PROTO],
-[Define to 1 if there is a prototype defined for ioctl() on your system])
+dnl -----------------------
+dnl mknod prototype for OSF
+dnl -----------------------
 AH_TEMPLATE([HAVE_MKNOD_PROTO],
-[Define to 1 if there is a prototype defined for mknod() on your system])
+[Define to 1 if there is a prototype defined for mknod() on your system.])
 if test "$ac_cv_prog_cc_stdc" != no; then
-  AC_CACHE_CHECK(for ioctl prototype in <sys/ioctl.h>,
-  zsh_cv_header_sys_ioctl_h_ioctl_proto,
-  [AC_TRY_COMPILE([#include <sys/ioctl.h>
-   int ioctl(double x);], [int i;],
-  zsh_cv_header_sys_ioctl_h_ioctl_proto=no,
-  zsh_cv_header_sys_ioctl_h_ioctl_proto=yes)])
-  if test $zsh_cv_header_sys_ioctl_h_ioctl_proto = yes; then
-    AC_DEFINE(HAVE_IOCTL_PROTO)
-  fi
   AC_CACHE_CHECK(for mknod prototype in <sys/stat.h>,
   zsh_cv_header_sys_stat_h_mknod_proto,
   [AC_TRY_COMPILE([#include <sys/stat.h>
@@ -1691,6 +1711,45 @@ if test "$ac_cv_prog_cc_stdc" != no; then
   if test $zsh_cv_header_sys_stat_h_mknod_proto = yes; then
     AC_DEFINE(HAVE_MKNOD_PROTO)
   fi
+fi
+
+dnl ----------------------------------------
+dnl presence and location of ioctl prototype
+dnl ----------------------------------------
+AC_CACHE_CHECK(for ioctl prototype in <unistd.h> or <termios.h>,
+zsh_cv_header_unistd_h_termios_h_ioctl_proto,
+[AC_TRY_COMPILE([
+#ifdef HAVE_UNISTD_H
+# include <unistd.h>
+#endif
+#ifdef HAVE_TERMIOS_H
+# include <termios.h>
+#endif
+double ioctl();], [int i;],
+zsh_cv_header_unistd_h_termios_h_ioctl_proto=no,
+zsh_cv_header_unistd_h_termios_h_ioctl_proto=yes)])
+
+if test $zsh_cv_header_unistd_h_termios_h_ioctl_proto = no; then
+  AC_CACHE_CHECK(for ioctl prototype in <sys/ioctl.h>,
+  zsh_cv_header_sys_ioctl_h_ioctl_proto,
+  [AC_TRY_COMPILE([#include <sys/ioctl.h>
+  double ioctl();], [int i;],
+  zsh_cv_header_sys_ioctl_h_ioctl_proto=no,
+  zsh_cv_header_sys_ioctl_h_ioctl_proto=yes)])
+else
+  zsh_cv_header_sys_ioctl_h_ioctl_proto=no
+fi
+
+AH_TEMPLATE([HAVE_IOCTL_PROTO],
+[Define to 1 if there is a prototype defined for ioctl() on your system.])
+if test $zsh_cv_header_unistd_h_termios_h_ioctl_proto = yes || \
+   test $zsh_cv_header_sys_ioctl_h_ioctl_proto = yes; then
+  AC_DEFINE(HAVE_IOCTL_PROTO)
+fi
+AH_TEMPLATE([IOCTL_IN_SYS_IOCTL],
+[Define to 1 if we must include <sys/ioctl.h> to get a prototype for ioctl().])
+if test $zsh_cv_header_sys_ioctl_h_ioctl_proto = yes; then
+  AC_DEFINE(IOCTL_IN_SYS_IOCTL)
 fi
 
 dnl -------------------
@@ -2119,6 +2178,10 @@ char *argv[];
   zsh_cv_sys_elf=yes,
   zsh_cv_sys_elf=no,
   zsh_cv_sys_elf=yes)])
+
+  # We use [0-9]* in case statements, so need to change quoting
+  changequote(, )
+
   DL_EXT="${DL_EXT=so}"
   if test $zsh_cv_sys_elf = yes; then
     case "$host" in
@@ -2172,7 +2235,7 @@ char *argv[];
     esac
   fi
   case "$host_os" in
-    freebsd*|linux*|irix*|osf*|gnu*|dragonfly*) DLLDFLAGS="${DLLDFLAGS=-shared}" ;;
+    *freebsd*|linux*|irix*|osf*|gnu*|dragonfly*) DLLDFLAGS="${DLLDFLAGS=-shared}" ;;
     sunos*)       DLLDFLAGS="${DLLDFLAGS=-assert nodefinitions}" ;;
     sysv4*|esix*) DLLDFLAGS="${DLLDFLAGS=-G $ldflags}" ;;
     netbsd*)      DLLDFLAGS="${DLLDFLAGS=${DLLDARG}-x -shared --whole-archive}" ;;
@@ -2196,7 +2259,6 @@ char *argv[];
   esac
   case "$host" in
     *-hpux*)  EXTRA_LDFLAGS="${EXTRA_LDFLAGS=-Wl,-E}" ;;
-    *-freebsd[3-9]*|*-linux*|gnu*) EXTRA_LDFLAGS="${EXTRA_LDFLAGS=-rdynamic}" ;;
     *openbsd*)
        if test $zsh_cv_sys_elf = yes; then
 	 EXTRA_LDFLAGS="${EXTRA_LDFLAGS=-Wl,-E}"
@@ -2222,6 +2284,17 @@ char *argv[];
       esac
     ;;
   esac
+
+  # Done with our shell code, so restore autotools quoting
+  changequote([, ])
+
+AC_CACHE_CHECK(if we can use -rdynamic, zsh_cv_rdynamic_available,
+old_LDFLAGS="$LDFLAGS"
+LDFLAGS="$LDFLAGS -rdynamic"
+AC_TRY_LINK([], [], [zsh_cv_rdynamic_available=yes
+EXTRA_LDFLAGS="${EXTRA_LDFLAGS=-rdynamic}"],
+[zsh_cvs_rdynamic_available=no])
+LDFLAGS="$old_LDFLAGS")
   AC_CACHE_CHECK(if your dlsym() needs a leading underscore,
    zsh_cv_func_dlsym_needs_underscore,
    [echo failed >conftestval && cat >conftest.c <<EOM

@@ -337,22 +337,26 @@ static void
 add_match_part(Cmatcher m, char *l, char *w, int wl,
 	       char *o, int ol, char *s, int sl, int osl, int sfx)
 {
-    Cline p, lp;
+    Cline p, lp, lprem;
 
     /* If the anchors are equal, we keep only one. */
 
     if (l && !strncmp(l, w, wl))
 	l = NULL;
 
-    /* Split the new part into parts and turn the last one into a
-     * `suffix' if we have a left anchor. */
+    /*
+     * Split the new part into parts and turn the last one into a
+     * `suffix' if we have a left anchor---don't do this if the last one
+     * came from a right anchor before the end of the part we're
+     * splitting.
+     */
 
-    p = bld_parts(s, sl, osl, &lp);
+    p = bld_parts(s, sl, osl, &lp, &lprem);
 
-    if (m && (m->flags & CMF_LEFT)) {
-	lp->flags |= CLF_SUF;
-	lp->suffix = lp->prefix;
-	lp->prefix = NULL;
+    if (lprem && m && (m->flags & CMF_LEFT)) {
+	lprem->flags |= CLF_SUF;
+	lprem->suffix = lprem->prefix;
+	lprem->prefix = NULL;
     }
     /* cline lists for suffixes are sorted from back to front, so we have
      * to revert the list we got. */
@@ -418,7 +422,7 @@ add_match_sub(Cmatcher m, char *l, int ll, char *w, int wl)
     if (wl || ll) {
 	Cline p, lp;
 
-	if ((p = n = bld_parts(w, wl, ll, &lp)) && n != lp) {
+	if ((p = n = bld_parts(w, wl, ll, &lp, NULL)) && n != lp) {
 	    for (; p->next != lp; p = p->next);
 
 	    if (matchsubs) {
@@ -969,7 +973,8 @@ match_parts(char *l, char *w, int n, int part)
 /* Check if the word w is matched by the strings in pfx and sfx (the prefix
  * and the suffix from the line) or the pattern cp. In clp a cline list for
  * w is returned.
- * qu is non-zero if the words has to be quoted before processed any further.
+ * qu is non-zero if the words has to be quoted before processed any
+ * further: the value 2 indicates file quoting.
  * bpl and bsl are used to report the positions where the brace-strings in
  * the prefix and the suffix have to be re-inserted if this match is inserted
  * in the line.
@@ -986,9 +991,30 @@ comp_match(char *pfx, char *sfx, char *w, Patprog cp, Cline *clp, int qu,
     if (cp) {
 	/* We have a globcomplete-like pattern, just use that. */
 	int wl;
+	char *teststr;
 
 	r = w;
-	if (!pattry(cp, r))
+	if (!qu) {
+	    /*
+	     * If we're not quoting the strings, that means they're
+	     * already quoted (?) and so when we test them against
+	     * a pattern we have to remove the quotes else we will
+	     * end up trying to match against the quote characters.
+	     *
+	     * Almost certainly this fails in some complicated cases
+	     * but it should catch the basic ones.
+	     */
+	    teststr = dupstring(r);
+	    tokenize(teststr);
+	    if (parse_subst_string(teststr))
+		teststr = r;
+	    else {
+		remnulargs(teststr);
+		untokenize(teststr);
+	    }
+	} else
+	    teststr = r;
+	if (!pattry(cp, teststr))
 	    return NULL;
     
 	r = (qu == 2 ? tildequote(r, 0) : multiquote(r, !qu));
@@ -997,7 +1023,7 @@ comp_match(char *pfx, char *sfx, char *w, Patprog cp, Cline *clp, int qu,
 	 * cline list for these matches, too. */
 	w = dupstring(w);
 	wl = strlen(w);
-	*clp = bld_parts(w, wl, wl, NULL);
+	*clp = bld_parts(w, wl, wl, NULL, NULL);
 	*exact = 0;
     } else {
 	Cline pli, plil;
@@ -1055,7 +1081,7 @@ comp_match(char *pfx, char *sfx, char *w, Patprog cp, Cline *clp, int qu,
 	    add_match_str(NULL, NULL, wpfx, wpl, 1);
 
 	    mli = bld_parts(w + rpl, wl - rpl - rsl,
-			    (mpl - rpl) + (msl - rsl), &mlil);
+			    (mpl - rpl) + (msl - rsl), &mlil, NULL);
 	    mlil->flags |= CLF_MID;
 	    mlil->slen = msl - rsl;
 	    mlil->next = revert_cline(matchparts);
@@ -1135,11 +1161,19 @@ pattern_match(Cpattern p, char *s, unsigned char *in, unsigned char *out)
 /* This splits the given string into a list of cline structs, separated
  * at those places where one of the anchors of an `*' pattern was found.
  * plen gives the number of characters on the line that matched this
- * string. In lp we return a pointer to the last cline struct we build. */
+ * string.
+ *
+ * In *lp, if lp is not NULL, we return a pointer to the last cline struct we
+ * build.
+ *
+ * In *lprem, if lprem is not NULL, we return a pointer to the last
+ * cline struct we build if it came from the remainder of the
+ * line rather than from a right anchor match, else NULL.
+ */
 
 /**/
 Cline
-bld_parts(char *str, int len, int plen, Cline *lp)
+bld_parts(char *str, int len, int plen, Cline *lp, Cline *lprem)
 {
     Cline ret = NULL, *q = &ret, n = NULL;
     Cmlist ms;
@@ -1198,9 +1232,17 @@ bld_parts(char *str, int len, int plen, Cline *lp)
 	if (llen > olen)
 	    llen = olen;
 	n->prefix = get_cline(NULL, llen, p, olen, NULL, 0, 0);
+	if (lprem)
+	    *lprem = n;
     }
-    else if (!ret)
-        *q = n = get_cline(NULL, 0, NULL, 0, NULL, 0, (plen <= 0 ? CLF_NEW : 0));
+    else if (!ret) {
+        *q = n =
+	    get_cline(NULL, 0, NULL, 0, NULL, 0, (plen <= 0 ? CLF_NEW : 0));
+	if (lprem)
+	    *lprem = n;
+    } else if (lprem) {
+	*lprem = NULL;
+    }
 
     n->next = NULL;
 

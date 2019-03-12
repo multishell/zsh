@@ -112,7 +112,7 @@ loop(int toplevel, int justonce)
 	hbegin(1);		/* init history mech        */
 	if (isset(SHINSTDIN)) {
 	    setblock_stdin();
-	    if (interact) {
+	    if (interact && toplevel) {
 	        int hstop = stophist;
 		stophist = 3;
 		preprompt();
@@ -131,6 +131,15 @@ loop(int toplevel, int justonce)
 		(tok == LEXERR && (!isset(SHINSTDIN) || !toplevel)) ||
 		justonce)
 		break;
+	    if (exit_pending) {
+		/*
+		 * Something down there (a ZLE function?) decided
+		 * to exit when there was stuff to clear up.
+		 * Handle that now.
+		 */
+		stopmsg = 1;
+		zexit(exit_pending >> 1, 0);
+	    }
 	    if (tok == LEXERR && !lastval)
 		lastval = 1;
 	    continue;
@@ -308,14 +317,14 @@ parseargs(char **argv)
     }
     if (*argv) {
 	if (unset(SHINSTDIN)) {
-	    argzero = *argv;
 	    if (!cmd)
-		SHIN = movefd(open(unmeta(argzero), O_RDONLY | O_NOCTTY));
+		SHIN = movefd(open(unmeta(*argv), O_RDONLY | O_NOCTTY));
 	    if (SHIN == -1) {
-		zerr("can't open input file: %s", argzero, 0);
-		exit(1);
+		zerr("can't open input file: %s", *argv, 0);
+		exit(127);
 	    }
 	    opts[INTERACTIVE] &= 1;
+	    argzero = *argv;
 	    argv++;
 	}
 	while (*argv)
@@ -995,7 +1004,7 @@ init_misc(void)
 /* source a file */
 
 /**/
-int
+mod_export int
 source(char *s)
 {
     Eprog prog;
@@ -1050,7 +1059,7 @@ source(char *s)
 	freeeprog(prog);
     else {
 	fclose(bshin);
-	fdtable[SHIN] = 0;
+	fdtable[SHIN] = FDT_UNUSED;
 	SHIN = fd;		     /* the shell input fd                   */
 	bshin = obshin;		     /* file handle for buffered shell input */
     }
@@ -1250,7 +1259,7 @@ zsh_main(UNUSED(int argc), char **argv)
     } while (zsh_name);
 
     fdtable_size = zopenmax();
-    fdtable = zshcalloc(fdtable_size);
+    fdtable = zshcalloc(fdtable_size*sizeof(*fdtable));
 
     createoptiontable();
     emulate(zsh_name, 1);   /* initialises most options */
@@ -1276,9 +1285,11 @@ zsh_main(UNUSED(int argc), char **argv)
 	 */
 	maybeshrinkjobtab();
 
-	do
+	do {
+	    /* Reset return from top level which gets us back here */
+	    retflag = 0;
 	    loop(1,0);
-	while (tok != ENDINPUT && (tok != LEXERR || isset(SHINSTDIN)));
+	} while (tok != ENDINPUT && (tok != LEXERR || isset(SHINSTDIN)));
 	if (tok == LEXERR) {
 	    /* Make sure a parse error exits with non-zero status */
 	    if (!lastval)

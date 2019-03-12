@@ -1275,19 +1275,24 @@ getkeymapcmd(Keymap km, Thingy *funcp, char **strp)
     while((lastchar = getkeybuf(!!lastlen)) != EOF) {
 	char *s;
 	Thingy f;
-	int loc = 1;
+	int loc = !!localkeymap;
+	int ispfx = 0;
 
-	if (!localkeymap ||
-	    (f = keybind(localkeymap, keybuf, &s)) == t_undefinedkey)
-	    loc = 0, f = keybind(km, keybuf, &s);
+	if (loc) {
+	    loc = ((f = keybind(localkeymap, keybuf, &s)) != t_undefinedkey);
+	    ispfx = keyisprefix(localkeymap, keybuf);
+	}
+	if (!loc)
+	    f = keybind(km, keybuf, &s);
+	ispfx |= keyisprefix(km, keybuf);
 
-	if(f != t_undefinedkey) {
+	if (f != t_undefinedkey) {
 	    lastlen = keybuflen;
 	    func = f;
 	    str = s;
 	    lastc = lastchar;
 	}
-	if(!keyisprefix((loc ? localkeymap : km), keybuf))
+	if (!ispfx)
 	    break;
     }
     if(!lastlen && keybuflen)
@@ -1386,4 +1391,17 @@ zlesetkeymap(int mode)
     if (!km)
 	return;
     linkkeymap(km, "main", 0);
+}
+
+/**/
+mod_export int
+readcommand(UNUSED(char **args))
+{
+    Thingy thingy = getkeycmd();
+
+    if (!thingy)
+	return 1;
+
+    setsparam("REPLY", ztrdup(thingy->nam));
+    return 0;
 }

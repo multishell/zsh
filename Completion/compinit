@@ -155,6 +155,7 @@ _comp_options=(
 # and don't get confused by user's ZERR trap handlers.
 
 _comp_setup='setopt localoptions localtraps ${_comp_options[@]};
+             local IFS=$'\'\ \\t\\r\\n\\0\''
              exec </dev/null;
              trap - ZERR'
 
@@ -267,7 +268,7 @@ compdef() {
         if [[ "$1" = *\=* ]]; then
 	  cmd="${1%%\=*}"
 	  svc="${1#*\=}"
-          func="$_comps[${_services[(R)$svc]:-$svc}]"
+          func="$_comps[${_services[(r)$svc]:-$svc}]"
           [[ -n ${_services[$svc]} ]] &&
               svc=${_services[$svc]}
 	  [[ -z "$func" ]] &&

@@ -106,7 +106,7 @@
    anything */
 #undef GLOBAL_ZSHRC
 
-/* Define if your system defines TIOCGWINSZ in sys/ioctl.h. */
+/* Define if TIOCGWINSZ is defined in sys/ioctl.h but not in termios.h. */
 #undef GWINSZ_IN_SYS_IOCTL
 
 /* Define to 1 if you have `alloca', as a function or macro. */
@@ -261,7 +261,7 @@
 /* Define to 1 if you have the <inttypes.h> header file. */
 #undef HAVE_INTTYPES_H
 
-/* Define to 1 if there is a prototype defined for ioctl() on your system */
+/* Define to 1 if there is a prototype defined for ioctl() on your system. */
 #undef HAVE_IOCTL_PROTO
 
 /* Define to 1 if you have the `killpg' function. */
@@ -321,7 +321,7 @@
 /* Define to 1 if you have the `mkfifo' function. */
 #undef HAVE_MKFIFO
 
-/* Define to 1 if there is a prototype defined for mknod() on your system */
+/* Define to 1 if there is a prototype defined for mknod() on your system. */
 #undef HAVE_MKNOD_PROTO
 
 /* Define to 1 if you have the `mkstemp' function. */
@@ -423,6 +423,9 @@
 /* Define to 1 if RLIMIT_MSGQUEUE is present (whether or not as a macro). */
 #undef HAVE_RLIMIT_MSGQUEUE
 
+/* Define to 1 if RLIMIT_NICE is present (whether or not as a macro). */
+#undef HAVE_RLIMIT_NICE
+
 /* Define to 1 if RLIMIT_NOFILE is present (whether or not as a macro). */
 #undef HAVE_RLIMIT_NOFILE
 
@@ -434,6 +437,9 @@
 
 /* Define to 1 if RLIMIT_RSS is present (whether or not as a macro). */
 #undef HAVE_RLIMIT_RSS
+
+/* Define to 1 if RLIMIT_RTPRIO is present (whether or not as a macro). */
+#undef HAVE_RLIMIT_RTPRIO
 
 /* Define to 1 if RLIMIT_SBSIZE is present (whether or not as a macro). */
 #undef HAVE_RLIMIT_SBSIZE
@@ -760,6 +766,10 @@
 /* Define to 1 if ino_t is 64 bit (for large file support). */
 #undef INO_T_IS_64_BIT
 
+/* Define to 1 if we must include <sys/ioctl.h> to get a prototype for
+   ioctl(). */
+#undef IOCTL_IN_SYS_IOCTL
+
 /* Definitions used when a long is less than eight byte, to try to provide
    some support for eight byte operations. Note that ZSH_64_BIT_TYPE,
    OFF_T_IS_64_BIT, INO_T_IS_64_BIT do *not* get defined if long is already 64
@@ -857,7 +867,7 @@
 
 /* If using the C implementation of alloca, define if you know the
    direction of stack growth for your system; otherwise it will be
-   automatically deduced at run-time.
+   automatically deduced at runtime.
 	STACK_DIRECTION > 0 => grows toward higher addresses
 	STACK_DIRECTION < 0 => grows toward lower addresses
 	STACK_DIRECTION = 0 => direction of growth unknown */
@@ -913,6 +923,9 @@
    tables. This turns on the `hashinfo' builtin. */
 #undef ZSH_HASH_DEBUG
 
+/* Define to 1 to ignore any ncurses library headers found on the system. */
+#undef ZSH_IGNORE_NCURSES
+
 /* Define to 1 if you want to use zsh's own memory allocation routines */
 #undef ZSH_MEM
 
@@ -940,7 +953,7 @@
 /* Define to `int' if <sys/types.h> does not define. */
 #undef mode_t
 
-/* Define to `long' if <sys/types.h> does not define. */
+/* Define to `long int' if <sys/types.h> does not define. */
 #undef off_t
 
 /* Define to `int' if <sys/types.h> does not define. */
@@ -952,7 +965,7 @@
 /* Define to `unsigned int' if <sys/types.h> or <signal.h> doesn't define */
 #undef sigset_t
 
-/* Define to `unsigned' if <sys/types.h> does not define. */
+/* Define to `unsigned int' if <sys/types.h> does not define. */
 #undef size_t
 
 /* Define to `int' if <sys/types.h> doesn't define. */

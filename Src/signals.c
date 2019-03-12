@@ -191,15 +191,6 @@ signal_mask(int sig)
  * set. Return the old signal set.       */
 
 /**/
-#ifdef POSIX_SIGNALS
-
-/**/
-mod_export sigset_t dummy_sigset1, dummy_sigset2;
-
-/**/
-#else
-
-/**/
 #ifndef BSD_SIGNALS
 
 sigset_t
@@ -207,7 +198,11 @@ signal_block(sigset_t set)
 {
     sigset_t oset;
  
-#ifdef SYSV_SIGNALS
+#ifdef POSIX_SIGNALS
+    sigprocmask(SIG_BLOCK, &set, &oset);
+
+#else
+# ifdef SYSV_SIGNALS
     int i;
  
     oset = blocked_set;
@@ -217,7 +212,7 @@ signal_block(sigset_t set)
             sighold(i);
         }
     }
-#else  /* NO_SIGNAL_BLOCKING */
+# else  /* NO_SIGNAL_BLOCKING */
 /* We will just ignore signals if the system doesn't have *
  * the ability to block them.                             */
     int i;
@@ -229,7 +224,8 @@ signal_block(sigset_t set)
             signal_ignore(i);
         }
    }
-#endif /* SYSV_SIGNALS  */
+# endif /* SYSV_SIGNALS */
+#endif /* POSIX_SIGNALS */
  
     return oset;
 }
@@ -237,19 +233,17 @@ signal_block(sigset_t set)
 /**/
 #endif /* BSD_SIGNALS */
 
-/**/
-#endif /* POSIX_SIGNALS */
-
 /* Unblock the signals in the given signal *
  * set. Return the old signal set.         */
-
-#ifndef POSIX_SIGNALS
 
 sigset_t
 signal_unblock(sigset_t set)
 {
     sigset_t oset;
- 
+
+#ifdef POSIX_SIGNALS
+    sigprocmask(SIG_UNBLOCK, &set, &oset);
+#else
 # ifdef BSD_SIGNALS
     sigfillset(&oset);
     oset = sigsetmask(oset);
@@ -279,11 +273,10 @@ signal_unblock(sigset_t set)
    }
 #  endif /* SYSV_SIGNALS  */
 # endif  /* BSD_SIGNALS   */
+#endif   /* POSIX_SIGNALS */
  
     return oset;
 }
-
-#endif   /* POSIX_SIGNALS */
 
 /* set the process signal mask to *
  * be the given signal mask       */
@@ -338,9 +331,38 @@ static int suspend_longjmp = 0;
 static signal_jmp_buf suspend_jmp_buf;
 #endif
  
+#if defined(POSIX_SIGNALS) || defined(BSD_SIGNALS)
+static void
+signal_suspend_setup(sigset_t *set, int sig, int wait_cmd)
+{
+    if (isset(TRAPSASYNC)) {
+	sigemptyset(set);
+    } else {
+	sigfillset(set);
+	sigdelset(set, sig);
+#ifdef POSIX_SIGNALS
+	sigdelset(set, SIGHUP);  /* still don't know why we add this? */
+#endif
+	if (wait_cmd)
+	{
+	    /*
+	     * Using "wait" builtin.  We should allow SIGINT and
+	     * execute traps delivered to the shell.
+	     */
+	    int sigtr;
+	    sigdelset(set, SIGINT);
+	    for (sigtr = 1; sigtr <= NSIG; sigtr++) {
+		if (sigtrapped[sigtr] & ~ZSIG_IGNORED)
+		    sigdelset(set, sigtr);
+	    }
+	}
+    }
+}
+#endif
+
 /**/
 int
-signal_suspend(int sig, int sig2)
+signal_suspend(int sig, int wait_cmd)
 {
     int ret;
  
@@ -350,15 +372,7 @@ signal_suspend(int sig, int sig2)
     sigset_t oset;
 #endif /* BROKEN_POSIX_SIGSUSPEND */
 
-    if (isset(TRAPSASYNC)) {
-	sigemptyset(&set);
-    } else {
-	sigfillset(&set);
-	sigdelset(&set, sig);
-	sigdelset(&set, SIGHUP);  /* still don't know why we add this? */
-	if (sig2)
-	    sigdelset(&set, sig2);
-    }
+    signal_suspend_setup(&set, sig, wait_cmd);
 #ifdef BROKEN_POSIX_SIGSUSPEND
     sigprocmask(SIG_SETMASK, &set, &oset);
     pause();
@@ -370,15 +384,8 @@ signal_suspend(int sig, int sig2)
 # ifdef BSD_SIGNALS
     sigset_t set;
 
-    if (isset(TRAPSASYNC)) {
-	sigemptyset(&set);
-    } else {
-	sigfillset(&set);
-	sigdelset(&set, sig);
-	if (sig2)
-	    sigdelset(&set, sig2);
-	ret = sigpause(set);
-    }
+    signal_suspend_setup(&set, sig, wait_cmd);
+    ret = sigpause(set);
 # else
 #  ifdef SYSV_SIGNALS
     ret = sigpause(sig);
@@ -388,7 +395,7 @@ signal_suspend(int sig, int sig2)
      * between the child_unblock() and pause()           */
     if (signal_setjmp(suspend_jmp_buf) == 0) {
         suspend_longjmp = 1;   /* we want to signal_longjmp after catching signal */
-        child_unblock();       /* do we need to unblock sig2 as well?             */
+        child_unblock();       /* do we need to do wait_cmd stuff as well?             */
         ret = pause();
     }
     suspend_longjmp = 0;       /* turn off using signal_longjmp since we are past *
@@ -399,6 +406,10 @@ signal_suspend(int sig, int sig2)
  
     return ret;
 }
+
+/* last signal we handled: race prone, or what? */
+/**/
+int last_signal;
 
 /* the signal handler */
  
@@ -413,6 +424,7 @@ zhandler(int sig)
     signal_jmp_buf jump_to;
 #endif
  
+    last_signal = sig;
     signal_process(sig);
  
     sigfillset(&newmask);
@@ -975,6 +987,7 @@ dotrapargs(int sig, int *sigtr, void *sigfn)
     char *name, num[4];
     int trapret = 0;
     int obreaks = breaks;
+    int oretflag = retflag;
     int isfunc;
 
     /* if signal is being ignored or the trap function		      *
@@ -1012,7 +1025,7 @@ dotrapargs(int sig, int *sigtr, void *sigfn)
 
     lexsave();
     execsave();
-    breaks = 0;
+    breaks = retflag = 0;
     runhookdef(BEFORETRAPHOOK, NULL);
     if (*sigtr & ZSIG_FUNC) {
 	int osc = sfcontext;
@@ -1079,11 +1092,16 @@ dotrapargs(int sig, int *sigtr, void *sigfn)
 	if (isfunc) {
 	    breaks = loops;
 	    errflag = 1;
+	    lastval = trapret;
 	} else {
 	    lastval = trapret-1;
 	}
+	/* return triggered */
+	retflag = 1;
     } else {
 	breaks += obreaks;
+	/* return not triggered: restore old flag */
+	retflag = oretflag;
 	if (breaks > loops)
 	    breaks = loops;
     }

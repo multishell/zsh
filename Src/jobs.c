@@ -271,7 +271,7 @@ get_usage(void)
 }
 
 
-#ifndef HAVE_GETRUSAGE
+#if !defined HAVE_WAIT3 || !defined HAVE_GETRUSAGE
 /* Update status of process that we have just WAIT'ed for */
 
 /**/
@@ -279,17 +279,26 @@ void
 update_process(Process pn, int status)
 {
     struct timezone dummy_tz;
-    long childs, childu;
+#ifdef HAVE_GETRUSAGE
+    struct timeval childs = child_usage.ru_stime;
+    struct timeval childu = child_usage.ru_utime;
+#else
+    long childs = shtms.tms_cstime;
+    long childu = shtms.tms_cutime;
+#endif
 
-    childs = shtms.tms_cstime;
-    childu = shtms.tms_cutime;
     /* get time-accounting info          */
     get_usage();
     gettimeofday(&pn->endtime, &dummy_tz);  /* record time process exited        */
 
     pn->status = status;                    /* save the status returned by WAIT  */
+#ifdef HAVE_GETRUSAGE
+    dtime(&pn->ti.ru_stime, &childs, &child_usage.ru_stime);
+    dtime(&pn->ti.ru_utime, &childu, &child_usage.ru_utime);
+#else
     pn->ti.st  = shtms.tms_cstime - childs; /* compute process system space time */
     pn->ti.ut  = shtms.tms_cutime - childu; /* compute process user space time   */
+#endif
 }
 #endif
 
@@ -383,7 +392,8 @@ update_job(Job jn)
 		}
 		/* If we have `foo|while true; (( x++ )); done', and hit
 		 * ^C, we have to stop the loop, too. */
-		if ((val & 0200) && inforeground == 1) {
+		if ((val & 0200) && inforeground == 1 &&
+		    ((val & ~0200) == SIGINT || (val & ~0200) == SIGQUIT)) {
 		    if (!errbrk_saved) {
 			errbrk_saved = 1;
 			prev_breaks = breaks;
@@ -399,7 +409,8 @@ update_job(Job jn)
 		adjustwinsize(0);
 	    }
 	}
-    } else if (list_pipe && (val & 0200) && inforeground == 1) {
+    } else if (list_pipe && (val & 0200) && inforeground == 1 &&
+	       ((val & ~0200) == SIGINT || (val & ~0200) == SIGQUIT)) {
 	if (!errbrk_saved) {
 	    errbrk_saved = 1;
 	    prev_breaks = breaks;
@@ -809,7 +820,7 @@ printjob(Job jn, int lng, int synch)
 
     if (lng < 0) {
 	conted = 1;
-	lng = 0;
+	lng = !!isset(LONGLISTJOBS);
     }
 
 /* find length of longest signame, check to see */
@@ -869,7 +880,7 @@ printjob(Job jn, int lng, int synch)
 			break;
 		    len2 += strlen(qn->text) + 2;
 		}
-	    if (!thisfmt) {
+	    if (!thisfmt || lng) {
 		if (fline)
 		    fprintf(fout, "[%ld]  %c ",
 			    (long)job,
@@ -929,10 +940,10 @@ printjob(Job jn, int lng, int synch)
 
     if ((lng & 4) || (interact && job == thisjob &&
 		      jn->pwd && strcmp(jn->pwd, pwd))) {
-	fprintf(shout, "(pwd %s: ", (lng & 4) ? "" : "now");
-	fprintdir(((lng & 4) && jn->pwd) ? jn->pwd : pwd, shout);
-	fprintf(shout, ")\n");
-	fflush(shout);
+	fprintf(fout, "(pwd %s: ", (lng & 4) ? "" : "now");
+	fprintdir(((lng & 4) && jn->pwd) ? jn->pwd : pwd, fout);
+	fprintf(fout, ")\n");
+	fflush(fout);
     }
 /* delete job if done */
 
@@ -1100,11 +1111,16 @@ havefiles(void)
 
 }
 
-/* wait for a particular process */
+/*
+ * Wait for a particular process.
+ * wait_cmd indicates this is from the interactive wait command,
+ * in which case the behaviour is a little different:  the command
+ * itself can be interrupted by a trapped signal.
+ */
 
 /**/
-void
-waitforpid(pid_t pid)
+int
+waitforpid(pid_t pid, int wait_cmd)
 {
     int first = 1, q = queue_signal_level();
 
@@ -1117,18 +1133,30 @@ waitforpid(pid_t pid)
 	else
 	    kill(pid, SIGCONT);
 
-	signal_suspend(SIGCHLD, SIGINT);
+	last_signal = -1;
+	signal_suspend(SIGCHLD, wait_cmd);
+	if (last_signal != SIGCHLD && wait_cmd) {
+	    /* wait command interrupted, but no error: return */
+	    restore_queue_signals(q);
+	    return 128 + last_signal;
+	}
 	child_block();
     }
     child_unblock();
     restore_queue_signals(q);
+
+    return 0;
 }
 
-/* wait for a job to finish */
+/*
+ * Wait for a job to finish.
+ * wait_cmd indicates this is from the wait builtin; see
+ * wait_cmd in waitforpid().
+ */
 
 /**/
-static void
-zwaitjob(int job, int sig)
+static int
+zwaitjob(int job, int wait_cmd)
 {
     int q = queue_signal_level();
     Job jn = jobtab + job;
@@ -1142,7 +1170,13 @@ zwaitjob(int job, int sig)
 	while (!errflag && jn->stat &&
 	       !(jn->stat & STAT_DONE) &&
 	       !(interact && (jn->stat & STAT_STOPPED))) {
-	    signal_suspend(SIGCHLD, sig);
+	    signal_suspend(SIGCHLD, wait_cmd);
+	    if (last_signal != SIGCHLD && wait_cmd)
+	    {
+		/* builtin wait interrupted by trapped signal */
+		restore_queue_signals(q);
+		return 128 + last_signal;
+	    }
 	    /* Commenting this out makes ^C-ing a job started by a function
 	       stop the whole function again.  But I guess it will stop
 	       something else from working properly, we have to find out
@@ -1165,6 +1199,8 @@ zwaitjob(int job, int sig)
     }
     child_unblock();
     restore_queue_signals(q);
+
+    return 0;
 }
 
 /* wait for running job to finish */
@@ -1219,6 +1255,15 @@ clearjobtab(int monitor)
 
     memset(jobtab, 0, jobtabsize * sizeof(struct job)); /* zero out table */
     maxjob = 0;
+
+    /*
+     * Although we don't have job control in subshells, we
+     * sometimes needs control structures for other purposes such
+     * as multios.  Grab a job for this purpose; any will do
+     * since we've freed them all up (so there's no question
+     * of problems with the job table size here).
+     */
+    thisjob = initjob();
 }
 
 static int initnewjob(int i)
@@ -1342,7 +1387,7 @@ scanjobs(void)
  
     for (i = 1; i <= maxjob; i++)
         if (jobtab[i].stat & STAT_CHANGED)
-            printjob(jobtab + i, 0, 1);
+            printjob(jobtab + i, !!isset(LONGLISTJOBS), 1);
 }
 
 /**** job control builtins ****/
@@ -1610,10 +1655,14 @@ bin_fg(char *name, char **argv, Options ops, int func)
 	return 0;
     }
 
-    lng = (OPT_ISSET(ops,'l')) ? 1 : (OPT_ISSET(ops,'p')) ? 2 : 0;
-    if (OPT_ISSET(ops,'d'))
-	lng |= 4;
-    
+    if (func == BIN_JOBS) {
+	lng = (OPT_ISSET(ops,'l')) ? 1 : (OPT_ISSET(ops,'p')) ? 2 : 0;
+	if (OPT_ISSET(ops,'d'))
+	    lng |= 4;
+    } else {
+	lng = !!isset(LONGLISTJOBS);
+    }
+
     if ((func == BIN_FG || func == BIN_BG) && !jobbing) {
 	/* oops... maybe bg and fg should have been disabled? */
 	zwarnnam(name, "no job control in this shell.", NULL, 0);
@@ -1672,9 +1721,9 @@ bin_fg(char *name, char **argv, Options ops, int func)
 	} else {   /* Must be BIN_WAIT, so wait for all jobs */
 	    for (job = 0; job <= maxjob; job++)
 		if (job != thisjob && jobtab[job].stat)
-		    zwaitjob(job, SIGINT);
+		    retval = zwaitjob(job, 1);
 	    unqueue_signals();
-	    return 0;
+	    return retval;
 	}
     }
 
@@ -1692,11 +1741,19 @@ bin_fg(char *name, char **argv, Options ops, int func)
 	    Job j;
 	    Process p;
 
-	    if (findproc(pid, &j, &p, 0))
-		waitforpid(pid);
-	    else
+	    if (findproc(pid, &j, &p, 0)) {
+		/*
+		 * returns 0 for normal exit, else signal+128
+		 * in which case we should return that status.
+		 */
+		retval = waitforpid(pid, 1);
+		if (!retval)
+		    retval = lastval2;
+	    } else {
 		zwarnnam(name, "pid %d is not a child of this shell", 0, pid);
-	    retval = lastval2;
+		/* presumably lastval2 doesn't tell us a heck of a lot? */
+		retval = 1;
+	    }
 	    thisjob = ocj;
 	    continue;
 	}
@@ -1727,9 +1784,21 @@ bin_fg(char *name, char **argv, Options ops, int func)
 	case BIN_WAIT:
 	    if (func == BIN_BG)
 		jobtab[job].stat |= STAT_NOSTTY;
-	    if ((stopped = (jobtab[job].stat & STAT_STOPPED)))
+	    if ((stopped = (jobtab[job].stat & STAT_STOPPED))) {
 		makerunning(jobtab + job);
-	    else if (func == BIN_BG) {
+		if (func == BIN_BG) {
+		    /* Set $! to indicate this was backgrounded */
+		    Process pn = jobtab[job].procs;
+		    for (;;) {
+			Process next = pn->next;
+			if (!next) {
+			    lastpid = (zlong) pn->pid;
+			    break;
+			}
+			pn = next;
+		    }
+		}
+	    } else if (func == BIN_BG) {
 		/* Silly to bg a job already running. */
 		zwarnnam(name, "job already in background", NULL, 0);
 		thisjob = ocj;
@@ -1750,14 +1819,15 @@ bin_fg(char *name, char **argv, Options ops, int func)
 	    }
 	    if (func != BIN_WAIT)
 		/* for bg and fg -- show the job we are operating on */
-		printjob(jobtab + job, (stopped) ? -1 : 0, 1);
+		printjob(jobtab + job, (stopped) ? -1 : lng, 1);
 	    if (func != BIN_BG) {		/* fg or wait */
 		if (jobtab[job].pwd && strcmp(jobtab[job].pwd, pwd)) {
-		    fprintf(shout, "(pwd : ");
-		    fprintdir(jobtab[job].pwd, shout);
-		    fprintf(shout, ")\n");
+		    FILE *fout = (func == BIN_JOBS) ? stdout : shout;
+		    fprintf(fout, "(pwd : ");
+		    fprintdir(jobtab[job].pwd, fout);
+		    fprintf(fout, ")\n");
+		    fflush(fout);
 		}
-		fflush(shout);
 		if (func != BIN_WAIT) {		/* fg */
 		    thisjob = job;
 		    if ((jobtab[job].stat & STAT_SUPERJOB) &&
@@ -1776,8 +1846,18 @@ bin_fg(char *name, char **argv, Options ops, int func)
 		killjb(jobtab + job, SIGCONT);
 	    }
 	    if (func == BIN_WAIT)
-		zwaitjob(job, SIGINT);
-	    if (func != BIN_BG) {
+	    {
+		retval = zwaitjob(job, 1);
+		if (!retval)
+		    retval = lastval2;
+	    }
+	    else if (func != BIN_BG) {
+		/*
+		 * HERE: there used not to be an "else" above.  How
+		 * could it be right to wait for the foreground job
+		 * when we've just been told to wait for another
+		 * job (and done it)?
+		 */
 		waitjobs();
 		retval = lastval2;
 	    } else if (ofunc == BIN_DISOWN)
@@ -1881,6 +1961,8 @@ bin_kill(char *nam, char **argv, UNUSED(Options ops), UNUSED(int func))
 		    while (*++argv) {
 			sig = zstrtol(*argv, &signame, 10);
 			if (signame == *argv) {
+			    if (!strncmp(signame, "SIG", 3))
+				signame += 3;
 			    for (sig = 1; sig <= SIGCOUNT; sig++)
 				if (!cstrpcmp(sigs + sig, &signame))
 				    break;
@@ -1949,7 +2031,8 @@ bin_kill(char *nam, char **argv, UNUSED(Options ops), UNUSED(int func))
 		} else
 		    signame = *argv;
 		makeuppercase(&signame);
-		if (!strncmp(signame, "SIG", 3)) signame+=3;
+		if (!strncmp(signame, "SIG", 3))
+		    signame+=3;
 
 		/* check for signal matching specified name */
 		for (sig = 1; sig <= SIGCOUNT; sig++)
@@ -2039,6 +2122,9 @@ getsignum(char *s)
 	return x;
 
     /* search for signal by name */
+    if (!strncmp(s, "SIG", 3))
+	s += 3;
+
     for (i = 0; i < VSIGCOUNT; i++)
 	if (!strcmp(s, sigs[i]))
 	    return i;

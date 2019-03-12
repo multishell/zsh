@@ -23,7 +23,7 @@
 
 %prep
 
-  setopt noglob
+  setopt localoptions noglob
 
   scalar=scalar
   array=(a r r a y)

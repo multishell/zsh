@@ -13,6 +13,7 @@ startmenu()
 menu(Utilities)
 menu(Prompt Themes)
 menu(ZLE Functions)
+menu(Exception Handling)
 menu(MIME Functions)
 menu(Other Functions)
 endmenu()
@@ -345,7 +346,7 @@ normally call a theme's setup function directly.
 )
 enditem()
 
-texinode(ZLE Functions)(MIME Functions)(Prompt Themes)(User Contributions)
+texinode(ZLE Functions)(Exception Handling)(Prompt Themes)(User Contributions)
 sect(ZLE Functions)
 
 subsect(Widgets)
@@ -382,12 +383,13 @@ tindex(capitalize-word-match)
 tindex(up-case-word-match)
 tindex(down-case-word-match)
 tindex(select-word-style)
+tindex(match-word-context)
 tindex(match-words-by-style)
 xitem(tt(forward-word-match), tt(backward-word-match))
 xitem(tt(kill-word-match), tt(backward-kill-word-match))
 xitem(tt(transpose-words-match), tt(capitalize-word-match))
 xitem(tt(up-case-word-match), tt(down-case-word-match))
-item(tt(select-word-style), tt(match-words-by-style))(
+item(tt(select-word-style), tt(match-word-context), tt(match-words-by-style))(
 The eight `tt(-match)' functions are drop-in replacements for the
 builtin widgets without the suffix.  By default they behave in a similar
 way.  However, by the use of styles and the function tt(select-word-style),
@@ -461,7 +463,7 @@ Words are whitespace-delimited strings of characters.
 )
 enditem()
 
-The first three of those styles usually use tt($WORDCHARS), but the value
+The first three of those rules usually use tt($WORDCHARS), but the value
 in the parameter can be overridden by the style tt(word-chars), which works
 in exactly the same way as tt($WORDCHARS).  In addition, the style
 tt(word-class) uses character class syntax to group characters and takes
@@ -472,7 +474,7 @@ alphanumerics plus the characters `tt(-)' and `tt(:)'.  Be careful
 including `tt(])', `tt(^)' and `tt(-)' as these are special inside
 character classes.
 
-The final style is tt(skip-chars).  This is mostly useful for
+The style tt(skip-chars) is mostly useful for
 tt(transpose-words) and similar functions.  If set, it gives a count of
 characters starting at the cursor position which will not be considered
 part of the word and are treated as space, regardless of what they actually
@@ -483,6 +485,16 @@ example(zstyle ':zle:transpose-words' skip-chars 1)
 has been set, and tt(transpose-words-match) is called with the cursor on
 the var(X) of tt(foo)var(X)tt(bar), where var(X) can be any character, then
 the resulting expression is tt(bar)var(X)tt(foo).
+
+Finer grained control can be obtained by setting the style tt(word-context)
+to an array of pairs of entries.  Each pair of entries consists of a
+var(pattern) and a var(subcontext).  The shell argument the cursor is on is
+matched against each var(pattern) in turn until one matches; if it does,
+the context is extended by a colon and the corresponding var(subcontext).
+Note that the test is made against the original word on the line, with no
+stripping of quotes.  If the cursor is at the end of the line the test is
+performed against an empty string; if it is on whitespace between words the
+test is made against a single space.  Some examples are given below.
 
 Here are some examples of use of the styles, actually taken from the
 simplified interface in tt(select-word-style):
@@ -498,6 +510,21 @@ example(style ':zle:*kill*' word-style space)
 
 Uses space-delimited words for widgets with the word `kill' in the name.
 Neither of the styles tt(word-chars) nor tt(word-class) is used in this case.
+
+Here are some examples of use of the tt(word-context) style to extend
+the context.
+
+example(zstyle ':zle:*' word-context "*/*" file "[[:space:]]" whitespace
+zstyle ':zle:transpose-words:whitespace' word-style shell
+zstyle ':zle:transpose-words:filename' word-style normal
+zstyle ':zle:transpose-words:filename' word-chars '')
+
+This provides two different ways of using tt(transpose-words) depending on
+whether the cursor is on whitespace between words or on a filename, here
+any word containing a tt(/).  On whitespace, complete arguments as defined
+by standard shell rules will be transposed.  In a filename, only
+alphanumerics will be transposed.  Elsewhere, words will be transposed
+using the default style for tt(:zle:transpose-words).
 
 The word matching and all the handling of tt(zstyle) settings is actually
 implemented by the function tt(match-words-by-style).  This can be used to
@@ -525,6 +552,10 @@ endsitem()
 
 For example, tt(match-words-by-style -w shell -c 0) may be used to
 extract the command argument around the cursor.
+
+The tt(word-context) style is implemented by the function
+tt(match-word-context).  This should not usually need to be called
+directly.
 )
 tindex(delete-whole-word-match)
 item(tt(delete-whole-word-match))(
@@ -794,8 +825,10 @@ not used.  Hence it is still possible to call tt(executed-named-cmd) and
 similar functions while reading a value.
 )
 tindex(replace-string)
+tindex(replace-string-again)
 tindex(replace-pattern)
-item(tt(replace-string), tt(replace-pattern))(
+xitem(tt(replace-string), tt(replace-pattern))
+item(tt(replace-string-again), tt(replace-pattern-again))(
 The function tt(replace-string) implements two widgets.
 If defined under the same name as the function, it prompts for two
 strings; the first (source) string will be replaced by the second
@@ -814,11 +847,26 @@ replaced by the var(N)th parenthesised expression matched.  The form
 `tt(\{)var(N)tt(})' may be used to protect the digit from following
 digits.
 
+By default the previous source or replacement string will not be offered
+for editing.  However, this feature can be activated by setting the style
+tt(edit-previous) in the context tt(:zle:)var(widget) (for example,
+tt(:zle:replace-string)) to tt(true).  In addition, a positive
+numeric argument forces the previous values to be offered, a negative or
+zero argument forces them not to be.
+
+The function tt(replace-string-again) can be used to repeat the
+previous replacement; no prompting is done.  As with tt(replace-string), if
+the name of the widget contains the word `tt(pattern)', pattern matching
+is performed, else a literal string replacement.  Note that the
+previous source and replacement text are the same whether pattern or string
+matching is used.
+
 For example, starting from the line:
 
 example(print This line contains fan and fond)
 
-and invoking tt(replace-pattern) with the source string `tt(f(?)n)' and
+and invoking tt(replace-pattern) with the source string
+`tt(f+LPAR()?+RPAR()n)' and
 the replacment string `tt(c\1r)' produces the not very useful line:
 
 example(print This line contains car and cord)
@@ -849,6 +897,77 @@ different widgets to use different patterns:
 example(zle -N insert-last-assignment smart-insert-last-word
 zstyle :insert-last-assignment match '[[:alpha:]][][[:alnum:]]#=*'
 bindkey '\e=' insert-last-assignment)
+
+If no interesting word is found and the tt(auto-previous) style is set to
+a true value, the search continues upward through the history.  When
+tt(auto-previous) is unset or false (the default), the widget must be
+invoked repeatedly in order to search earlier history lines.
+)
+tindex(which-command)
+item(tt(which-command))(
+This function is a drop-in replacement for the builtin widget
+tt(which-command).  It has enhanced behaviour, in that it correctly
+detects whether or not the command word needs to be expanded as an
+alias; if so, it continues tracing the command word from the expanded
+alias until it reaches the command that will be executed.
+
+The style tt(whence) is available in the context tt(:zle:$WIDGET); this
+may be set to an array to give the command and options that will be used to
+investigate the command word found.  The default is tt(whence -c).
+)
+enditem()
+
+subsect(Utility Functions)
+
+These functions are useful in constructing widgets.  They
+should be loaded with `tt(autoload -U) var(function)' and called
+as indicated from user-defined widgets.
+
+startitem()
+tindex(split-shell-arguments)
+item(tt(split-shell-arguments))(
+This function splits the line currently being edited into shell arguments
+and whitespace.  The result is stored in the array tt(reply).  The array
+contains all the parts of the line in order, starting with any whitespace
+before the first argument, and finishing with any whitespace after the last
+argument.  Hence (so long as the option tt(KSH_ARRAYS) is not set)
+whitespace is given by odd indices in the array and arguments by
+even indices.  Note that no stripping of quotes is done; joining together
+all the elements of tt(reply) in order is guaranteed to produce the
+original line.
+
+The parameter tt(REPLY) is set to the index of the word in tt(reply) which
+contains the character after the cursor, where the first element has index
+1.  The parameter tt(REPLY2) is set to the index of the character under the
+cursor in that word, where the first character has index 1.
+
+Hence tt(reply), tt(REPLY) and tt(REPLY2) should all be made local to
+the enclosing function.
+
+See the function tt(modify-current-argument), described below, for
+an example of how to call this function.
+)
+tindex(modify-current-argument)
+item(tt(modify-current-argument) var(expr-using-)tt($ARG))(
+This function provides a simple method of allowing user-defined widgets
+to modify the command line argument under the cursor (or immediately to the
+left of the cursor if the cursor is between arguments).  The argument
+should be an expression which when evaluated operates on the shell
+parameter tt(ARG), which will have been set to the command line argument
+under the cursor.  The expression should be suitably quoted to prevent
+it being evaluated too early.
+
+For example, a user-defined widget containing the following code
+converts the characters in the argument under the cursor into all upper
+case:
+
+example(modify-current-argument '${(U)ARG}')
+
+The following strips any quoting from the current word (whether backslashes
+or one of the styles of quotes), and replaces it with single quoting
+throughout:
+
+example(modify-current-argument '${(qq)${(Q)ARG}}')
 )
 enditem()
 
@@ -1026,7 +1145,93 @@ whether the tt(widget) style is used.
 )
 enditem()
 
-texinode(MIME Functions)(Other Functions)(ZLE Functions)(User Contributions)
+texinode(Exception Handling)(MIME Functions)(ZLE Functions)(User Contributions)
+sect(Exception Handling)
+
+Two functions are provided to enable zsh to provide exception handling in a
+form that should be familiar from other languages.
+
+startitem()
+findex(throw)
+item(tt(throw) var(exception))(
+The function tt(throw) throws the named var(exception).  The name is
+an arbitrary string and is only used by the tt(throw) and tt(catch)
+functions.  An exception is for the most part treated the same as a
+shell error, i.e. an unhandled exception will cause the shell to abort all
+processing in a function or script and to return to the top level in an
+interative shell.
+)
+item(tt(catch) var(exception-pattern))(
+The function tt(catch) returns status zero if an exception was thrown and
+the pattern var(exception-pattern) matches its name.  Otherwise it
+returns status 1.  var(exception-pattern) is a standard
+shell pattern, respecting the current setting of the tt(EXTENDED_GLOB)
+option.  An alias tt(catch) is also defined to prevent the argument to the
+function from matching filenames, so patterns may be used unquoted.  Note
+that as exceptions are not fundamentally different from other shell errors
+it is possible to catch shell errors by using an empty string as the
+exception name.  The shell variable tt(CAUGHT) is set by tt(catch) to the
+name of the exception caught.  It is possible to rethrow an exception by
+calling the tt(throw) function again once an exception has been caught.
+findex(catch)
+)
+enditem()
+
+The functions are designed to be used together with the tt(always) construct
+described in
+ifzman(zmanref(zshmisc))\
+ifnzman(noderef(Complex Commands)).  This is important as only this
+construct provides the required support for exceptions.  A typical example
+is as follows.
+
+example({
+  # "try" block
+  # ... nested code here calls "throw MyExcept"
+} always {
+  # "always" block
+  if catch MyExcept; then
+    print "Caught exception MyExcept"
+  elif catch ''; then
+    print "Caught a shell error.  Propagating..."
+    throw ''
+  fi
+  # Other exceptions are not handled but may be caught further
+  # up the call stack.
+})
+
+If all exceptions should be caught, the following idiom might be
+preferable.
+
+example({
+  # ... nested code here throws an exception
+} always {
+  if catch *; then
+    case $CAUGHT in
+      LPAR()MyExcept+RPAR()
+      print "Caught my own exception"
+      ;;
+      LPAR()*RPAR()
+      print "Caught some other exception"
+      ;;
+    esac
+  fi
+})
+
+In common with exception handling in other languages, the exception may be
+thrown by code deeply nested inside the `try' block.  However, note that it
+must be thrown inside the current shell, not in a subshell forked for a
+pipeline, parenthesised current-shell construct, or some form of
+command or process substitution.
+
+The system internally uses the shell variable tt(EXCEPTION) to record the
+name of the exception between throwing and catching.  One drawback of this
+scheme is that if the exception is not handled the variable tt(EXCEPTION)
+remains set and may be incorrectly recognised as the name of an exception
+if a shell error subsequently occurs.  Adding tt(unset EXCEPTION) at the
+start of the outermost layer of any code that uses exception handling will
+eliminate this problem.
+
+texinode(MIME Functions)(Other Functions)(Exception Handling)(User Contributions)
 sect(MIME Functions)
 
 Three functions are available to provide handling of files recognised by
@@ -1072,19 +1277,66 @@ It is recommended that a trailing tt(*) (suitably quoted) be appended
 to style patterns in case the system is extended in future.  Some
 examples are given below.
 startitem()
-item(mime-types)(
-A list of files in the format of tt(~/.mime.types) and
-tt(/etc/mime.types) to be read during setup, replacing the default list
-which consists of those two files.  The context is tt(:mime:).
-A tt(PLUS()) in the list will be replaced by the default files.
+kindex(current-shell, MIME style)
+item(tt(current-shell))(
+If this boolean style is true, the mailcap handler for the context in
+question is run using the tt(eval) builtin instead of by starting a new
+tt(sh) process.  This is more efficient, but may not work in the occasional
+cases where the mailcap handler uses strict POSIX syntax.
 )
-item(mailcap)(
-A list of files in the format of tt(~/.mailcap) and
-tt(/etc/mailcap) to be read during setup, replacing the default list
-which consists of those two files.  The context is tt(:mime:).
-A tt(PLUS()) in the list will be replaced by the default files.
+kindex(execute-as-is, MIME style)
+item(tt(execute-as-is))(
+This style gives a list of patterns to be matched against files
+passed for execution with a handler program.  If the file matches
+the pattern, the entire command line is executed in its current form,
+with no handler.  This is useful for files which might have suffixes
+but nonetheless be executable in their own right.  If the style
+is not set, the pattern tt(*+LPAR()*+RPAR()) is used; hence executable
+files are executed directly and not passed to a handler.
 )
-item(handler)(
+kindex(file-path, MIME style)
+item(tt(file-path))(
+Used if the style tt(find-file-in-path) is true for the same context.
+Set to an array of directories that are used for searching for the
+file to be handled; the default is the command path given by the
+special parameter tt(path).  The shell option tt(PATH_DIRS) is respected;
+if that is set, the appropriate path will be searched even if the
+name of the file to be handled as it appears on the command line contains
+a `tt(/)'.
+The full context is tt(:mime:.)var(suffix)tt(:), as described for the style
+tt(handler).
+)
+kindex(find-file-in-path, MIME style)
+item(tt(find-file-in-path))(
+If set, allows files whose names do not contain absolute paths
+to be searched for in the command path or the path specified by the
+tt(file-path) style.  If the file is not found in the path, it is looked
+for locally (whether or not the current directory is in the path); if it is
+not found locally, the handler will abort unless the tt(handle-nonexistent)
+style is set.  Files found in the path are tested as described for
+the style tt(execute-as-is).
+The full context is tt(:mime:.)var(suffix)tt(:), as described for the style
+tt(handler).
+)
+kindex(flags, MIME style)
+item(tt(flags))(
+Defines flags to go with a handler; the context is as for the
+tt(handler) style, and the format is as for the flags in tt(mailcap).
+)
+kindex(handle-nonexistent, MIME style)
+item(tt(handle-nonexistent))(
+By default, arguments that don't correspond to files are not passed
+to the MIME handler in order to prevent it from intercepting commands found
+in the path that happen to have suffixes.  This style may be set to
+an array of extended glob patterns for arguments that will be passed to the
+handler even if they don't exist.  If it is not explicitly set it
+defaults to tt([[:alpha:]]#:/*) which allows URLs to be passed to the MIME
+handler even though they don't exist in that format in the file system.
+The full context is tt(:mime:.)var(suffix)tt(:), as described for the style
+tt(handler).
+)
+kindex(handler, MIME style)
+item(tt(handler))(
 Specifies a handler for a suffix; the suffix is given by the context as
 tt(:mime:.)var(suffix)tt(:), and the format of the handler is exactly
 that in tt(mailcap).  Note in particular the `tt(.)' and trailing colon
@@ -1094,11 +1346,69 @@ the tt(flags) style should be set to include the word tt(needsterminal),
 or if the output is to be displayed through a pager (but not if the
 handler is itself a pager), it should include tt(copiousoutput).
 )
-item(flags)(
-Defines flags to go with a handler; the context is as for the
-tt(handler) style, and the format is as for the flags in tt(mailcap).
+kindex(mailcap, MIME style)
+item(tt(mailcap))(
+A list of files in the format of tt(~/.mailcap) and
+tt(/etc/mailcap) to be read during setup, replacing the default list
+which consists of those two files.  The context is tt(:mime:).
+A tt(PLUS()) in the list will be replaced by the default files.
 )
-item(pager)(
+kindex(mailcap-priorities, MIME style)
+item(tt(mailcap-priorities))(
+This style is used to resolve multiple mailcap entries for the same MIME
+type.  It consists of an array of the following elements, in descending
+order of priority; later entries will be used if earlier entries are
+unable to resolve the entries being compared.  If none of the tests
+resolve the entries, the first entry encountered is retained.
+
+startitem()
+item(tt(files))(
+The order of files (entries in the tt(mailcap) style) read.  Earlier
+files are preferred.  (Note this does not resolve entries in the same file.)
+)
+item(tt(priority))(
+The priority flag from the mailcap entry.  The priority is an integer
+from 0 to 9 with the default value being 5.
+)
+item(tt(flags))(
+The test given by the tt(mailcap-prio-flags) option is used to resolve
+entries.
+)
+item(tt(place))(
+Later entries are preferred; as the entries are strictly ordered, this
+test always succeeds.
+)
+enditem()
+
+Note that as this style is handled during initialisation, the context
+is always tt(:mime:), with no discrimination by suffix.
+)
+kindex(mailcap-prio-flags, MIME style)
+item(tt(mailcap-prio-flags))(
+This style is used when the keyword tt(flags) is encountered in the
+list of tests specified by the tt(mailcap-priorities) style.
+It should be set to a list of patterns, each of which is tested against
+the flags specified in the mailcap entry (in other words, the sets of
+assignments found with some entries in the mailcap file).  Earlier
+patterns in the list are preferred to later ones, and matched patterns
+are preferred to unmatched ones.
+)
+kindex(mime-types, MIME style)
+item(tt(mime-types))(
+A list of files in the format of tt(~/.mime.types) and
+tt(/etc/mime.types) to be read during setup, replacing the default list
+which consists of those two files.  The context is tt(:mime:).
+A tt(PLUS()) in the list will be replaced by the default files.
+)
+kindex(never-background, MIME style)
+item(tt(never-background))(
+If this boolean style is set, the handler for the given context is
+always run in the foreground, even if the flags provided in the mailcap
+entry suggest it need not be (for example, it doesnʼt require a
+terminal).
+)
+kindex(pager, MIME style)
+item(tt(pager))(
 If set, will be used instead of tt($PAGER) or tt(more) to handle
 suffixes where the tt(copiousoutput) flag is set.  The context is
 as for tt(handler), i.e. tt(:mime:.)var(suffix)tt(:) for handling
@@ -1122,8 +1432,6 @@ As there are several steps to dispatching a command, the following
 should be checked if attempting to execute a file by extension
 tt(.)var(ext) does not have the expected effect.
 
-startitem()
-item()(
 The command `tt(alias -s) var(ext)' should show
 `tt(ps=zsh-mime-handler)'.  If it shows something else, another suffix
 alias was already installed and was not overwritten.  If it shows
@@ -1131,8 +1439,7 @@ nothing, no handler was installed:  this is most likely because no
 handler was found in the tt(.mime.types) and tt(mailcap) combination for
 tt(.ext) files.  In that case, appropriate handling should be added to
 tt(~/.mime.types) and tt(mailcap).
-)
-item()(
+
 If the extension is handled by tt(zsh-mime-handler) but the file is
 not opened correctly, either the handler defined for the type is
 incorrect, or the flags associated with it are in appropriate.  Running
@@ -1146,8 +1453,7 @@ An example of a suitable tt(mailcap) entry for such a program is:
 
 example(text/html; /usr/bin/lynx '%s'; needsterminal)
 )
-enditem()
-)
+findex(pick-web-browser)
 item(tt(pick-web-browser))(
 This function is separate from the two MIME functions described above
 and can be assigned directly to a suffix:
@@ -1156,28 +1462,76 @@ example(autoload -U pick-web-browser
 alias -s html=pick-web-browser)
 
 It is provided as an intelligent front end to dispatch a web browser.
-It will check if an X Windows display is available, and if so
-if there is already a browser running which can accept a remote
-connection.  In that case, the file will be displayed in that browser;
-you should check explicitly if it has appeared in the running browser's
-window.  Otherwise, it will start a new browser according to a builtin
-set of preferences.
+It may be run as either a function or a shell script.  The status
+255 is returned if no browser could be started.
 
-Alternatively, tt(pick-web-browser) can be run as a zsh script.
+Various styles are available to customize the choice of browsers:
 
-Two styles are available to customize the choice of browsers:
-tt(x-browsers) when running under the X Windows System, and
-tt(tty-browsers) otherwise.  These are arrays in decreasing order
-of preference consiting of the command name under which to start the
+startitem()
+item(tt(browser-style))(
+The value of the style is an array giving preferences in decreasing order
+for the type of browser to use.  The values of elements may be
+
+startitem()
+item(tt(running))(
+Use a GUI browser that is already running when an X Window display is
+available.  The browsers listed in the tt(x-browsers) style are tried
+in order until one is found; if it is, the file will be displayed in
+that browser, so the user may need to check whether it has appeared.
+If no running browser is found, one is not started.  Browsers other than
+Firefox, Opera and Konqueror are assumed to understand the Mozilla
+syntax for opening a URL remotely.
+)
+item(tt(x))(
+Start a new GUI browser when an X Window display is available.  Search for
+the availability of one of the browsers listed in the tt(x-browsers) style
+and start the first one that is found.  No check is made for an already
+running browser.
+)
+item(tt(tty))(
+Start a terminal-based browser.  Search for the availability of one
+of the browsers listed in the tt(tty-browsers) style and start the
+first one that is found.
+)
+enditem()
+
+If the style is not set the default tt(running x tty) is used.
+)
+item(tt(x-browsers))(
+An array in decreasing order
+of preference of browsers to use when running under the X Window System.
+The array consists of the command name under which to start the
 browser.  They are looked up in the context tt(:mime:) (which may
 be extended in future, so appending `tt(*)' is recommended).  For
 example,
 
-example(zstyle ':mime:*' x-browsers opera konqueror netscape)
+example(zstyle ':mime:*' x-browsers opera konqueror firefox)
 
 specifies that tt(pick-web-browser) should first look for a runing
-instance of Opera, Konqueror or Netscape, in that order, and if it
-fails to find any should attempt to start Opera.
+instance of Opera, Konqueror or Firefox, in that order, and if it
+fails to find any should attempt to start Opera.  The default is
+tt(firefox mozilla netscape opera konqueror).
+)
+item(tt(tty-browsers))(
+An array similar to tt(x-browsers), except that it gives browsers to
+use use when no X Window display is available.  The default is
+tt(elinks links lynx).
+)
+item(tt(command))(
+If it is set this style is used to pick the command
+used to open a page for a browser.  The context is
+tt(:mime:browser:new:$browser:) to start a new browser or
+tt(:mime:browser:running:$browser:) to open a URL in a browser already
+runing on the current X display, where tt($browser) is the value matched
+in the tt(x-browsers) or tt(tty-browsers) style.  The escape sequence
+tt(%b) in the style's value will be replaced by the browser, while tt(%u)
+will be replaced by the URL.  If the style is not set, the default for all
+new instances is equivalent to tt(%b %u) and the defaults for using running
+browsers are equivalent to the values tt(kfmclient openURL %u) for
+Konqueror, tt(firefox -new-tab %u) for Firefox, tt(opera -newpage %u)
+for Opera, and tt(%b -remote "openUrl+LPAR()%u+RPAR()") for all others.
+)
+enditem()
 )
 enditem()
 
@@ -1529,6 +1883,13 @@ sitem(tt(-o) var(optstring))(The var(optstring) is split into words and
 passed down verbatim to the tt(cp), tt(ln) or tt(mv) command called to
 perform the work.  It should probably begin with a `tt(-)'.)
 endsitem()
+
+Further examples:
+
+example(zmv -v '(* *)' '${1// /_}')
+
+For any file in the current directory with at least one space in the name,
+replace every space by an underscore and display the commands executed.
 
 For more complete examples and other implementation details, see the
 tt(zmv) source file, usually located in one of the directories named in

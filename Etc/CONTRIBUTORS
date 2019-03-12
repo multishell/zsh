@@ -20,6 +20,9 @@ Version 4.2
 
 The contributor list is similar to that for 4.1.1.
 
+Much of the work porting patches from the 4.3 to the 4.2 branch
+has been done by Paul Ackersviller <pda@sdf.lonestar.org>.
+
 Version 4.1.1
 -------------
 

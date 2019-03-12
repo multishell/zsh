@@ -196,6 +196,20 @@
 >* boringfile evenmoreboringfile boringfile evenmoreboringfile
 >boringfile evenmoreboringfile
 
+# The following tests a bug where globsubst didn't preserve
+# backslashes when printing out the original string.
+  str1='\\*\\'
+  (
+  setopt globsubst nonomatch
+  [[ \\\\ = $str1 ]] && print -r '\\ matched by' $str1
+  [[ \\foo\\ = $str1 ]] && print -r '\\foo matched by' $str1
+  [[ a\\b\\ = $str1 ]] || print -r 'a\\b not matched by' $str1
+  )
+0:globsubst with backslashes
+>\\ matched by \\*\\
+>\\foo matched by \\*\\
+>a\\b not matched by \\*\\
+
   print -l "${$(print one word)}" "${=$(print two words)}"
 0:splitting of $(...) inside ${...}
 >one word
@@ -638,3 +652,27 @@
   print "${${foo}/?*/replacement}"
 0:Quoted zero-length strings are handled properly
 >
+
+  file=aleftkept
+  print ${file//(#b)(*)left/${match/a/andsome}}
+  print ${file//(#b)(*)left/${match//a/andsome}}
+0:Substitutions where $match is itself substituted in the replacement
+>andsomekept
+>andsomekept
+
+  x=sprodj
+  x[-10]=scrumf
+  print $x
+0:Out of range negative scalar subscripts
+>scrumfsprodj
+
+  a=(some sunny day)
+  a[-10]=(we\'ll meet again)
+  print -l $a
+0:Out of range negative array subscripts
+>we'll
+>meet
+>again
+>some
+>sunny
+>day

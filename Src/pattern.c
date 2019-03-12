@@ -193,8 +193,12 @@ typedef union upat *Upat;
 #define PP_SPACE  11
 #define PP_UPPER  12
 #define PP_XDIGIT 13
-#define PP_UNKWN  14
-#define PP_RANGE  15
+#define PP_IDENT  14
+#define PP_IFS    15
+#define PP_IFSSPACE   16
+#define PP_WORD   17
+#define PP_UNKWN  18
+#define PP_RANGE  19
 
 #define	P_OP(p)		((p)->l & 0xff)
 #define	P_NEXT(p)	((p)->l >> 8)
@@ -256,13 +260,13 @@ static char endseg[] = {
 
 static char endstr[] = {
     '/',			/* file only */
-    '\0', Bar, Outpar, Quest, Star, Inbrack, Inpar, Inang,
+    '\0', Bar, Outpar, Quest, Star, Inbrack, Inpar, Inang, Bnullkeep,
 				/* all patterns */
     Tilde, Hat, Pound		/* extended glob only */
 };
 
-#define PATENDSTRLEN_NORM 9
-#define PATENDSTRLEN_EXT  12
+#define PATENDSTRLEN_NORM 10
+#define PATENDSTRLEN_EXT  13
 
 
 /* Default size for pattern buffer */
@@ -1118,6 +1122,14 @@ patcomppiece(int *flagp)
 			    ch = PP_UPPER;
 			else if (!strncmp(patparse, "xdigit", len))
 			    ch = PP_XDIGIT;
+			else if (!strncmp(patparse, "IDENT", len))
+			    ch = PP_IDENT;
+			else if (!strncmp(patparse, "IFS", len))
+			    ch = PP_IFS;
+			else if (!strncmp(patparse, "IFSSPACE", len))
+			    ch = PP_IFSSPACE;
+			else if (!strncmp(patparse, "WORD", len))
+			    ch = PP_WORD;
 			else
 			    ch = PP_UNKWN;
 			patparse = nptr + 2;
@@ -1227,6 +1239,13 @@ patcomppiece(int *flagp)
 	     * repeatable.
 	     */
 	    return 0;
+	    break;
+	case Bnullkeep:
+	    /*
+	     * Marker for restoring a backslash in output:
+	     * does not match a character.
+	     */
+	    return patcomppiece(flagp);
 	    break;
 #ifdef DEBUG
 	default:
@@ -2722,6 +2741,22 @@ patmatchrange(char *range, int ch)
 		break;
 	    case PP_XDIGIT:
 		if (isxdigit(ch))
+		    return 1;
+		break;
+	    case PP_IDENT:
+		if (iident(ch))
+		    return 1;
+		break;
+	    case PP_IFS:
+		if (isep(ch))
+		    return 1;
+		break;
+	    case PP_IFSSPACE:
+		if (iwsep(ch))
+		    return 1;
+		break;
+	    case PP_WORD:
+		if (iword(ch))
 		    return 1;
 		break;
 	    case PP_RANGE:

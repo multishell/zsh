@@ -318,8 +318,14 @@ mod_export int
 reversemenucomplete(char **args)
 {
     wouldinstab = 0;
-    if (!menucmp)
-	return menucomplete(args);
+    if (!menucmp) {
+	menucomplete(args);
+	/*
+	 * Drop through, since we are now on the first item instead of
+	 * the last.  We've already updated the display, so this is a
+	 * bit inefficient, but it's simple and it works.
+	 */
+    }
 
     runhookdef(REVERSEMENUHOOK, NULL);
     return 0;
@@ -1434,6 +1440,13 @@ get_comp_string(void)
                     *q = Bnull;
         }
     }
+    /*
+     * Leading "=" gets tokenized in case the EQUALS options
+     * changes afterwards.  It's too late for that now, so restore it
+     * to a plain "=" if the option is unset.
+     */
+    if (*s == Equals && !isset(EQUALS))
+	*s = '=';
     /* While building the quoted form, we also clean up the command line. */
     for (p = s, i = wb, j = 0; *p; p++, i++)
 	if (INULL(*p)) {
@@ -2359,9 +2372,12 @@ int
 processcmd(UNUSED(char **args))
 {
     char *s;
-    int m = zmult;
+    int m = zmult, na = noaliases;
 
+    if (!strcmp(bindk->nam, "which-command"))
+	noaliases = 1;
     s = getcurcmd();
+    noaliases = na;
     if (!s)
 	return 1;
     zmult = 1;

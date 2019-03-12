@@ -712,8 +712,7 @@ zfgetmsg(void)
 
     zfgetline(line, 256, tmout);
     ptr = line;
-    if (zfdrrrring || !isdigit(STOUC(*ptr)) || !isdigit(STOUC(ptr[1])) || 
-	!isdigit(STOUC(ptr[2]))) {
+    if (zfdrrrring || !idigit(*ptr) || !idigit(ptr[1]) || !idigit(ptr[2])) {
 	/* timeout, or not talking FTP.  not really interested. */
 	zcfinish = 2;
 	if (!zfclosing)
@@ -913,7 +912,7 @@ zfopendata(char *name, union tcp_sockaddr *zdsockp, int *is_passivep)
 		goto bad_epsv;
 	    while(ptr != end && *ptr == '0')
 		ptr++;
-	    if(ptr == end || (end-ptr) > 5 || !isdigit(STOUC(*ptr)))
+	    if(ptr == end || (end-ptr) > 5 || !idigit(*ptr))
 		goto bad_epsv;
 	    memcpy(portbuf, ptr, (end-ptr));
 	    portbuf[end-ptr] = 0;
@@ -936,7 +935,7 @@ zfopendata(char *name, union tcp_sockaddr *zdsockp, int *is_passivep)
 	     * lastmsg already has the reply code expunged.
 	     */
 	    for (ptr = lastmsg; *ptr; ptr++)
-		if (isdigit(STOUC(*ptr)))
+		if (idigit(*ptr))
 		    break;
 	    if (sscanf(ptr, "%d,%d,%d,%d,%d,%d",
 		       nums, nums+1, nums+2, nums+3, nums+4, nums+5) != 6) {
@@ -1102,11 +1101,11 @@ zfgetdata(char *name, char *rest, char *cmd, int getsize)
 	char *ptr = strstr(lastmsg, "bytes");
 	zfstatusp[zfsessno] |= ZFST_NOSZ|ZFST_TRSZ;
 	if (ptr) {
-	    while (ptr > lastmsg && !isdigit(STOUC(*ptr)))
+	    while (ptr > lastmsg && !idigit(*ptr))
 		ptr--;
-	    while (ptr > lastmsg && isdigit(STOUC(ptr[-1])))
+	    while (ptr > lastmsg && idigit(ptr[-1]))
 		ptr--;
-	    if (isdigit(STOUC(*ptr))) {
+	    if (idigit(*ptr)) {
 		zfstatusp[zfsessno] &= ~ZFST_NOSZ;
 		if (getsize) {
 		    off_t sz = zstrtol(ptr, NULL, 10);
@@ -2168,7 +2167,7 @@ zftp_login(char *name, char **args, UNUSED(int flags))
 	    else
 		acct = zfgetinfo("Account: ", 0);
 	    zsfree(ucmd);
-	    ucmd = tricat("ACCT ", passwd, "\r\n");
+	    ucmd = tricat("ACCT ", acct, "\r\n");
 	    if (zfsendcmd(ucmd) == 6)
 		stopit = 2;
 	    break;

@@ -129,6 +129,13 @@ zz_plural_z_alpha(void)
 void
 zerrmsg(const char *fmt, const char *str, int num)
 {
+#ifdef HAVE_STRERROR_R
+#define ERRBUFSIZE (80)
+    int olderrno;
+    char errbuf[ERRBUFSIZE];
+#endif
+    char *errmsg;
+
     if ((unset(SHINSTDIN) || locallevel) && lineno)
 	fprintf(stderr, "%ld: ", (long)lineno);
     else
@@ -166,12 +173,12 @@ zerrmsg(const char *fmt, const char *str, int num)
 		    errflag = 1;
 		    return;
 		}
+		errmsg = strerror(num);
 		/* If the message is not about I/O problems, it looks better *
 		 * if we uncapitalize the first letter of the message        */
 		if (num == EIO)
-		    fputs(strerror(num), stderr);
+		    fputs(errmsg, stderr);
 		else {
-		    char *errmsg = strerror(num);
 		    fputc(tulower(errmsg[0]), stderr);
 		    fputs(errmsg + 1, stderr);
 		}
@@ -1078,10 +1085,11 @@ movefd(int fd)
     if(fd != -1) {
 	if (fd > max_zsh_fd) {
 	    while (fd >= fdtable_size)
-		fdtable = zrealloc(fdtable, (fdtable_size *= 2));
+		fdtable = zrealloc(fdtable,
+				   (fdtable_size *= 2)*sizeof(*fdtable));
 	    max_zsh_fd = fd;
 	}
-	fdtable[fd] = 1;
+	fdtable[fd] = FDT_INTERNAL;
     }
     return fd;
 }
@@ -1096,7 +1104,7 @@ redup(int x, int y)
 	zclose(y);
     else if (x != y) {
 	while (y >= fdtable_size)
-	    fdtable = zrealloc(fdtable, (fdtable_size *= 2));
+	    fdtable = zrealloc(fdtable, (fdtable_size *= 2)*sizeof(*fdtable));
 	dup2(x, y);
 	if ((fdtable[y] = fdtable[x]) && y > max_zsh_fd)
 	    max_zsh_fd = y;
@@ -1111,8 +1119,8 @@ mod_export int
 zclose(int fd)
 {
     if (fd >= 0) {
-	fdtable[fd] = 0;
-	while (max_zsh_fd > 0 && !fdtable[max_zsh_fd])
+	fdtable[fd] = FDT_UNUSED;
+	while (max_zsh_fd > 0 && fdtable[max_zsh_fd] == FDT_UNUSED)
 	    max_zsh_fd--;
 	if (fd == coprocin)
 	    coprocin = -1;
@@ -1844,7 +1852,7 @@ ztrftime(char *buf, int bufsize, char *fmt, struct tm *tm)
 	     * Fix up some longer cases specially when we get to them.
 	     */
 	    if (ztrftimebuf(&bufsize, 2))
-		return 0;
+		return -1;
 	    switch (*fmt++) {
 	    case 'd':
 		*buf++ = '0' + tm->tm_mday / 10;
@@ -1902,12 +1910,12 @@ ztrftime(char *buf, int bufsize, char *fmt, struct tm *tm)
 #ifndef HAVE_STRFTIME
 	    case 'a':
 		if (ztrftimebuf(&bufsize, strlen(astr[tm->tm_wday]) - 2))
-		    return 0;
+		    return -1;
 		strucpy(&buf, astr[tm->tm_wday]);
 		break;
 	    case 'b':
 		if (ztrftimebuf(&bufsize, strlen(estr[tm->tm_mon]) - 2))
-		    return 0;
+		    return -1;
 		strucpy(&buf, estr[tm->tm_mon]);
 		break;
 	    case 'p':
@@ -1942,7 +1950,7 @@ ztrftime(char *buf, int bufsize, char *fmt, struct tm *tm)
 	    }
 	} else {
 	    if (ztrftimebuf(&bufsize, 1))
-		return 0;
+		return -1;
 	    *buf++ = *fmt++;
 	}
     *buf = '\0';
@@ -3492,21 +3500,22 @@ ucs4toutf8(char *dest, unsigned int wval)
 
 /*
  * Decode a key string, turning it into the literal characters.
- * The length is returned in len.
- * fromwhere determines how the processing works.
+ * The length is (usually) returned in *len.
+ * fromwhere determines how the processing works:
  *   0:  Don't handle keystring, just print-like escapes.
- *       Expects misc to be present.
- *   1:  Handle Emacs-like \C-X arguments etc., but not ^X
- *       Expects misc to be present.
+ *       If a \c escape is seen, *misc is set to 1.
+ *   1:  Handle Emacs-like \C-X arguments etc., but not ^X.
+ *       If a \c escape is seen, *misc is set to 1.
  *   2:  Handle ^X as well as emacs-like keys; don't handle \c
- *       for no newlines.
- *   3:  As 1, but don't handle \c.
+ *       (the misc arg is not used).
+ *   3:  As 1, but don't handle \c (the misc arg is not used).
  *   4:  Do $'...' quoting.  Overwrites the existing string instead of
  *       zhalloc'ing. If \uNNNN ever generates multi-byte chars longer
  *       than 6 bytes, will need to adjust this to re-allocate memory.
- *   5:  As 2, but \- is special.  Expects misc to be defined.
- *   6:  As 2, but parses only one character and returns end-pointer
- *       and parsed character in *misc
+ *   5:  As 2, but \- is special. If \- is seen, *misc is set to 1.
+ *   6:  As 2, but parses only one character: returns a pointer to the
+ *       next character and puts the parsed character into *misc (the
+ *       len arg is not used).
  */
 
 /**/
@@ -3523,10 +3532,12 @@ getkeystring(char *s, int *len, int fromwhere, int *misc)
     size_t count;
 #else
     unsigned int wval;
-# if defined(HAVE_NL_LANGINFO) && defined(CODESET) && defined(HAVE_ICONV)
+# if defined(HAVE_NL_LANGINFO) && defined(CODESET)
+#  if defined(HAVE_ICONV)
     iconv_t cd;
     char inbuf[4];
     size_t inbytes, outbytes;
+#  endif
     size_t count;
 # endif
 #endif
@@ -3572,6 +3583,7 @@ getkeystring(char *s, int *len, int fromwhere, int *misc)
 		    *t++ = '\\', s--;
 		    continue;
 		}
+		/* FALL THROUGH */
 	    case 'e':
 		*t++ = '\033';
 		break;
@@ -3603,8 +3615,11 @@ getkeystring(char *s, int *len, int fromwhere, int *misc)
 	    case 'c':
 		if (fromwhere < 2) {
 		    *misc = 1;
-		    break;
+		    *t = '\0';
+		    *len = t - buf;
+		    return buf;
 		}
+		goto def;
 	    case 'u':
 	    case 'U':
 	    	wval = 0;

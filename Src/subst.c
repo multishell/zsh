@@ -1232,6 +1232,13 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 		    sep = "\n";
 		    break;
 
+		case '0':
+		    spsep = zhalloc(3);
+		    spsep[0] = Meta;
+		    spsep[1] = '\0' ^ 32;
+		    spsep[2] = '\0';
+		    break;
+
 		case 's':
 		    tt = 1;
 		/* fall through */
@@ -1945,7 +1952,7 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int ssub)
 	     */
 	    for (ptr = s; (c = *ptr) && c != '/'; ptr++)
 	    {
-		if ((c == Bnull || c == '\\') && ptr[1])
+		if ((c == Bnull || c == Bnullkeep || c == '\\') && ptr[1])
 		{
 		    if (ptr[1] == '/')
 			chuck(ptr);
@@ -2846,11 +2853,11 @@ modify(char **str, char **ptr)
 		}
 		zsfree(hsubr);
 		for (tt = hsubl; *tt; tt++)
-		    if (INULL(*tt))
+		    if (INULL(*tt) && *tt != Bnullkeep)
 			chuck(tt--);
 		untokenize(hsubl);
 		for (tt = hsubr = ztrdup(ptr2); *tt; tt++)
-		    if (INULL(*tt))
+		    if (INULL(*tt) && *tt != Bnullkeep)
 			chuck(tt--);
 		ptr2[-1] = del;
 		if (sav)

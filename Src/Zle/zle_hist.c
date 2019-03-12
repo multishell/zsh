@@ -1074,6 +1074,7 @@ getvisrchstr(void)
 
     if (vipenultsrchstr) {
 	zsfree(vipenultsrchstr);
+	vipenultsrchstr = NULL;
     }
 
     if (visrchstr) {

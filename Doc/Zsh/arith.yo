@@ -12,7 +12,8 @@ integers, the shell is usually compiled to use 8-byte precision where this
 is available, otherwise precision is 4 bytes.  This can be tested, for
 example, by giving the command `tt(print - $(( 12345678901 )))'; if the
 number appears unchanged, the precision is at least 8 bytes.  Floating
-point arithmetic is always double precision.
+point arithmetic always uses the `double' type with whatever corresponding
+precision is provided by the compiler and the library.
 
 The tt(let) builtin command takes arithmetic expressions as arguments; each
 is evaluated separately.  Since many of the arithmetic operators, as well
@@ -21,7 +22,10 @@ command which begins with a `tt(LPAR()LPAR())', all the characters until a
 matching `tt(RPAR()RPAR())' are treated as a quoted expression and
 arithmetic expansion performed as for an argument of tt(let).  More
 precisely, `tt(LPAR()LPAR())var(...)tt(RPAR()RPAR())' is equivalent to
-`tt(let ")var(...)tt(")'.  For example, the following statement
+`tt(let ")var(...)tt(")'.  The return status is 0 if the arithmetic value
+of the expression is non-zero, 1 if it is zero, and 2 if an error occurred.
+
+For example, the following statement
 
 example((( val = 2 + 1 )))
 

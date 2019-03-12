@@ -34,38 +34,68 @@ _svn () {
         )
 
         case $cmd in;
-          add)
+          (add)
             args+=(
               '*:file:_files -g "*(^e:_svn_controlled:)"'
             )
           ;;
-          commit)
-            args+=(
+          (commit)
+            args=(
+	      ${args/(#b)(*--file*):arg:/$match[1]:file:_files}
               '*:file:_files -g "*(e:_svn_status:)"'
             )
           ;;
-          delete)
+          (delete)
             args+=(
               '*:file:_files -g ".svn(/e:_svn_deletedfiles:)"'
             )
           ;;
-          help)
+          (diff)
+            args+=(
+	      '*: : _alternative "files:file:_files -g \*\(e:_svn_status:\)" "urls:URL:_svn_urls"'
+	    )
+          ;;
+          (help)
             args+=(
               '*::sub command:_svn_commands'
             )
+	  ;;
+	  (import)
+	    args+=(
+		'1:project directory or import location: _alternative "files:file:_files" "urls:URL:_svn_urls"'
+		'2:import location: _alternative "files:file:_files" "urls:URL:_svn_urls"'
+	    )
           ;;
-          log)
+          (log)
             args+=(
               '1: : _alternative "files:file:_files -g \*\(e:_svn_controlled:\)" "urls:URL:_svn_urls"'
 	      '*:file:_files -g "*(e:_svn_controlled:)"'
             )
           ;;
-          revert)
+	  (propget|propedit)
+	    args+=(
+		'1:property name:_svn_props'
+		'2:target: _alternative "files:file:_files" "urls:URL:_svn_urls"'
+	    )
+	  ;;
+	  (propset)
+	    args=(
+	    ':propname:(svn:ignore svn:keywords svn:executable svn:eol-style svn:mime-type svn:externals svn:needs-lock)'
+	    ${args/(#b)(*--file*):arg:/$match[1]:file:_files}
+	    '*:path or url: _alternative "files:file:_files" "urls:URL:_svn_urls"'
+	    )
+	  ;;
+          (resolved)
+            args+=(
+              '*:file:_files -g "*(e:_svn_conflicts:)"'
+            )
+          ;;
+          (revert)
             args+=(
               '*:file:_files -g "(.svn|*)(/e:_svn_deletedfiles:,e:_svn_status:)"'
             )
           ;;
-          *)
+          (*)
             case $usage in
               *(SRC|DST|TARGET|URL*PATH)*)
                 args+=(
@@ -141,6 +171,11 @@ _svn_controlled() {
   [[ -f ${(M)REPLY##*/}.svn/text-base/${REPLY##*/}.svn-base ]]
 }
 
+(( $+functions[_svn_conflicts] )) ||
+_svn_conflicts() {
+  [ -n $REPLY.(mine|r<->)(N[1]) ]
+}
+
 (( $+functions[_svn_deletedfiles] )) ||
 _svn_deletedfiles() {
   # Typical usage would be _files -g '.svn(/e:_svn_deletedfiles:)'
@@ -167,15 +202,32 @@ _svn_status() {
 
 (( $+functions[_svn_urls] )) ||
 _svn_urls() {
-  local expl
+  local expl remfiles remdispf remdispd suf ret=1
 
-  if [[ -prefix *: ]]; then
-    _urls
+  if [[ -prefix *: ]] && ! _urls &&
+      zstyle -T ":completion:${curcontext}:" remote-access
+  then
+    remfiles=( ${(f)"$(svn list $IPREFIX${PREFIX%%[^./][^/]#} 2>/dev/null)"} )
+    compset -P '*/'
+    compset -S '/*' || suf=file
+    remdispf=(${remfiles:#*/})
+    remdispd=(${(M)remfiles:#*/})
+    _tags files
+    while _tags; do
+      while _next_label files expl ${suf:-directory}; do
+        [[ -n $suf ]] && compadd "$@" "$expl[@]" -d remdispf $remdispf && ret=0
+        compadd ${suf:+-S/} "$@" "$expl[@]" -d remdispd \
+            ${remdispd%/} && ret=0
+      done
+      (( ret )) || return 0
+    done
   else
     compset -S '[^:]*'
     _wanted url-schemas expl 'URL schema' compadd -S '' - \
-        file:// http:// https:// svn:// svn+ssh://
+        file:// http:// https:// svn:// svn+ssh:// && ret=0
   fi
+  
+  return ret
 }
 
 (( $+functions[_svn_commands] )) ||
@@ -186,6 +238,14 @@ _svn_commands() {
 (( $+functions[_svnadmin_command] )) ||
 _svnadmin_commands() {
   compadd "$@" -k _svnadmin_cmds || compadd "$@" ${(s.:.)_svnadmin_cmds}
+}
+
+(( $+functions[_svn_props] )) ||
+_svn_props() {
+  local properties
+
+  properties=( ${${(M)${(f)"$(svn proplist 2>/dev/null)"}:#  [^ ]*}#  } )
+  compadd "$@" -a properties && return 0
 }
 
 _subversion () {

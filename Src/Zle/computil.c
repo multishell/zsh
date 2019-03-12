@@ -2285,6 +2285,7 @@ bin_comparguments(char *nam, char **args, UNUSED(Options ops), UNUSED(int func))
     case 'M': min = 1; max =  1; break;
     case 'a': min = 0; max =  0; break;
     case 'W': min = 2; max =  2; break;
+    case 'n': min = 1; max =  1; break;
     default:
 	zwarnnam(nam, "invalid option: %s", args[0], 0);
 	return 1;
@@ -2579,6 +2580,20 @@ bin_comparguments(char *nam, char **args, UNUSED(Options ops), UNUSED(int func))
 	    sethparam(args[2], ret);
 	}
 	return 0;
+    case 'n':
+	/*
+	 * This returns the array index of the word where normal
+	 * arguments began.  It uses optbeg rather than nargbeg
+	 * (the value used when parsing) because nargbeg is assigned
+	 * to optbeg in the returned value and nargbeg isn't
+	 * used.
+	 *
+	 * -->PLEASE DON'T ASK<--
+	 *
+	 * Thank you.
+	 */
+	setiparam(args[1], (zlong)ca_laststate.optbeg + !isset(KSHARRAYS));
+	return 0;
     }
     return 1;
 }
@@ -2660,7 +2675,8 @@ parse_cvdef(char *nam, char **args)
     char **oargs = args, sep = '\0', asep = '=', *name, *descr, *p, *q, **xor, c;
     int xnum, multi, vtype, hassep = 0, words = 0;
 
-    while (args[0][0] == '-' &&
+    while (args && args[0] && args[1] &&
+           args[0][0] == '-' &&
            (args[0][1] == 's' || args[0][1] == 'S' || args[0][1] == 'w') &&
            !args[0][2]) {
 
@@ -4153,14 +4169,20 @@ cfp_add_sdirs(LinkList final, LinkList orig, char *skipped,
 	char *m, *f, *p, *t, *a, c;
 	int sl = strlen(skipped) + 1;
 	struct stat st1, st2;
+	Patprog pprog;
 
 	for (; (f = *fake); fake++) {
 	    f = dupstring(f);
 	    for (p = t = f; *p; p++) {
 		if (*p == ':')
 		    break;
-		else if (*p == '\\' && p[1])
+		else if (*p == '\\' && p[1] == ':') {
+		    /*
+		     * strip quoted colons here; rely
+		     * on tokenization to strip other backslashes
+		     */
 		    p++;
+		}
 		*t++ = *p;
 	    }
 	    if (*p) {
@@ -4168,9 +4190,12 @@ cfp_add_sdirs(LinkList final, LinkList orig, char *skipped,
 		if (!*p)
 		    continue;
 
+		tokenize(f);
+		pprog = patcompile(f, PAT_STATIC, NULL);
+		untokenize(f);
 		for (node = firstnode(orig); node; incnode(node)) {
 		    if ((m = (char *) getdata(node)) &&
-			(!strcmp(f, m) ||
+			((pprog ? pattry(pprog, m) : !strcmp(f, m)) ||
 			 (!stat(f, &st1) && !stat((*m ? m : "."), &st2) &&
 			  st1.st_dev == st2.st_dev &&
 			  st1.st_ino == st2.st_ino))) {

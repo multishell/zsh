@@ -169,25 +169,31 @@ cindex(subscript flags)
 If the opening bracket, or the comma in a range, in any subscript
 expression is directly followed by an opening parenthesis, the string up
 to the matching closing one is considered to be a list of flags, as in
-`var(name)tt([LPAR())var(flags)tt(RPAR())var(exp)tt(])'.  The flags
-currently understood are:
+`var(name)tt([LPAR())var(flags)tt(RPAR())var(exp)tt(])'.
+
+The flags tt(s), tt(n) and tt(b) take an argument; the delimiter
+is shown below as `tt(:)', but any character, or the matching pairs
+`tt(LPAR())...tt(RPAR())', `tt({)...tt(})', `tt([)...tt(])', or
+`tt(<)...tt(>)', may be used.
+
+The flags currently understood are:
 
 startitem()
 item(tt(w))(
-If the parameter subscripted is a scalar than this flag makes
+If the parameter subscripted is a scalar then this flag makes
 subscripting work on words instead of characters.  The default word
 separator is whitespace.
 )
 item(tt(s:)var(string)tt(:))(
 This gives the var(string) that separates words (for use with the
-tt(w) flag).
+tt(w) flag).  The delimiter character tt(:) is arbitrary; see above.
 )
 item(tt(p))(
 Recognize the same escape sequences as the tt(print) builtin in
 the string argument of a subsequent `tt(s)' flag.
 )
 item(tt(f))(
-If the parameter subscripted is a scalar than this flag makes
+If the parameter subscripted is a scalar then this flag makes
 subscripting work on lines instead of characters, i.e. with elements
 separated by newlines.  This is a shorthand for `tt(pws:\n:)'.
 )
@@ -201,11 +207,30 @@ is the number of the matching element, so that pairs of subscripts such as
 possible if the parameter is not an associative array.  If the
 parameter is an associative array, only the value part of each pair is
 compared to the pattern, and the result is that value.
+
+If a search through an ordinary array failed, the search sets the
+subscript to one past the end of the array, and hence
+tt(${array[(r)pattern]}) will substitute the empty string.  Thus the
+success of a search can be tested by using the tt((i)) flag, for
+example (assuming the option tt(KSH_ARRAYS) is not in effect):
+
+example([[ ${array[(i)pattern]} -le ${#array} ]])
+
+If tt(KSH_ARRAYS) is in effect, the tt(-le) should be replaced by tt(-lt).
 )
 item(tt(R))(
 Like `tt(r)', but gives the last match.  For associative arrays, gives
 all possible matches. May be used for assigning to ordinary array
 elements, but not for assigning to associative arrays.
+
+Note that this flag can give odd results on failure.  For an ordinary array
+the item substituted is that corresponding to subscript 0.  If the option
+tt(KSH_ARRAYS) is not in effect, this is the same as the element
+corresponding to subscript 1, although the form tt(${array[(I)pattern]})
+will evaluate to 0 for a failed match.  If the option tt(KSH_ARRAYS) is in
+effect, the subscript is still 0 for a failed match; this cannot be
+distinguished from a successful match without testing tt(${array[0]})
+against the pattern.
 )
 item(tt(i))(
 Like `tt(r)', but gives the index of the match instead; this may not be
@@ -213,10 +238,14 @@ combined with a second argument.  On the left side of an assignment,
 behaves like `tt(r)'.  For associative arrays, the key part of each pair
 is compared to the pattern, and the first matching key found is the
 result.
+
+See `tt(r)' for discussion of subscripts of failed matches.
 )
 item(tt(I))(
 Like `tt(i)', but gives the index of the last match, or all possible
 matching keys in an associative array.
+
+See `tt(R)' for discussion of subscripts of failed matches.
 )
 item(tt(k))(
 If used in a subscript on an associative array, this flag causes the keys
@@ -234,11 +263,13 @@ item(tt(n:)var(expr)tt(:))(
 If combined with `tt(r)', `tt(R)', `tt(i)' or `tt(I)', makes them give
 the var(n)th or var(n)th last match (if var(expr) evaluates to
 var(n)).  This flag is ignored when the array is associative.
+The delimiter character tt(:) is arbitrary; see above.
 )
 item(tt(b:)var(expr)tt(:))(
 If combined with `tt(r)', `tt(R)', `tt(i)' or `tt(I)', makes them begin
 at the var(n)th or var(n)th last element, word, or character (if var(expr)
 evaluates to var(n)).  This flag is ignored when the array is associative.
+The delimiter character tt(:) is arbitrary; see above.
 )
 item(tt(e))(
 This flag has no effect and for ordinary arrays is retained for backward
@@ -434,7 +465,8 @@ The following parameters are automatically set by the shell:
 startitem()
 vindex(!)
 item(tt(!) <S>)(
-The process ID of the last background command invoked.
+The process ID of the last command started in the background with tt(&),
+or put into the background with the tt(bg) builtin.
 )
 vindex(#)
 item(tt(#) <S>)(
@@ -450,7 +482,10 @@ Same as tt(#).
 )
 vindex($)
 item(tt($) <S>)(
-The process ID of this shell.
+The process ID of this shell.  Note that this indicates the original
+shell started by invoking tt(zsh); all processes forked from the shells
+without executing a new program, such as subshells started by
+tt(LPAR())var(...)tt(RPAR()), substitute the same value.
 )
 vindex(-)
 item(tt(-) <S>)(
@@ -475,7 +510,7 @@ Same as tt(argv[@]), even when tt(argv) is not set.
 )
 vindex(?)
 item(tt(?) <S>)(
-The exit value returned by the last command.
+The exit status returned by the last command.
 )
 vindex(0)
 item(tt(0) <S>)(
@@ -489,7 +524,7 @@ Same as tt(?).
 )
 vindex(pipestatus)
 item(tt(pipestatus) <S> <Z>)(
-An array containing the exit values returned by all commands in the
+An array containing the exit statuses returned by all commands in the
 last pipeline.
 )
 vindex(_)
@@ -586,7 +621,9 @@ The operating system, as determined at compile time.
 )
 vindex(PPID)
 item(tt(PPID) <S>)(
-The process ID of the parent of the shell.
+The process ID of the parent of the shell.  As for tt($$), the
+value indicates the parent of the original shell and does not
+change in subshells.
 )
 vindex(PWD)
 item(tt(PWD))(
@@ -614,8 +651,12 @@ since the assignment.
 Unlike other special parameters, the type of the tt(SECONDS) parameter can
 be changed using the tt(typeset) command.  Only integer and one of the
 floating point types are allowed.  For example, `tt(typeset -F SECONDS)'
-causes the value to be reported as a floating point number.  The precision
-is six decimal places, although not all places may be useful.
+causes the value to be reported as a floating point number.  The
+value is available to microsecond accuracy, although the shell may
+show more or fewer digits depending on the use of tt(typeset).  See
+the documentation for the builtin tt(typeset) in
+ifzman(zmanref(zshbuiltins))\
+ifnzman(noderef(Shell Builtin Commands)) for more details.
 )
 vindex(SHLVL)
 item(tt(SHLVL) <S>)(

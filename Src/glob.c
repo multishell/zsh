@@ -180,7 +180,6 @@ static struct globdata curglobdata;
     memcpy(&(N), &curglobdata, sizeof(struct globdata)); \
     (N).gd_pathpos = pathpos; \
     (N).gd_pathbuf = pathbuf; \
-    (N).gd_pathbufsz = 0; \
     (N).gd_glob_pre = glob_pre; \
     (N).gd_glob_suf = glob_suf; \
     pathbuf = NULL; \
@@ -260,8 +259,10 @@ statfullpath(const char *s, struct stat *st, int l)
 	l = 0;
     }
     unmetafy(buf, NULL);
-    if (!st)
-	return access(buf, F_OK) && (!l || readlink(buf, NULL, 0));
+    if (!st) {
+	char lbuf[1];
+	return access(buf, F_OK) && (!l || readlink(buf, lbuf, 1) < 0);
+    }
     return l ? lstat(buf, st) : stat(buf, st);
 }
 
@@ -1920,7 +1921,7 @@ xpandbraces(LinkList list, LinkNode *np)
 	}
 	pl = str - str3;
 	len = pl + strlen(++str2) + 2;
-	for (p = ccl + 255; p-- > ccl;)
+	for (p = ccl + 256; p-- > ccl;)
 	    if (*p) {
 		c1 = p - ccl;
 		if (imeta(c1)) {
@@ -1999,15 +2000,6 @@ struct repldata {
 };
 typedef struct repldata *Repldata;
 
-/*
- * List of bits of matches to concatenate with replacement string.
- * The data is a struct repldata.  It is not used in cases like
- * ${...//#foo/bar} even though SUB_GLOBAL is set, since the match
- * is anchored.  It goes on the heap.
- */
-
-static LinkList repllist;
-
 /* Having found a match in getmatch, decide what part of string
  * to return.  The matched part starts b characters into string s
  * and finishes e characters in: 0 <= b <= e <= strlen(s)
@@ -2019,7 +2011,8 @@ static LinkList repllist;
 
 /**/
 static char *
-get_match_ret(char *s, int b, int e, int fl, char *replstr)
+get_match_ret(char *s, int b, int e, int fl, char *replstr,
+	      LinkList repllist)
 {
     char buf[80], *r, *p, *rr;
     int ll = 0, l = strlen(s), bl = 0, t = 0, i;
@@ -2229,8 +2222,13 @@ igetmatch(char **sp, Patprog p, int fl, int n, char *replstr)
      * lengths.
      */
     int ioff, l = strlen(*sp), uml = ztrlen(*sp), matched = 1, umlen;
-
-    repllist = NULL;
+    /*
+     * List of bits of matches to concatenate with replacement string.
+     * The data is a struct repldata.  It is not used in cases like
+     * ${...//#foo/bar} even though SUB_GLOBAL is set, since the match
+     * is anchored.  It goes on the heap.
+     */
+    LinkList repllist = NULL;
 
     /* perform must-match test for complex closures */
     if (p->mustoff)
@@ -2253,7 +2251,7 @@ igetmatch(char **sp, Patprog p, int fl, int n, char *replstr)
 
     if (fl & SUB_ALL) {
 	int i = matched && pattry(p, s);
-	*sp = get_match_ret(*sp, 0, i ? l : 0, fl, i ? replstr : 0);
+	*sp = get_match_ret(*sp, 0, i ? l : 0, fl, i ? replstr : 0, repllist);
 	if (! **sp && (((fl & SUB_MATCH) && !i) || ((fl & SUB_REST) && i)))
 	    return 0;
 	return 1;
@@ -2282,7 +2280,7 @@ igetmatch(char **sp, Patprog p, int fl, int n, char *replstr)
 			}
 		    }
 		}
-		*sp = get_match_ret(*sp, 0, mlen, fl, replstr);
+		*sp = get_match_ret(*sp, 0, mlen, fl, replstr, repllist);
 		return 1;
 	    }
 	    break;
@@ -2297,7 +2295,7 @@ igetmatch(char **sp, Patprog p, int fl, int n, char *replstr)
 		    t--;
 		set_pat_start(p, t-s);
 		if (pattrylen(p, t, s + l - t, umlen, ioff)) {
-		    *sp = get_match_ret(*sp, t - s, l, fl, replstr);
+		    *sp = get_match_ret(*sp, t - s, l, fl, replstr, repllist);
 		    return 1;
 		}
 		if (t > s+1 && t[-2] == Meta)
@@ -2313,7 +2311,7 @@ igetmatch(char **sp, Patprog p, int fl, int n, char *replstr)
 		 ioff++, METAINC(t), umlen--) {
 		set_pat_start(p, t-s);
 		if (pattrylen(p, t, s + l - t, umlen, ioff)) {
-		    *sp = get_match_ret(*sp, t-s, l, fl, replstr);
+		    *sp = get_match_ret(*sp, t-s, l, fl, replstr, repllist);
 		    return 1;
 		}
 		if (*t == Meta)
@@ -2325,7 +2323,7 @@ igetmatch(char **sp, Patprog p, int fl, int n, char *replstr)
 	    /* Smallest at start, but matching substrings. */
 	    set_pat_start(p, l);
 	    if (!(fl & SUB_GLOBAL) && pattry(p, s + l) && !--n) {
-		*sp = get_match_ret(*sp, 0, 0, fl, replstr);
+		*sp = get_match_ret(*sp, 0, 0, fl, replstr, repllist);
 		return 1;
 	    } /* fall through */
 	case (SUB_SUBSTR|SUB_LONG):
@@ -2356,7 +2354,8 @@ igetmatch(char **sp, Patprog p, int fl, int n, char *replstr)
 			    }
 			}
 			if (!--n || (n <= 0 && (fl & SUB_GLOBAL))) {
-			    *sp = get_match_ret(*sp, t-s, mpos-s, fl, replstr);
+			    *sp = get_match_ret(*sp, t-s, mpos-s, fl,
+						replstr, repllist);
 			    if (mpos == t)
 				METAINC(mpos);
 			}
@@ -2395,7 +2394,7 @@ igetmatch(char **sp, Patprog p, int fl, int n, char *replstr)
 	    set_pat_start(p, l);
 	    if ((fl & (SUB_LONG|SUB_GLOBAL)) == SUB_LONG &&
 		pattry(p, s + l) && !--n) {
-		*sp = get_match_ret(*sp, 0, 0, fl, replstr);
+		*sp = get_match_ret(*sp, 0, 0, fl, replstr, repllist);
 		return 1;
 	    }
 	    break;
@@ -2406,7 +2405,7 @@ igetmatch(char **sp, Patprog p, int fl, int n, char *replstr)
 	    if (!(fl & SUB_LONG)) {
 		set_pat_start(p, l);
 		if (pattrylen(p, s + l, 0, 0, uml) && !--n) {
-		    *sp = get_match_ret(*sp, l, l, fl, replstr);
+		    *sp = get_match_ret(*sp, l, l, fl, replstr, repllist);
 		    return 1;
 		}
 	    }
@@ -2430,13 +2429,14 @@ igetmatch(char **sp, Patprog p, int fl, int n, char *replstr)
 			    }
 			}
 		    }
-		    *sp = get_match_ret(*sp, t-s, mpos-s, fl, replstr);
+		    *sp = get_match_ret(*sp, t-s, mpos-s, fl,
+					replstr, repllist);
 		    return 1;
 		}
 	    }
 	    set_pat_start(p, l);
 	    if ((fl & SUB_LONG) && pattrylen(p, s + l, 0, 0, uml) && !--n) {
-		*sp = get_match_ret(*sp, l, l, fl, replstr);
+		*sp = get_match_ret(*sp, l, l, fl, replstr, repllist);
 		return 1;
 	    }
 	    break;
@@ -2477,7 +2477,7 @@ igetmatch(char **sp, Patprog p, int fl, int n, char *replstr)
     }
 
     /* munge the whole string: no match, so no replstr */
-    *sp = get_match_ret(*sp, 0, 0, fl, 0);
+    *sp = get_match_ret(*sp, 0, 0, fl, 0, 0);
     return 1;
 }
 
@@ -2487,19 +2487,29 @@ igetmatch(char **sp, Patprog p, int fl, int n, char *replstr)
 mod_export void
 tokenize(char *s)
 {
-    zshtokenize(s, 0);
+    zshtokenize(s, 0, 0);
 }
+
+/*
+ * shtokenize is used when we tokenize a string with GLOB_SUBST set.
+ * In that case we need to retain backslashes when we turn the
+ * pattern back into a string, so that the string is not
+ * modified if it failed to match a pattern.
+ *
+ * It may be modified by the effect of SH_GLOB which turns off
+ * various zsh-specific options.
+ */
 
 /**/
 mod_export void
 shtokenize(char *s)
 {
-    zshtokenize(s, isset(SHGLOB));
+    zshtokenize(s, 1, isset(SHGLOB));
 }
 
 /**/
 static void
-zshtokenize(char *s, int shglob)
+zshtokenize(char *s, int glbsbst, int shglob)
 {
     char *t;
     int bslash = 0;
@@ -2508,9 +2518,10 @@ zshtokenize(char *s, int shglob)
       cont:
 	switch (*s) {
 	case Bnull:
+	case Bnullkeep:
 	case '\\':
 	    if (bslash) {
-		s[-1] = Bnull;
+		s[-1] = glbsbst ? Bnullkeep : Bnull;
 		break;
 	    }
 	    bslash = 1;
@@ -2519,7 +2530,7 @@ zshtokenize(char *s, int shglob)
 	    if (shglob)
 		break;
 	    if (bslash) {
-		s[-1] = Bnull;
+		s[-1] = glbsbst ? Bnullkeep : Bnull;
 		break;
 	    }
 	    t = s;
@@ -2549,7 +2560,7 @@ zshtokenize(char *s, int shglob)
 	    for (t = ztokens; *t; t++)
 		if (*t == *s) {
 		    if (bslash)
-			s[-1] = Bnull;
+			s[-1] = glbsbst ? Bnullkeep : Bnull;
 		    else
 			*s = (t - ztokens) + Pound;
 		    break;
@@ -2569,12 +2580,23 @@ remnulargs(char *s)
 	char *o = s, c;
 
 	while ((c = *s++))
-	    if (INULL(c)) {
+	    if (c == Bnullkeep) {
+		/*
+		 * An active backslash that needs to be turned back into
+		 * a real backslash for output.  However, we don't
+		 * do that yet since we need to ignore it during
+		 * pattern matching.
+		 */
+		continue;
+	    } else if (INULL(c)) {
 		char *t = s - 1;
 
-		while ((c = *s++))
-		    if (!INULL(c))
+		while ((c = *s++)) {
+		    if (c == Bnullkeep)
+			*t++ = '\\';
+		    else if (!INULL(c))
 			*t++ = c;
+		}
 		*t = '\0';
 		if (!*o) {
 		    o[0] = Nularg;

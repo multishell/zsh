@@ -1855,8 +1855,7 @@ printlist(int over, CLPrintFunc printm, int showall)
 	if (tccan(TCCLEAREOD))
 	    tcout(TCCLEAREOD);
     }
-    g = amatches;
-    while (g) {
+    for (g = amatches; g; g = g->next) {
 	char **pp = g->ylist;
 
 	if ((e = g->expls)) {
@@ -2023,10 +2022,10 @@ printlist(int over, CLPrintFunc printm, int showall)
 			    p = skipnolist(p + 1, showall);
 		}
 	    }
-	}
+	} else
+	    continue;
 	if (g->lcount || (showall && g->mcount))
 	    pnl = 1;
-	g = g->next;
     }
     lastlistlen = 0;
     if (clearflag) {
@@ -2077,7 +2076,7 @@ bld_all_str(Cmatch all)
 			strcat(buf, " ");
 		    strncat(buf, m->str, len);
 		}
-		strcat(buf, " ...");
+		strcat(buf, "...");
 		break;
 	    }
 	}

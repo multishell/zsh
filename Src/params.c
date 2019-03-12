@@ -681,13 +681,17 @@ createparamtable(void)
 					    getsparam(pm->nam), pm->flags);
 		    else
 			pm->env = ztrdup(*envp2);
+#ifndef USE_SET_UNSET_ENV
 		    *envp++ = pm->env;
+#endif
 		}
 	    }
 	}
     }
     popheap();
+#ifndef USE_SET_UNSET_ENV
     *envp = '\0';
+#endif
     opts[ALLEXPORT] = oae;
 
     pm = (Param) paramtab->getnode(paramtab, "HOME");
@@ -1002,7 +1006,7 @@ getarg(char **str, int *inv, Value v, int a2, zlong *w)
 		    goto flagerr;
 		sav = *t;
 		*t = '\0';
-		sep = escapes ? getkeystring(s + 1, &waste, 1, &waste) :
+		sep = escapes ? getkeystring(s + 1, &waste, 3, NULL) :
 				dupstring(s + 1);
 		*t = sav;
 		s = t;
@@ -1726,8 +1730,11 @@ setstrvalue(Value v, char *val)
 	    }
 	    if (v->start > zlen)
 		v->start = zlen;
-	    if (v->end < 0)
+	    if (v->end < 0) {
 		v->end += zlen + 1;
+		if (v->end < 0)
+		    v->end = 0;
+	    }
 	    else if (v->end > zlen)
 		v->end = zlen;
 	    x = (char *) zalloc(v->start + strlen(val) + zlen - v->end + 1);

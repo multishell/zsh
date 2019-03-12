@@ -128,7 +128,10 @@ struct mathfunc {
 
 #define DEFAULT_IFS	" \t\n\203 "
 
-/* Character tokens */
+/*
+ * Character tokens.
+ * These should match the characters in ztokens, defined in lex.c
+ */
 #define Pound		((char) 0x84)
 #define String		((char) 0x85)
 #define Hat		((char) 0x86)
@@ -149,15 +152,33 @@ struct mathfunc {
 #define Tilde		((char) 0x95)
 #define Qtick		((char) 0x96)
 #define Comma		((char) 0x97)
+/*
+ * Null arguments: placeholders for single and double quotes
+ * and backslashes.
+ */
 #define Snull		((char) 0x98)
 #define Dnull		((char) 0x99)
 #define Bnull		((char) 0x9a)
-#define Nularg		((char) 0x9b)
+/*
+ * Backslash which will be returned to "\" instead of being stripped
+ * when we turn the string into a printable format.
+ */
+#define Bnullkeep       ((char) 0x9b)
+/*
+ * Null argument that does not correspond to any character.
+ * This should be last as it does not appear in ztokens and
+ * is used to initialise the IMETA type in inittyptab().
+ */
+#define Nularg		((char) 0x9c)
 
-#define INULL(x)	(((x) & 0xfc) == 0x98)
+#define INULL(x)	((x) >= Snull && (x) <= Nularg)
 
+/*
+ * Take care to update the use of IMETA appropriately when adding
+ * tokens here.
+ */
 /* Marker used in paramsubst for rc_expand_param */
-#define Marker		((char) 0x9c)
+#define Marker		((char) 0xa0)
 
 /* chars that need to be quoted if meant literally */
 
@@ -196,37 +217,38 @@ enum {
     DOUTPAR,
     AMPERBANG,		/* 30 */
     SEMIAMP,
+    SEMIBAR,
     DOUTBRACK,
     STRING,
-    ENVSTRING,
-    ENVARRAY,		/* 35 */
+    ENVSTRING,		/* 35 */
+    ENVARRAY,
     ENDINPUT,
     LEXERR,
 
     /* Tokens for reserved words */
     BANG,	/* !         */
-    DINBRACK,	/* [[        */
-    INBRACE,    /* {         */	/* 40 */
+    DINBRACK,	/* [[        */	/* 40 */
+    INBRACE,    /* {         */
     OUTBRACE,   /* }         */
     CASE,	/* case      */
     COPROC,	/* coproc    */
-    DOLOOP,	/* do        */
-    DONE,	/* done      */ /* 45 */
+    DOLOOP,	/* do        */ /* 45 */
+    DONE,	/* done      */
     ELIF,	/* elif      */
     ELSE,	/* else      */
     ZEND,	/* end       */
-    ESAC,	/* esac      */
-    FI,		/* fi        */ /* 50 */
+    ESAC,	/* esac      */ /* 50 */
+    FI,		/* fi        */
     FOR,	/* for       */
     FOREACH,	/* foreach   */
     FUNC,	/* function  */
-    IF,		/* if        */
-    NOCORRECT,	/* nocorrect */ /* 55 */
+    IF,		/* if        */ /* 55 */
+    NOCORRECT,	/* nocorrect */
     REPEAT,	/* repeat    */
     SELECT,	/* select    */
     THEN,	/* then      */
-    TIME,	/* time      */
-    UNTIL,	/* until     */ /* 60 */
+    TIME,	/* time      */ /* 60 */
+    UNTIL,	/* until     */
     WHILE	/* while     */
 };
 
@@ -261,6 +283,32 @@ enum {
 #define IS_ERROR_REDIR(X)     ((X)>=REDIR_ERRWRITE && (X)<=REDIR_ERRAPPNOW)
 #define IS_READFD(X)          (((X)>=REDIR_READWRITE && (X)<=REDIR_MERGEIN) || (X)==REDIR_INPIPE)
 #define IS_REDIROP(X)         ((X)>=OUTANG && (X)<=TRINANG)
+
+/*
+ * Values for the fdtable array.  They say under what circumstances
+ * the fd will be close.  The fdtable is an unsigned char, so these are
+ * #define's rather than an enum.
+ */
+/* Entry not used. */
+#define FDT_UNUSED		0
+/*
+ * Entry used internally by the shell, should not be visible to other
+ * processes.
+ */
+#define FDT_INTERNAL		1
+/*
+ * Entry used by output from the XTRACE option.
+ */
+#define FDT_XTRACE		2
+#ifdef PATH_DEV_FD
+/*
+ * Entry used by a process substition.
+ * The value will be incremented on entering a function and
+ * decremented on exit; we don't close entries greater than
+ * FDT_PROC_SUBST except when closing everything.
+ */
+#define FDT_PROC_SUBST		3
+#endif
 
 /* Flags for input stack */
 #define INP_FREE      (1<<0)	/* current buffer can be free'd            */
@@ -665,12 +713,14 @@ struct eccstr {
 #define WC_TRY_SKIP(C)	    wc_data(C)
 #define WCB_TRY(O)	    wc_bld(WC_TRY, (O))
 
-#define WC_CASE_TYPE(C)     (wc_data(C) & 3)
+#define WC_CASE_TYPE(C)     (wc_data(C) & 7)
 #define WC_CASE_HEAD        0
 #define WC_CASE_OR          1
 #define WC_CASE_AND         2
-#define WC_CASE_SKIP(C)     (wc_data(C) >> 2)
-#define WCB_CASE(T,O)       wc_bld(WC_CASE, ((T) | ((O) << 2)))
+#define WC_CASE_TESTAND     3
+#define WC_CASE_FREE	    (3) /* Next bit available in integer */
+#define WC_CASE_SKIP(C)     (wc_data(C) >> WC_CASE_FREE)
+#define WCB_CASE(T,O)       wc_bld(WC_CASE, ((T) | ((O) << WC_CASE_FREE)))
 
 #define WC_IF_TYPE(C)       (wc_data(C) & 3)
 #define WC_IF_HEAD          0
@@ -932,6 +982,8 @@ struct shfunc {
 struct funcstack {
     Funcstack prev;		/* previous in stack */
     char *name;			/* name of function called */
+    char *caller;		/* name of caller */
+    int lineno;			/* line number in file */
 };
 
 /* node in list of function call wrappers */
@@ -1638,7 +1690,9 @@ struct ttyinfo {
 #  ifdef OXTABS
 #define SGTABTYPE       OXTABS
 #  else
+#   ifdef XTABS
 #define SGTABTYPE       XTABS
+#   endif
 #  endif
 # endif
 

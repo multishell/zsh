@@ -167,9 +167,9 @@ struct heredocs *hdocs;
  *
  *   WC_CASE
  *     - first CASE is always of type HEAD, data contains offset to esac
- *     - after that CASEs of type OR (;;) and AND (;&), data is offset to
- *       next case
- *     - each OR/AND case is followed by pattern, pattern-number, list
+ *     - after that CASEs of type OR (;;), AND (;&) and TESTAND (;|),
+ *       data is offset to next case
+ *     - each OR/AND/TESTAND case is followed by pattern, pattern-number, list
  *
  *   WC_IF
  *     - first IF is of type HEAD, data contains offset to fi
@@ -1012,7 +1012,7 @@ par_for(int *complex)
 /*
  * case	: CASE STRING { SEPER } ( "in" | INBRACE )
 				{ { SEPER } STRING { BAR STRING } OUTPAR
-					list [ DSEMI | SEMIAMP ] }
+					list [ DSEMI | SEMIAMP | SEMIBAR ] }
 				{ SEPER } ( "esac" | OUTBRACE )
  */
 
@@ -1021,6 +1021,7 @@ static void
 par_case(int *complex)
 {
     int oecused = ecused, brflag, p, pp, n = 1, type;
+    int ona, onc;
 
     p = ecadd(0);
 
@@ -1031,14 +1032,23 @@ par_case(int *complex)
     ecstr(tokstr);
 
     incmdpos = 1;
+    ona = noaliases;
+    onc = nocorrect;
+    noaliases = nocorrect = 1;
     yylex();
     while (tok == SEPER)
 	yylex();
     if (!(tok == STRING && !strcmp(tokstr, "in")) && tok != INBRACE)
+    {
+	noaliases = ona;
+	nocorrect = onc;
 	YYERRORV(oecused);
+    }
     brflag = (tok == INBRACE);
     incasepat = 1;
     incmdpos = 0;
+    noaliases = ona;
+    nocorrect = onc;
     yylex();
 
     for (;;) {
@@ -1129,10 +1139,12 @@ par_case(int *complex)
 	n++;
 	if (tok == SEMIAMP)
 	    type = WC_CASE_AND;
+	else if (tok == SEMIBAR)
+	    type = WC_CASE_TESTAND;
 	ecbuf[pp] = WCB_CASE(type, ecused - 1 - pp);
 	if ((tok == ESAC && !brflag) || (tok == OUTBRACE && brflag))
 	    break;
-	if (tok != DSEMI && tok != SEMIAMP)
+	if (tok != DSEMI && tok != SEMIAMP && tok != SEMIBAR)
 	    YYERRORV(oecused);
 	incasepat = 1;
 	incmdpos = 0;
@@ -1629,8 +1641,10 @@ par_simple(int *complex, int nr)
 		pl = ecadd(WCB_PIPE(WC_PIPE_END, 0));
 
 		par_cmd(&c);
-		if (!c)
+		if (!c) {
+		    cmdpop();
 		    YYERROR(oecused);
+		}
 
 		set_sublist_code(sl, WC_SUBLIST_END, 0, ecused - 1 - sl, c);
 		set_list_code(ll, (Z_SYNC | Z_END), c);
@@ -2105,6 +2119,16 @@ yyerror(int noerr)
 	errflag = 1;
 }
 
+/*
+ * Duplicate a programme list, on the heap if heap is 1, else
+ * in permanent storage.
+ *
+ * Be careful in case p is the Eprog for a function which will
+ * later be autoloaded.  The shf element of the returned Eprog
+ * must be set appropriately by the caller.  (Normally we create
+ * the Eprog in this case by using mkautofn.)
+ */
+
 /**/
 mod_export Eprog
 dupeprog(Eprog p, int heap)
@@ -2512,7 +2536,7 @@ bin_zcompile(char *nam, char **args, Options ops, UNUSED(int func))
 static Wordcode
 load_dump_header(char *nam, char *name, int err)
 {
-    int fd, v = 0;
+    int fd, v = 1;
     wordcode buf[FD_PRELEN + 1];
 
     if ((fd = open(name, O_RDONLY)) < 0) {
@@ -2600,6 +2624,8 @@ write_dump(int dfd, LinkList progs, int map, int hlen, int tlen)
 
     if (map == 1)
 	map = (tlen >= FD_MINMAP);
+
+    memset(pre, 0, sizeof(wordcode) * FD_PRELEN);
 
     for (ohlen = hlen; ; hlen = ohlen) {
 	fdmagic(pre) = (other ? FD_OMAGIC : FD_MAGIC);
@@ -2876,17 +2902,23 @@ build_cur_dump(char *nam, char *dump, char **names, int match, int map,
     return 0;
 }
 
+/**/
 #if defined(HAVE_SYS_MMAN_H) && defined(HAVE_MMAP) && defined(HAVE_MUNMAP)
 
 #include <sys/mman.h>
 
+/**/
 #if defined(MAP_SHARED) && defined(PROT_READ)
 
+/**/
 #define USE_MMAP 1
 
+/**/
 #endif
+/**/
 #endif
 
+/**/
 #ifdef USE_MMAP
 
 /* List of dump files mapped. */
@@ -2895,7 +2927,7 @@ static FuncDump dumps;
 
 /**/
 static int
-zwcstat(char *filename, struct stat *buf, FuncDump dumps)
+zwcstat(char *filename, struct stat *buf)
 {
     if (stat(filename, buf)) {
 #ifdef HAVE_FSTAT
@@ -2968,8 +3000,9 @@ load_dump_file(char *dump, struct stat *sbuf, int other, int len)
 
 #else
 
-#define zwcstat(f, b, d) stat(f, b)
+#define zwcstat(f, b) (!!stat(f, b))
 
+/**/
 #endif
 
 /* Try to load a function from one of the possible wordcode files for it.
@@ -2995,7 +3028,7 @@ try_dump_file(char *path, char *name, char *file, int *ksh)
     dig = dyncat(path, FD_EXT);
     wc = dyncat(file, FD_EXT);
 
-    rd = zwcstat(dig, &std, dumps);
+    rd = zwcstat(dig, &std);
     rc = stat(wc, &stc);
     rn = stat(file, &stn);
 
@@ -3075,7 +3108,7 @@ check_dump_file(char *file, struct stat *sbuf, char *name, int *ksh)
     struct stat lsbuf;
 
     if (!sbuf) {
-	if (zwcstat(file, &lsbuf, dumps))
+	if (zwcstat(file, &lsbuf))
 	    return NULL;
 	sbuf = &lsbuf;
     }

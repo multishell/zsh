@@ -54,13 +54,31 @@ struct stypat {
     
 /* List of styles. */
 
-static Style zstyles, zlstyles;
+static Style zstyles;
 
 /* Memory stuff. */
 
+/*
+ * Free the information for one of the patterns associated with
+ * a style.
+ *
+ * If the style s is passed, prev is the previous pattern in the list,
+ * found when scanning.  We use this to update the list of patterns.
+ * If this results in their being no remaining patterns, the style
+ * itself is removed from the list of styles.  This isn't optimised,
+ * since it's not a very frequent operation; we simply scan down the list
+ * to find the previous entry.
+ */
 static void
-freestypat(Stypat p)
+freestypat(Stypat p, Style s, Stypat prev)
 {
+    if (s) {
+	if (prev)
+	    prev->next = p->next;
+	else
+	    s->pats = p->next;
+    }
+
     zsfree(p->pat);
     freepatprog(p->prog);
     if (p->vals)
@@ -68,6 +86,20 @@ freestypat(Stypat p)
     if (p->eval)
 	freeeprog(p->eval);
     zfree(p, sizeof(*p));
+
+    if (s && !s->pats) {
+	/* No patterns left, free style */
+	if (s == zstyles) {
+	    zstyles = s->next;
+	} else {
+	    Style s2;
+	    for (s2 = zstyles; s2->next != s; s2 = s2->next)
+		;
+	    s2->next = s->next;
+	}
+	zsfree(s->name);
+	zfree(s, sizeof(*s));
+    }
 }
 
 static void
@@ -80,12 +112,12 @@ freeallstyles(void)
 	sn = s->next;
 	for (p = s->pats; p; p = pn) {
 	    pn = p->next;
-	    freestypat(p);
+	    freestypat(p, NULL, NULL);
 	}
 	zsfree(s->name);
 	zfree(s, sizeof(*s));
     }
-    zstyles = zlstyles = NULL;
+    zstyles = NULL;
 }
 
 /* Get the style struct for a name. */
@@ -96,8 +128,9 @@ getstyle(char *name)
     Style s;
 
     for (s = zstyles; s; s = s->next)
-	if (!strcmp(name, s->name))
+	if (!strcmp(name, s->name)) {
 	    return s;
+	}
 
     return NULL;
 }
@@ -200,11 +233,8 @@ addstyle(char *name)
     s->pats = NULL;
     s->name = ztrdup(name);
 
-    if (zlstyles)
-	zlstyles->next = s;
-    else
-	zstyles = s;
-    zlstyles = s;
+    s->next = zstyles;
+    zstyles = s;
 
     return s;
 }
@@ -365,27 +395,22 @@ bin_zstyle(char *nam, char **args, UNUSED(Options ops), UNUSED(int func))
 			    for (q = NULL, p = s->pats; p;
 				 q = p, p = p->next) {
 				if (!strcmp(p->pat, pat)) {
-				    if (q)
-					q->next = p->next;
-				    else
-					s->pats = p->next;
-				    freestypat(p);
+				    freestypat(p, s, q);
 				    break;
 				}
 			    }
 			}
 		    }
 		} else {
+		    Style next;
 		    Stypat p, q;
 
-		    for (s = zstyles; s; s = s->next) {
+		    /* careful! style itself may be deleted */
+		    for (s = zstyles; s; s = next) {
+			next = s->next;
 			for (q = NULL, p = s->pats; p; q = p, p = p->next) {
 			    if (!strcmp(p->pat, args[1])) {
-				if (q)
-				    q->next = p->next;
-				else
-				    s->pats = p->next;
-				freestypat(p);
+				freestypat(p, s, q);
 				break;
 			    }
 			}
@@ -1689,7 +1714,7 @@ static struct builtin bintab[] = {
 int
 setup_(UNUSED(Module m))
 {
-    zstyles = zlstyles = NULL;
+    zstyles = NULL;
 
     return 0;
 }
