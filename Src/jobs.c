@@ -384,9 +384,11 @@ storepipestats(Job jn, int inforeground, int fixlastval)
     Process p;
 
     for (p = jn->procs, i = 0; p && i < MAX_PIPESTATS; p = p->next, i++) {
-	jpipestats[i] = ((WIFSIGNALED(p->status)) ?
+	jpipestats[i] = (WIFSIGNALED(p->status) ?
 			 0200 | WTERMSIG(p->status) :
-			 WEXITSTATUS(p->status));
+			 (WIFSTOPPED(p->status) ?
+			  0200 | WEXITSTATUS(p->status) :
+			  WEXITSTATUS(p->status)));
 	if (jpipestats[i])
 	    pipefail = jpipestats[i];
     }
@@ -436,8 +438,11 @@ update_job(Job jn)
 	if (WIFSTOPPED(pn->status))        /* some processes are stopped                   */
 	    somestopped = 1;               /* so job is not done, but entry needs updating */
 	if (!pn->next)                     /* last job in pipeline determines exit status  */
-	    val = (WIFSIGNALED(pn->status)) ? 0200 | WTERMSIG(pn->status) :
-		WEXITSTATUS(pn->status);
+	    val = (WIFSIGNALED(pn->status) ?
+		   0200 | WTERMSIG(pn->status) :
+		   (WIFSTOPPED(pn->status) ?
+		    0200 | WEXITSTATUS(pn->status) :
+		    WEXITSTATUS(pn->status)));
 	if (pn->pid == jn->gleader)        /* if this process is process group leader      */
 	    status = pn->status;
     }
@@ -537,7 +542,7 @@ update_job(Job jn)
 	return;
     jn->stat |= (somestopped) ? STAT_CHANGED | STAT_STOPPED :
 	STAT_CHANGED | STAT_DONE;
-    if (jn->stat & STAT_DONE) {
+    if (jn->stat & (STAT_DONE|STAT_STOPPED)) {
 	/* This may be redundant with printjob() but note that inforeground
 	 * is true here for STAT_CURSH jobs even when job != thisjob, most
 	 * likely because thisjob = -1 from exec.c:execsimple() trickery.
@@ -618,13 +623,11 @@ setprevjob(void)
 }
 
 /**/
-#ifndef HAVE_GETRUSAGE
-static long clktck = 0;
-
-/**/
-static void
-set_clktck(void)
+long
+get_clktck(void)
 {
+    static long clktck;
+
 #ifdef _SC_CLK_TCK
     if (!clktck)
 	/* fetch clock ticks per second from *
@@ -646,9 +649,9 @@ set_clktck(void)
 #  endif
 # endif
 #endif
+
+     return clktck;
 }
-/**/
-#endif
 
 /**/
 static void
@@ -698,11 +701,13 @@ printtime(struct timeval *real, child_times_t *ti, char *desc)
     percent = 100.0 * total_time
 	/ (real->tv_sec + real->tv_usec / 1000000.0);
 #else
-    set_clktck();
-    user_time    = ti->ut / (double) clktck;
-    system_time  = ti->st / (double) clktck;
-    percent      =  100.0 * (ti->ut + ti->st)
-	/ (clktck * real->tv_sec + clktck * real->tv_usec / 1000000.0);
+    {
+	long clktck = get_clktck();
+	user_time    = ti->ut / (double) clktck;
+	system_time  = ti->st / (double) clktck;
+	percent      =  100.0 * (ti->ut + ti->st)
+	    / (clktck * real->tv_sec + clktck * real->tv_usec / 1000000.0);
+    }
 #endif
 
     queue_signals();
@@ -910,8 +915,10 @@ should_report_time(Job j)
 	reporttime--;
     return reporttime <= 0;
 #else
-    set_clktck();
-    return ((j->procs->ti.ut + j->procs->ti.st) / clktck >= reporttime);
+    {
+	clktck = get_clktck();
+	return ((j->procs->ti.ut + j->procs->ti.st) / clktck >= reporttime);
+    }
 #endif
 }
 

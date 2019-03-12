@@ -1,4 +1,4 @@
-.TH "ZSHPARAM" "1" "January 5, 2014" "zsh 5\&.0\&.5"
+.TH "ZSHPARAM" "1" "August 28, 2014" "zsh 5\&.0\&.6"
 .SH "NAME"
 zshparam \- zsh parameters
 .\" Yodl file: Zsh/params.yo
@@ -24,13 +24,19 @@ writing:
 .PP
 If the integer attribute, \fB\-i\fP, is set for \fIname\fP, the \fIvalue\fP
 is subject to arithmetic evaluation\&.  Furthermore, by replacing `\fB=\fP\&'
-with `\fB+=\fP\&', a parameter can be added or appended to\&.  See
+with `\fB+=\fP\&', a parameter can be added or appended to\&.
+.PP
+In scalar assignment, \fIvalue\fP is expanded as a single string, in
+which the elements of arrays are joined together; filename expansion is
+not performed unless the option \fBGLOB_ASSIGN\fP is set\&.  See
 the section `Array Parameters\&' for additional forms of assignment\&.
 .PP
 To refer to the value of a parameter, write `\fB$\fP\fIname\fP\&' or
 `\fB${\fP\fIname\fP\fB}\fP\&'\&.  See
 \fIParameter Expansion\fP in \fIzshexpn\fP(1)
-for complete details\&.
+for complete details\&.  This section also explains the effect
+of the difference between scalar and array assignment on parameter
+expansion\&.
 .PP
 In the parameter lists that follow, the mark `<S>\&' indicates that the
 parameter is special\&.
@@ -344,7 +350,6 @@ This flag can also be used to force \fB*\fP or \fB@\fP to be interpreted as
 a single key rather than as a reference to all values\&.  It may be used
 for either purpose on the left side of an assignment\&.
 .RE
-.RE
 .PP
 See \fIParameter Expansion Flags\fP (\fIzshexpn\fP(1)) for additional ways to manipulate the results of array subscripting\&.
 .PP
@@ -579,9 +584,11 @@ Same as \fBargv[@]\fP, even when \fBargv\fP is not set\&.
 The exit status returned by the last command\&.
 .TP
 \fB0\fP <S>
-The name used to invoke the current shell\&.  If the \fBFUNCTION_ARGZERO\fP option
-is set, this is set temporarily within a shell function to the name of the
-function, and within a sourced script to the name of the script\&.
+The name used to invoke the current shell, or as set by the \fB\-c\fP command
+line option upon invocation\&.  If the \fBFUNCTION_ARGZERO\fP option is set,
+\fB$0\fP is set upon entry to a shell function to the name of the function,
+and upon entry to a sourced script to the name of the script, and reset to
+its previous value when the function or script returns\&.
 .TP
 \fBstatus\fP <S> <Z>
 Same as \fB?\fP\&.
@@ -628,9 +635,10 @@ command under a different
 group ID by `\fB(GID=\fP\fIgid\fP\fB; command)\fP\&'
 .TP
 \fBHISTCMD\fP
-The current history line number in an interactive shell, in other
-words the line number for the command that caused \fB$HISTCMD\fP
-to be read\&.
+The current history event number in an interactive shell, in other
+words the event number for the command that caused \fB$HISTCMD\fP
+to be read\&.  If the current history event modifies the history,
+\fBHISTCMD\fP changes to the new maximum history event number\&.
 .TP
 \fBHOST\fP
 The current hostname\&.
@@ -646,7 +654,9 @@ not necessarily as displayed by the \fBfunctions\fP builtin\&.
 If the corresponding variable is not set in the environment of the
 shell, it is initialized to the login name corresponding to the
 current login session\&. This parameter is exported by default but
-this can be disabled using the \fBtypeset\fP builtin\&.
+this can be disabled using the \fBtypeset\fP builtin\&.  The value
+is set to the string returned by the \fIgetlogin\fP(3) system call
+if that is available\&.
 .TP
 \fBMACHTYPE\fP
 The machine type (microprocessor class or machine model),
@@ -912,6 +922,13 @@ as spelling corrections\&.  The pattern does not apply to the correction
 of file names, as applied by the \fBCORRECT_ALL\fP option (so with the
 example just given files beginning with `\fB_\fP\&' in the current
 directory would still be completed)\&.
+.TP
+\fBCORRECT_IGNORE_FILE\fP
+If set, is treated as a pattern during spelling correction of file names\&.
+Any file name that matches the pattern is never offered as a correction\&.
+For example, if the value is `\fB\&.*\fP\&' then dot file names will never be
+offered as spelling corrections\&.  This is useful with the
+\fBCORRECT_ALL\fP option\&.
 .TP
 \fBDIRSTACKSIZE\fP
 The maximum size of the directory stack, by default there is no limit\&.  If the
@@ -1478,7 +1495,6 @@ Either or both of the branches may be empty, but
 both separators must be present in any case\&.
 .RE
 .RE
-.RE
 .TP
 \fBWORDCHARS\fP <S>
 A list of non\-alphanumeric characters considered part of a word
@@ -1569,5 +1585,4 @@ default as many terminals do not handle this correctly, in particular
 when the prompt appears at the extreme bottom right of the screen\&.
 Recent virtual terminals are more likely to handle this case correctly\&.
 Some experimentation is necessary\&.
-.RE
 .RE

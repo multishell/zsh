@@ -1,4 +1,4 @@
-.TH "ZSHMODULES" "1" "January 5, 2014" "zsh 5\&.0\&.5"
+.TH "ZSHMODULES" "1" "August 28, 2014" "zsh 5\&.0\&.6"
 .SH "NAME"
 zshmodules \- zsh loadable modules
 .\" Yodl file: Zsh/modules.yo
@@ -218,7 +218,6 @@ input bytes going randomly to either process\&.
 .PP
 \fBclone\fP is mostly useful as a shell built\-in replacement for
 openvt\&.
-.RE
 .RE
 .SH "THE ZSH/COMPCTL MODULE"
 .\" Yodl file: Zsh/mod_compctl.yo
@@ -1012,7 +1011,6 @@ notation, or \fB0\fP if color is not supported\&.  Any attributes other than
 color that apply to the character, as set with the subcommand \fBattr\fP,
 appear as additional elements\&.
 .RE
-.RE
 .PP
 .SS "Parameters"
 .PP
@@ -1083,7 +1081,6 @@ status 2 and (unless \fB\-q\fP is given) prints a message\&.
 If \fB\-s\fP \fIscalar\fP is given, assign the date string (or epoch time
 in seconds if \fB\-r\fP is given) to \fIscalar\fP instead of printing it\&.
 .RE
-.RE
 .PP
 The \fBzsh/datetime\fP module makes available several parameters;
 all are readonly:
@@ -1119,7 +1116,6 @@ done\fP
 .fi
 .RE
 .PP
-.RE
 .RE
 .SH "THE ZSH/DELTOCHAR MODULE"
 .\" Yodl file: Zsh/mod_deltochar.yo
@@ -1370,7 +1366,6 @@ Your implementation may support a number of the following keys:
 \fBALT_DIGITS\fP
 .PP
 .RE
-.RE
 .SH "THE ZSH/MAPFILE MODULE"
 .\" Yodl file: Zsh/mod_mapfile.yo
 
@@ -1408,7 +1403,6 @@ from being removed\&.  Note that if the file ends with a newline,
 the shell will split on the final newline, generating an additional
 empty field; this can be suppressed by using
 `\fIarray\fP\fB=("${(f@)${mapfile[\fP\fIfilename\fP\fB]%$\&'\en'}}")\fP'\&.
-.RE
 .RE
 .PP
 .SS "Limitations"
@@ -1842,9 +1836,9 @@ print \-l $accum
 .fi
 .RE
 .RE
-.RE
 .PP
 The \fBzsh/pcre\fP module makes available the following test condition:
+.PP
 .PD 0
 .TP
 .PD
@@ -1854,13 +1848,23 @@ Matches a string against a perl\-compatible regular expression\&.
 .PP
 For example,
 .PP
-[[ "$text" \-pcre\-match ^d+$ ]] && print text variable contains only "d\&'s"\&.
+.RS
+.nf
+\fB[[ "$text" \-pcre\-match ^d+$ ]] &&
+print text variable contains only "d\&'s"\&.\fP
+.fi
 .RE
+.PP
+If the \fBREMATCH_PCRE\fP option is set, the \fB=~\fP operator is equivalent to
+\fB\-pcre\-match\fP, and the \fBNO_CASE_MATCH\fP option may be used\&.  Note that
+\fBNO_CASE_MATCH\fP never applies to the \fBpcre_match\fP builtin, instead use
+the \fB\-i\fP switch of \fBpcre_compile\fP\&.
 .RE
 .SH "THE ZSH/REGEX MODULE"
 .\" Yodl file: Zsh/mod_regex.yo
 
 The \fBzsh/regex\fP module makes available the following test condition:
+.PP
 .PD 0
 .TP
 .PD
@@ -1888,7 +1892,6 @@ automatically load this module as needed and will invoke the
 .PP
 If \fBBASH_REMATCH\fP is set, then the array \fBBASH_REMATCH\fP will be set
 instead of \fBMATCH\fP and \fBmatch\fP\&.
-.RE
 .RE
 .SH "THE ZSH/SCHED MODULE"
 .\" Yodl file: Zsh/mod_sched.yo
@@ -1938,12 +1941,11 @@ The \fBsched\fP builtin is not made available by default when the shell
 starts in a mode emulating another shell\&.  It can be made available
 with the command `\fBzmodload \-F zsh/sched b:sched\fP\&'\&.
 .RE
-.RE
 .PP
 .PD 0
 .TP
 .PD
-zsh_scheduled_events
+\fBzsh_scheduled_events\fP
 A readonly array corresponding to the events scheduled by the
 \fBsched\fP builtin\&.  The indices of the array correspond to the numbers
 shown when \fBsched\fP is run with no arguments (provided that the
@@ -1958,7 +1960,6 @@ followed by a colon, followed by the command to be executed\&.
 The \fBsched\fP builtin should be used for manipulating the events\&.  Note
 that this will have an immediate effect on the contents of the array,
 so that indices may become invalid\&.
-.RE
 .RE
 .SH "THE ZSH/NET/SOCKET MODULE"
 .\" Yodl file: Zsh/mod_socket.yo
@@ -1989,7 +1990,6 @@ will be taken as the target file descriptor for the
 connection\&.
 .PP
 In order to elicit more verbose output, use \fB\-v\fP\&.
-.RE
 .RE
 .PP
 .SS "Inbound Connections"
@@ -2027,7 +2027,6 @@ if no incoming connection is pending\&.  Otherwise
 it will wait for one\&.
 .PP
 In order to elicit more verbose output, use \fB\-v\fP\&.
-.RE
 .RE
 .SH "THE ZSH/STAT MODULE"
 .\" Yodl file: Zsh/mod_stat.yo
@@ -2200,7 +2199,6 @@ standard output and no individual element has been selected\&.
 .TP
 \fB\-T\fP
 Never show the type names of the \fBstruct stat\fP elements\&.
-.RE
 .RE
 .SH "THE ZSH/SYSTEM MODULE"
 .\" Yodl file: Zsh/mod_system.yo
@@ -2408,7 +2406,6 @@ Returns the process ID of the parent of the current process, even in
 subshells\&.  Compare \fB$PPID\fP, which returns the process ID of the parent
 of the main shell process\&.
 .RE
-.RE
 .SH "THE ZSH/NET/TCP MODULE"
 .\" Yodl file: Zsh/mod_tcp.yo
 
@@ -2475,7 +2472,6 @@ listening\&.
 The remote port
 This is zero for a connection opened for listening\&.
 .RE
-.RE
 .PP
 .SS "Outbound Connections"
 .PP
@@ -2494,7 +2490,6 @@ If \fB\-d\fP is specified, its argument will be taken as the target file
 descriptor for the connection\&.
 .PP
 In order to elicit more verbose output, use \fB\-v\fP\&.
-.RE
 .RE
 .PP
 .SS "Inbound Connections"
@@ -2535,7 +2530,6 @@ it will wait for one\&.
 .PP
 In order to elicit more verbose output, use \fB\-v\fP\&.
 .RE
-.RE
 .PP
 .SS "Closing Connections"
 .PP
@@ -2558,7 +2552,6 @@ Normally, sockets registered by zftp (see
 to force such a socket closed, use \fB\-f\fP\&.
 .PP
 In order to elicit more verbose output, use \fB\-v\fP\&.
-.RE
 .RE
 .PP
 .SS "Example"
@@ -2678,7 +2671,6 @@ of a subcommand\&.  These are listed below\&.  The return status of each
 subcommand is supposed to reflect the success or failure of the remote
 operation\&.  See a description of the variable \fBZFTP_VERBOSE\fP for
 more information on how responses from the server may be printed\&.
-.RE
 .RE
 .PP
 .SS "Subcommands"
@@ -3096,7 +3088,6 @@ set to the default value \fB450\fP, i\&.e\&., messages destined for the user
 and all errors will be printed\&.  A null string is valid and
 specifies that no messages should be printed\&.
 .RE
-.RE
 .PP
 .SS "Functions"
 .PP
@@ -3152,7 +3143,6 @@ up\&.  It is otherwise never called twice with the same value of
 Sometimes the progress meter may cause disruption\&.  It is up to the
 user to decide whether the function should be defined and to use
 \fBunfunction\fP when necessary\&.
-.RE
 .RE
 .PP
 .SS "Problems"
@@ -3263,7 +3253,6 @@ multiple invocations of the \fBzprof\fP builtin command will show the
 times and numbers of calls since the module was loaded\&.  With the
 \fB\-c\fP option, the \fBzprof\fP builtin command will reset its internal
 counters and will not show the listing\&.
-.RE
 .RE
 .SH "THE ZSH/ZPTY MODULE"
 .\" Yodl file: Zsh/mod_zpty.yo
@@ -3422,7 +3411,6 @@ reading\&.  If the operation timed out, or a timeout of 0 was given and no
 file descriptors were ready, or there was an error, it returns status 1 and
 the array will not be set (nor modified in any way)\&.  If there was an error
 in the select operation the appropriate error message is printed\&.
-.RE
 .RE
 .SH "THE ZSH/ZUTIL MODULE"
 .\" Yodl file: Zsh/mod_zutil.yo
@@ -3692,7 +3680,6 @@ is used, in which case the argument is put into the same element\&.
 A `\fB+\fP\&' as described above may appear between the \fIname\fP and the
 first colon\&.
 .RE
-.RE
 .PP
 The options of \fBzparseopts\fP itself are:
 .PP
@@ -3715,10 +3702,12 @@ any not described by the \fIspecs\fP\&.  This is similar to using the \fBshift\f
 builtin\&.
 .TP
 \fB\-K\fP
-With this option, the arrays specified with the \fB\-a\fP and \fB\-A\fP
-options and with the `\fB=\fP\fIarray\fP\&' forms are kept unchanged when none
-of the \fIspecs\fP for them is used\&.  This allows assignment of default
-values to them before calling \fBzparseopts\fP\&.
+With this option, the arrays specified with the \fB\-a\fP option and with the
+`\fB=\fP\fIarray\fP\&' forms are kept unchanged when none of the \fIspecs\fP for
+them is used\&.  Otherwise the entire array is replaced when any of the
+\fIspecs\fP is used\&.  Individual elements of associative arrays specified
+with the \fB\-A\fP option are preserved by \fB\-K\fP\&.  This allows assignment of
+default values to arrays before calling \fBzparseopts\fP\&.
 .TP
 \fB\-M\fP
 This changes the assignment rules to implement a map among equivalent
@@ -3793,6 +3782,5 @@ to have the effect of
 \fBfoo=(\-a)
 bar=(\-a \&'' \-b xyz)\fP
 .fi
-.RE
 .RE
 .RE

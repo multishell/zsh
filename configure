@@ -730,7 +730,9 @@ enable_zsh_mem_debug
 enable_zsh_mem_warning
 enable_zsh_secure_free
 enable_zsh_heap_debug
+enable_zsh_valgrind
 enable_zsh_hash_debug
+enable_stack_allocation
 enable_etcdir
 enable_zshenv
 enable_zshrc
@@ -1401,7 +1403,11 @@ Optional Features:
   --enable-zsh-secure-free
                           turn on error checking for free()
   --enable-zsh-heap-debug turn on error checking for heap allocation
+  --enable-zsh-valgrind   turn on support for valgrind debugging of heap
+                          memory
   --enable-zsh-hash-debug turn on debugging of internal hash tables
+  --enable-stack-allocation
+                          allocate stack memory e.g. with `alloca'
   --enable-etcdir=DIR     the default directory for global zsh scripts
   --enable-zshenv=FILE    the full pathname of the global zshenv script
   --enable-zshrc=FILE     the full pathname of the global zshrc script
@@ -2639,10 +2645,30 @@ fi
 
 
 
+# Check whether --enable-zsh-valgrind was given.
+if test "${enable_zsh_valgrind+set}" = set; then :
+  enableval=$enable_zsh_valgrind; if test x$enableval = xyes;  then
+  $as_echo "#define ZSH_VALGRIND 1" >>confdefs.h
+
+fi
+fi
+
+
+
 # Check whether --enable-zsh-hash-debug was given.
 if test "${enable_zsh_hash_debug+set}" = set; then :
   enableval=$enable_zsh_hash_debug; if test x$enableval = xyes; then
   $as_echo "#define ZSH_HASH_DEBUG 1" >>confdefs.h
+
+fi
+fi
+
+
+
+# Check whether --enable-stack-allocation was given.
+if test "${enable_stack_allocation+set}" = set; then :
+  enableval=$enable_stack_allocation; if test x$enableval = xyes; then
+  $as_echo "#define USE_STACK_ALLOCATION 1" >>confdefs.h
 
 fi
 fi
@@ -6261,7 +6287,7 @@ if ${zsh_cv_no_xopen+:} false; then :
   $as_echo_n "(cached) " >&6
 else
   case "$host_os" in
-  *openbsd*|*freebsd5*|*freebsd6.[012]*|*aix*)
+  *freebsd5*|*freebsd6.[012]*|*aix*)
   zsh_cv_no_xopen=yes
   ;;
   *)

@@ -1,11 +1,14 @@
-.TH "ZSHMISC" "1" "January 5, 2014" "zsh 5\&.0\&.5"
+.TH "ZSHMISC" "1" "August 28, 2014" "zsh 5\&.0\&.6"
 .SH "NAME"
 zshmisc \- everything and then some
 .\" Yodl file: Zsh/grammar.yo
 .SH "SIMPLE COMMANDS & PIPELINES"
 A \fIsimple command\fP is a sequence of optional parameter
 assignments followed by blank\-separated words,
-with optional redirections interspersed\&.
+with optional redirections interspersed\&.  For a description
+of assignment, see the beginning of
+\fIzshparam\fP(1)\&.
+.PP
 The first word is the command to be executed, and the remaining
 words, if any, are arguments to the command\&.
 If a command name is given, the parameter assignments modify
@@ -279,7 +282,7 @@ during the \fBtry\-list\fP is not useful (unless this forms part of an
 enclosing \fBalways\fP block)\&.
 .PP
 Regardless of \fBTRY_BLOCK_ERROR\fP, after the end of \fBalways\-list\fP the
-normal shell status \fB$?\fP is the value returned from \fBalways\-list\fP\&.
+normal shell status \fB$?\fP is the value returned from \fBtry\-list\fP\&.
 This will be non\-zero if there was an error, even if \fBTRY_BLOCK_ERROR\fP
 was set to zero\&.
 .PP
@@ -438,60 +441,84 @@ shell constructs such as loops or conditions; this somewhat illogical
 behaviour can be recovered by setting the option \fBCONTINUE_ON_ERROR\fP\&.
 .PP
 Fatal errors found in non\-interactive shells include:
+.PP
 .PD 0
 .TP
+.PD
+\(bu
 Failure to parse shell options passed when invoking the shell
 .TP
+\(bu
 Failure to change options with the \fBset\fP builtin
 .TP
+\(bu
 Parse errors of all sorts, including failures to parse
 mathematical expressions
 .TP
+\(bu
 Failures to set or modify variable behaviour with \fBtypeset\fP,
 \fBlocal\fP, \fBdeclare\fP, \fBexport\fP, \fBinteger\fP, \fBfloat\fP
 .TP
+\(bu
 Execution of incorrectly positioned loop control structures
 (\fBcontinue\fP, \fBbreak\fP)
 .TP
+\(bu
 Attempts to use regular expression with no regular expression
 module available
 .TP
+\(bu
 Disallowed operations when the \fBRESTRICTED\fP options is set
 .TP
+\(bu
 Failure to create a pipe needed for a pipeline
 .TP
+\(bu
 Failure to create a multio
 .TP
+\(bu
 Failure to autoload a module needed for a declared shell feature
 .TP
+\(bu
 Errors creating command or process substitutions
 .TP
+\(bu
 Syntax errors in glob qualifiers
 .TP
+\(bu
 File generation errors where not caught by the option \fBBAD_PATTERN\fP
 .TP
+\(bu
 All bad patterns used for matching within case statements
 .TP
+\(bu
 File generation failures where not caused by \fBNO_MATCH\fP or
+similar options
 .TP
+\(bu
 All file generation errors where the pattern was used to create a
 multio
 .TP
+\(bu
 Memory errors where detected by the shell
 .TP
+\(bu
 Invalid subscripts to shell variables
 .TP
+\(bu
 Attempts to assign read\-only variables
 .TP
+\(bu
 Logical errors with variables such as assignment to the wrong type
 .TP
+\(bu
 Use of invalid variable names
 .TP
+\(bu
 Errors in variable substitution syntax
 .TP
+\(bu
 Failure to convert characters in \fB$\&'\fP\&.\&.\&.\fB'\fP expressions
-similar options
-.PD
 .PP
 If the \fBPOSIX_BUILTINS\fP option is set, more errors associated with
 shell builtin commands are treated as fatal, as specified by the POSIX
@@ -1663,6 +1690,35 @@ have output base 16, while \fBx\fP (assuming it does not already exist) is
 implicitly typed by the arithmetic evaluation, where it acquires the output
 base 8\&.
 .PP
+The \fIbase\fP may be replaced or followed by an underscore, which may
+itself be followed by a positive integer (if it is missing the value 3
+is used)\&.  This indicates that underscores should be inserted into the
+output string, grouping the number for visual clarity\&.  The following
+integer specifies the number of digits to group together\&.  For example:
+.PP
+.RS
+.nf
+\fBsetopt cbases
+print $(( [#16_4] 65536 ** 2 ))\fP
+.fi
+.RE
+.PP
+outputs `\fB0x1_0000_0000\fP\&'\&.
+.PP
+The feature can be used with floating
+point numbers, in which case the base must be omitted; grouping
+is away from the decimal point\&.  For example,
+.PP
+.RS
+.nf
+\fBzmodload zsh/mathfunc
+print $(( [#_] sqrt(1e7) ))\fP
+.fi
+.RE
+.PP
+outputs `\fB3_162\&.277_660_168_379_5\fP\&' (the number of decimal places
+shown may vary)\&.
+.PP
 If the \fBC_BASES\fP option is set, hexadecimal numbers in the standard C
 format, for example \fB0xFF\fP instead of the usual `\fB16#FF\fP\&'\&.  If the
 option \fBOCTAL_ZEROES\fP is also set (it is not by default), octal numbers
@@ -2061,11 +2117,44 @@ true if \fIexp1\fP and \fIexp2\fP are both true\&.
 \fIexp1\fP \fB||\fP \fIexp2\fP
 true if either \fIexp1\fP or \fIexp2\fP is true\&.
 .PP
+For compatibility, if there is a single argument that is not
+syntactically significant, typically a variable, the condition is
+treated as a test for whether the expression expands as a string of
+non\-zero length\&.  In other words, \fB[[ $var ]]\fP is the same as \fB[[ \-n
+$var ]]\fP\&.  It is recommended that the second, explicit, form be used
+where possible\&.
+.PP
 Normal shell expansion is performed on the \fIfile\fP, \fIstring\fP and
 \fIpattern\fP arguments, but the result of each expansion is constrained to
 be a single word, similar to the effect of double quotes\&.
-Filename generation is not performed on any form of argument to conditions\&.
-However, pattern metacharacters are active for the \fIpattern\fP arguments;
+.PP
+Filename generation is not performed on any form of argument to
+conditions\&.  However, it can be forced in any case where normal shell
+expansion is valid and when the option \fBEXTENDED_GLOB\fP is in effect by
+using an explicit glob qualifier of the form \fB(#q)\fP at the
+end of the string\&.  A normal glob qualifier expression may appear
+between the `\fBq\fP\&' and the closing parenthesis; if none appears the
+expression has no effect beyond causing filename generation\&.  The
+results of filename generation are joined together to form a single
+word, as with the results of other forms of expansion\&.
+.PP
+This special use of filename generation is only available with the
+\fB[[\fP syntax\&.  If the condition occurs within the \fB[\fP or \fBtest\fP
+builtin commands then globbing occurs instead as part of normal command
+line expansion before the condition is evaluated\&.  In this case it may
+generate multiple words which are likely to confuse the syntax of the
+test command\&.
+.PP
+For example,
+.PP
+\fB[[ \-n file*(#qN) ]]\fP
+.PP
+produces status zero if and only if there is at least one file in the
+current directory beginning with the string `\fBfile\fP\&'\&.  The globbing
+qualifier \fBN\fP ensures that the expression is empty if there is
+no matching file\&.
+.PP
+Pattern metacharacters are active for the \fIpattern\fP arguments;
 the patterns are the same as those used for filename generation, see
 \fIzshexpn\fP(1), but there is no special behaviour
 of `\fB/\fP\&' nor initial dots, and no glob qualifiers are allowed\&.
@@ -2290,6 +2379,13 @@ the hour of the day on the 24\-hour clock
 the hour of the day on the 12\-hour clock
 .PD
 .PP
+In addition, if the system supports the POSIX \fBgettimeofday\fP system
+call, \fB%\&.\fP provides decimal fractions of a second since the epoch with
+leading zeroes\&.  By default three decimal places are provided, but a
+number of digits up to 6 may be given following the \fB%\fP; hence \fB%6\&.\fP
+outputs microseconds\&.  A typical example of this is the format
+`\fB%D{%H:%M:%S\&.%\&.}\fP\&'\&.
+.PP
 The GNU extension that a `\fB\-\fP\&' between the \fB%\fP and the
 format character causes a leading zero or space to be stripped
 is handled directly by the shell for the format characters \fBd\fP, \fBf\fP,
@@ -2297,7 +2393,6 @@ is handled directly by the shell for the format characters \fBd\fP, \fBf\fP,
 characters are provided to \fBstrftime()\fP with any leading `\fB\-\fP\&',
 present, so the handling is system dependent\&.  Further GNU
 extensions are not supported at present\&.
-.RE
 .RE
 .PP
 .SS "Visual effects"
@@ -2360,7 +2455,6 @@ Note that when prompt truncation is in use it is advisable to divide up
 output into single characters within each \fB%{\fP\&.\&.\&.\fB%}\fP group so that
 the correct truncation point can be found\&.
 .RE
-.RE
 .PP
 .SH "CONDITIONAL SUBSTRINGS IN PROMPTS"
 .PD 0
@@ -2384,7 +2478,8 @@ sequences, including further ternary expressions\&.
 .RS
 .PP
 The left parenthesis may be preceded or followed by a positive integer \fIn\fP,
-which defaults to zero\&.  A negative integer will be multiplied by \-1\&.
+which defaults to zero\&.  A negative integer will be multiplied by \-1, except
+as noted below for `\fBl\fP\&'\&.
 The test character \fIx\fP may be any of the following:
 .PP
 .PD 0
@@ -2433,7 +2528,9 @@ True if the \fBSHLVL\fP parameter is at least \fIn\fP\&.
 .TP
 \fBl\fP
 True if at least \fIn\fP characters have already been
-printed on the current line\&.
+printed on the current line\&.  When \fIn\fP is negative, true if at least
+\fBabs\fP\fB(\fP\fIn\fP\fB)\fP characters remain before the opposite
+margin (thus the left margin for \fBRPROMPT\fP)\&.
 .TP
 \fBS\fP
 True if the \fBSECONDS\fP parameter is at least \fIn\fP\&.
@@ -2467,13 +2564,21 @@ True if the day of the week is equal to \fIn\fP (Sunday = 0)\&.
 Specifies truncation behaviour for the remainder of the prompt string\&.
 The third, deprecated, form is equivalent to `\fB%\fP\fIxstringx\fP\&',
 i\&.e\&. \fIx\fP may be `\fB<\fP\&' or `\fB>\fP'\&.
-The numeric argument, which in the third form may appear immediately
-after the `\fB[\fP\&', specifies the maximum permitted length of
-the various strings that can be displayed in the prompt\&.
 The \fIstring\fP will be displayed in
 place of the truncated portion of any string; note this does not
 undergo prompt expansion\&.
 .RS
+.PP
+The numeric argument, which in the third form may appear immediately
+after the `\fB[\fP\&', specifies the maximum permitted length of
+the various strings that can be displayed in the prompt\&.
+In the first two forms, this numeric argument may be negative, in which
+case the truncation length is determined by subtracting the absolute
+value of the numeric argument from the number of character positions
+remaining on the current prompt line\&.  If this results in a zero or
+negative length, a length of 1 is used\&.  In other words, a negative
+argument arranges that after truncation at least \fIn\fP characters
+remain before the right margin (left margin for \fBRPROMPT\fP)\&.
 .PP
 The forms with `\fB<\fP\&' truncate at the left of the string,
 and the forms with `\fB>\fP\&' truncate at the right of the string\&.
@@ -2494,11 +2599,18 @@ string, or to the end of the next enclosing group of the `\fB%(\fP\&'
 construct, or to the next truncation encountered at the same grouping
 level (i\&.e\&. truncations inside a `\fB%(\fP\&' are separate), which
 ever comes first\&.  In particular, a truncation with argument zero
-(e\&.g\&. `\fB%<<\fP\&') marks the end of the range of the string to be
+(e\&.g\&., `\fB%<<\fP\&') marks the end of the range of the string to be
 truncated while turning off truncation from there on\&. For example, the
 prompt \&'%10<\&.\&.\&.<%~%<<%# ' will print a truncated representation of the
 current directory, followed by a `\fB%\fP\&' or `\fB#\fP', followed by a
 space\&.  Without the `\fB%<<\fP\&', those two characters would be included
-in the string to be truncated\&.
-.RE
+in the string to be truncated\&.  Note that `\fB%\-0<<\fP\&' is a distinct
+.PP
+Truncation applies only within each individual line of the prompt, as
+delimited by embedded newlines (if any)\&.  If the total length of any line
+of the prompt after truncation is greater than the terminal width, or if
+the part to be truncated contains embedded newlines, truncation behavior
+is undefined and may change in a future version of the shell\&.  Use
+`\fB%\-\fIn\fP(l\&.\fItrue\-text\fP\&.\fIfalse\-text\fP)\fP\&' to remove parts
+of the prompt when the available space is less than \fIn\fP\&.
 .RE

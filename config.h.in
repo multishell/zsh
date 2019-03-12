@@ -1106,6 +1106,9 @@
 /* Define to 1 if h_errno is not defined by the system. */
 #undef USE_LOCAL_H_ERRNO
 
+/* Define to 1 if you want to allocate stack memory e.g. with `alloca'. */
+#undef USE_STACK_ALLOCATION
+
 /* Define to be a string corresponding the vendor of the machine. */
 #undef VENDOR
 
@@ -1151,6 +1154,9 @@
 
 /* Define to 1 if you want to turn on memory checking for free(). */
 #undef ZSH_SECURE_FREE
+
+/* Define to 1 if you want to add code for valgrind to debug heap memory. */
+#undef ZSH_VALGRIND
 
 /* Define to the base type of the third argument of accept */
 #undef ZSOCKLEN_T

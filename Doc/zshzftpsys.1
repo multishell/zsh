@@ -1,4 +1,4 @@
-.TH "ZSHZFTPSYS" "1" "January 5, 2014" "zsh 5\&.0\&.5"
+.TH "ZSHZFTPSYS" "1" "August 28, 2014" "zsh 5\&.0\&.6"
 .SH "NAME"
 zshzftpsys \- zftp function front\-end
 .\" Yodl file: Zsh/zftpsys.yo
@@ -266,7 +266,6 @@ In the second form, copy all the remote files \fIrfile1\fP \&.\&.\&. into the
 local directory \fIldir\fP retaining the same basenames\&.  This assumes UNIX
 directory semantics\&.
 .RE
-.RE
 .PP
 .SS "Sending files"
 .PD 0
@@ -322,7 +321,6 @@ in the first form failed, and the remote server sends back the expected
 failure code 553 and a reply including the string `\fBIs a directory\fP\&',
 then \fBzfpcp\fP will retry using the second form\&.
 .RE
-.RE
 .PP
 .SS "Closing the connection"
 .PD 0
@@ -375,7 +373,6 @@ The operation is performed using pipes, so it is required that the
 connections still be valid in a subshell, which is not the case under 
 versions of some operating systems, presumably due to a system bug\&.
 .RE
-.RE
 .PP
 .SS "Bookmarks"
 The two functions \fBzfmark\fP and \fBzfgoto\fP allow you to `bookmark\&' the
@@ -416,7 +413,6 @@ the \fBncftp\fP program in its bookmark file, which is assumed to be
 \fB~/\&.ncftp/bookmarks\fP\&.  The function works identically in other ways\&.
 Note that there is no mechanism for adding or modifying \fBncftp\fP bookmarks
 from the zftp functions\&.
-.RE
 .RE
 .PP
 .SS "Other functions"
@@ -582,7 +578,6 @@ usual \fBchpwd\fP also modifies the title bar\&.
 When \fBzfinit\fP is run, it will determine whether \fBchpwd\fP exists and if
 so it will set the default value for the style to 1 if none exists
 already\&.
-.RE
 .RE
 .PP
 Note that there is also an associative array \fBzfconfig\fP which contains

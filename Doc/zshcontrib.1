@@ -1,4 +1,4 @@
-.TH "ZSHCONTRIB" "1" "January 5, 2014" "zsh 5\&.0\&.5"
+.TH "ZSHCONTRIB" "1" "August 28, 2014" "zsh 5\&.0\&.6"
 .SH "NAME"
 zshcontrib \- user contributions to zsh
 .\" Yodl file: Zsh/contrib.yo
@@ -30,9 +30,8 @@ shell features as well\&.  The autoloadable \fBrun\-help\fP function, found in
 \fBFunctions/Misc\fP, searches for these helpfiles and performs several
 other tests to produce the most complete help possible for the command\&.
 .PP
-There may already be a directory of help files on your system; look in
-\fB/usr/share/zsh\fP or \fB/usr/local/share/zsh\fP and subdirectories below
-those, or ask your system administrator\&.
+Help files are installed by default to a subdirectory of \fB/usr/share/zsh\fP
+or \fB/usr/local/share/zsh\fP\&.
 .PP
 To create your own help files with \fBhelpfiles\fP, choose or create a
 directory where the individual command help files will reside\&.  For
@@ -42,26 +41,30 @@ distribution in your home directory, you would use the commands:
 .RS
 .nf
 \fBmkdir ~/zsh_help
-cd ~/zsh_help
-man zshall | colcrt \- | \e 
-perl ~/zsh\-5\&.0\&.5/Util/helpfiles\fP
+perl ~/zsh\-5\&.0\&.6/Util/helpfiles ~/zsh_help\fP
 .fi
 .RE
 .PP
-Next, to use the \fBrun\-help\fP function, you need to add lines something
+The \fBHELPDIR\fP parameter tells \fBrun\-help\fP where to look for the help
+files\&. When unset, it uses the default installation path\&.
+To use your own set of help files, set this to the appropriate path
+in one of your startup files:
+.PP
+.RS
+.nf
+\fBHELPDIR=~/zsh_help\fP
+.fi
+.RE
+.PP
+To use the \fBrun\-help\fP function, you need to add lines something
 like the following to your \fB\&.zshrc\fP or equivalent startup file:
 .PP
 .RS
 .nf
 \fBunalias run\-help
-autoload run\-help
-HELPDIR=~/zsh_help\fP
+autoload run\-help\fP
 .fi
 .RE
-.PP
-The \fBHELPDIR\fP parameter tells \fBrun\-help\fP where to look for the help
-files\&.  If your system already has a help file directory installed, set
-\fBHELPDIR\fP to the path of that directory instead\&.
 .PP
 Note that in order for `\fBautoload run\-help\fP\&' to work, the \fBrun\-help\fP
 file must be in one of the directories named in your \fBfpath\fP array (see
@@ -133,7 +136,6 @@ matching the given pattern is newer than it\&.
 Without the \fB\-p\fP option, \fBzrecompile\fP does not create function digests
 that do not already exist, nor does it add new functions to the digest\&.
 .RE
-.RE
 .PP
 The following shell loop is an example of a method for creating function
 digests for all functions in your \fBfpath\fP, assuming that you have write
@@ -179,7 +181,7 @@ Run \fBzkbd\fP either as an autoloaded function, or as a shell script:
 .PP
 .RS
 .nf
-\fBzsh \-f ~/zsh\-5\&.0\&.5/Functions/Misc/zkbd\fP
+\fBzsh \-f ~/zsh\-5\&.0\&.6/Functions/Misc/zkbd\fP
 .fi
 .RE
 .PP
@@ -235,7 +237,7 @@ command and redirect the output into a file:
 .PP
 .RS
 .nf
-\fB\&. ~/zsh\-5\&.0\&.5/Util/reporter > zsh\&.report\fP
+\fB\&. ~/zsh\-5\&.0\&.6/Util/reporter > zsh\&.report\fP
 .fi
 .RE
 .PP
@@ -309,7 +311,6 @@ If the \fIstate\fP is omitted, \fBall\fP is assumed\&.
 With the exception of `\fBall\fP\&', every \fIstate\fP can be abbreviated by
 any prefix, even a single letter; thus \fBa\fP is the same as \fBaliases\fP,
 \fBz\fP is the same as \fBzstyles\fP, etc\&.
-.RE
 .PP
 .SS "Manipulating Hook Functions"
 .PP
@@ -346,7 +347,6 @@ functions to be executed\&.
 The options \fB\-U\fP, \fB\-z\fP and \fB\-k\fP are passed as arguments to
 \fBautoload\fP for \fIfunction\fP\&.  For functions contributed with zsh, the
 options \fB\-Uz\fP are appropriate\&.
-.RE
 .RE
 .PP
 .SH "REMEMBERING RECENT DIRECTORIES"
@@ -915,17 +915,33 @@ is used as the command name\&.
 If enabled, this style causes the \fB%c\fP and \fB%u\fP format escapes to show
 when the working directory has uncommitted changes\&. The strings displayed by
 these escapes can be controlled via the \fBstagedstr\fP and \fBunstagedstr\fP
-styles\&. The only backends that currently support this option are \fBgit\fP and
-\fBhg\fP (\fBhg\fP only supports unstaged)\&.
+styles\&. The only backends that currently support this option are \fBgit\fP,
+\fBhg\fP, and \fBbzr\fP (the latter two only support unstaged)\&.
 .RS
 .PP
 For this style to be evaluated with the \fBhg\fP backend, the \fBget\-revision\fP
 style needs to be set and the \fBuse\-simple\fP style needs to be unset\&. The
 latter is the default; the former is not\&.
 .PP
+With the \fBbzr\fP backend, \fIlightweight checkouts\fP only honor this style if
+the \fBuse\-server\fP style is set\&.
+.PP
 Note, the actions taken if this style is enabled are potentially expensive
 (read: they may be slow, depending on how big the current repository is)\&.
 Therefore, it is disabled by default\&.
+.RE
+.TP
+\fBcheck\-for\-staged\-changes\fP
+This style is like \fBcheck\-for\-changes\fP, but it never checks the worktree
+files, only the metadata in the \fB\&.${vcs}\fP dir\&.  Therefore,
+this style initializes only the \fB%c\fP escape (with \fBstagedstr\fP) but
+not the \fB%u\fP escape\&.  This style is faster than \fBcheck\-for\-changes\fP\&.
+.RS
+.PP
+In the \fBgit\fP backend, this style checks for changes in the index\&.
+Other backends do not currently implement this style\&.
+.PP
+This style is disabled by default\&.
 .RE
 .TP
 \fBstagedstr\fP
@@ -951,7 +967,7 @@ when this style is looked up\&.
 .PP
 For example, this style can be used to use binaries from non\-default
 installation directories\&. Assume, \fBgit\fP is installed in /usr/bin but
-your sysadmin installed a newer version in /usr/bin/local\&. Instead of
+your sysadmin installed a newer version in /usr/local/bin\&. Instead of
 changing the order of your \fB$PATH\fP parameter, you can do this:
 .RS
 .nf
@@ -973,6 +989,11 @@ backend is only usable if you have set the environment variable
 \fBP4CONFIG\fP to a file name and have corresponding files in the root
 directories of each Perforce client\&.  See comments in the function
 \fBVCS_INFO_detect_p4\fP for more detail\&.
+.RS
+.PP
+The Bazaar backend (\fBbzr\fP) uses this to permit contacting the server
+about lightweight checkouts, see the \fBcheck\-for\-changes\fP style\&.
+.RE
 .TP
 \fBuse\-simple\fP
 If there are two different ways of gathering
@@ -1044,6 +1065,9 @@ ALL
 (empty list)
 .TP
 \fBcheck\-for\-changes\fP
+false
+.TP
+\fBcheck\-for\-staged\-changes\fP
 false
 .TP
 \fBstagedstr\fP
@@ -1511,6 +1535,13 @@ This hooks is called when no version control system was detected\&.
 The `hook_com\&' parameter is not used\&.
 .RE
 .TP
+\fBpost\-backend\fP
+Called as soon as the backend has finished collecting information\&.
+.RS
+.PP
+The `\fBhook_com\fP\&' keys available are as for the \fBset\-message\fP hook\&.
+.RE
+.TP
 \fBpost\-quilt\fP
 Called after the \fBquilt\fP support is done\&. The following information
 is passed as arguments to the hook: 1\&. the quilt\-support mode (`addon\&' or
@@ -1575,7 +1606,6 @@ probably not a good idea\&.
 If \fBret\fP is set to non\-zero, the string in
 \fB${hook_com[message]}\fP will be used unchanged as the message by
 \fBvcs_info\fP\&.
-.RE
 .RE
 .PP
 If all of this sounds rather confusing, take a look at the \fBExamples\fP
@@ -1735,22 +1765,15 @@ function +vi\-hgbookmarks() {
     # This makes the bookmarks string use only those
     # bookmarks\&. If there\&'s more than one, it
     # concatenates them using commas\&.
-    local s i
     # The bookmarks returned by `hg\&' are available in
-    # the functions positional parameters\&.
-    (( $# == 0 )) && return 0
-    for i in "$@"; do
-        if [[ $i == sh/* ]]; then
-            [[ \-n $s ]] && s=$s,
-            s=${s}$i
-        fi
-    done
+    # the function\&'s positional parameters\&.
+    local s="${(Mj:,:)@:#sh/*}"
     # Now, the communication with the code that calls
     # the hook functions is done via the hook_com[]
-    # hash\&. The key, at which the `gen\-hg\-bookmark\-string\&'
-    # hook looks at is `hg\-bookmark\-string\&'\&. So:
+    # hash\&. The key at which the `gen\-hg\-bookmark\-string\&'
+    # hook looks is `hg\-bookmark\-string\&'\&. So:
     hook_com[hg\-bookmark\-string]=$s
-    # And to signal, that we want to use the sting we
+    # And to signal that we want to use the string we
     # just generated, set the special variable `ret\&' to
     # something other than the default zero:
     ret=1
@@ -2191,6 +2214,11 @@ Edit the command line using your visual editor, as in \fBksh\fP\&.
 .fi
 .RE
 .RE
+.TP
+\fBexpand\-absolute\-path\fP
+Expand the file name under the cursor to an absolute path, resolving
+symbolic links\&.  Where possible, the initial path segment is turned
+into a named directory or reference to a user\&'s home directory\&.
 .TP
 \fBhistory\-search\-end\fP
 This function implements the widgets
@@ -2862,6 +2890,35 @@ not used\&.  Hence it is still possible to call \fBexecuted\-named\-cmd\fP and
 similar functions while reading a value\&.
 .RE
 .TP
+\fBreplace\-argument\fP, \fBreplace\-argument\-edit\fP
+The function \fBreplace\-argument\fP can be used to replace a command
+line argument in the current command line or, if the current command
+line is empty, in the last command line executed (the new command line
+is not executed)\&.  Arguments are as delimited by standard shell syntax,
+.RS
+.PP
+If a numeric argument is given, that specifies the argument to be
+replaced\&.  0 means the command name, as in history expansion\&.
+A negative numeric argument counts backward from the last word\&.
+.PP
+If no numeric argument is given, the current argument is replaced;
+this is the last argument if the previous history line is being used\&.
+.PP
+The function prompts for a replacement argument\&.
+.PP
+If the widget contains the string \fBedit\fP, for example is defined as
+.PP
+.RS
+.nf
+\fBzle \-N replace\-argument\-edit replace\-argument\fP
+.fi
+.RE
+.PP
+then the function presents the current value of the argument for
+editing, otherwise the editing buffer for the replacement is
+initially empty\&.
+.RE
+.TP
 .PD 0
 \fBreplace\-string\fP, \fBreplace\-pattern\fP
 .TP
@@ -3021,6 +3078,24 @@ The style \fBwhence\fP is available in the context \fB:zle:$WIDGET\fP; this
 may be set to an array to give the command and options that will be used to
 investigate the command word found\&.  The default is \fBwhence \-c\fP\&.
 .RE
+.TP
+\fBzcalc\-auto\-insert\fP
+This function is useful together with the \fBzcalc\fP function described in
+the section Mathematical Functions\&.
+It should be bound to a key representing a binary operator such
+as `\fB+\fP\&', `\fB\-\fP', `\fB*\fP' or `\fB/\fP'\&.  When running in zcalc,
+if the key occurs at the start of the line or immediately following
+an open parenthesis, the text \fB"ans "\fP is inserted before the
+representation of the key itself\&.  This allows easy use of the
+answer from the previous calculation in the current line\&.  The
+text to be inserted before the symbol typed can be modified by setting
+the variable \fBZCALC_AUTO_INSERT_PREFIX\fP\&.
+.RS
+.PP
+Hence, for example, typing `\fB+12\fP\&' followed by return adds 12
+to the previous result\&.
+.PP
+When not in zcalc, the key simply inserts the symbol itself\&.
 .RE
 .PP
 .SS "Utility Functions"
@@ -3108,7 +3183,6 @@ modify\-current\-argument expand\-dir\fP
 .PP
 In practice the function \fBexpand\-dir\fP would probably not be defined
 within the widget where \fBmodify\-current\-argument\fP is called\&.
-.RE
 .RE
 .PP
 .SS "Styles"
@@ -3305,7 +3379,6 @@ because one function may be bound to multiple widget names)\&.
 .PP
 Check the documentation for the calling widget or function to determine
 whether the \fBwidget\fP style is used\&.
-.RE
 .RE
 .PP
 .SH "EXCEPTION HANDLING"
@@ -3524,7 +3597,7 @@ types even if they are executable\&.  As this example shows, the complete
 file name is matched against the pattern, regardless of how the file
 was passed to the handler\&.  The file is resolved to a full path using
 the \fB:A\fP modifier described in
-the subsection Modifers in \fIzshexpn\fP(1).RE;
+the subsection Modifers in \fIzshexpn\fP(1);
 this means that symbolic links are resolved where possible, so that
 links into other file systems behave in the correct fashion\&.
 .RE
@@ -3690,7 +3763,7 @@ line that would be executed, simplified to remove the effect of any
 flags, and quoted so that the output can be run as a complete zsh
 command line\&.  This is used by the completion system to decide how to
 complete after a file handled by \fBzsh\-mime\-setup\fP\&.
-)
+.RE
 .TP
 \fBpick\-web\-browser\fP
 This function is separate from the two MIME functions described above
@@ -3783,7 +3856,6 @@ new instances is equivalent to \fB%b %u\fP and the defaults for using running
 browsers are equivalent to the values \fBkfmclient openURL %u\fP for
 Konqueror, \fBfirefox \-new\-tab %u\fP for Firefox, \fBopera \-newpage %u\fP
 for Opera, and \fB%b \-remote "openUrl(%u)"\fP for all others\&.
-.RE
 .RE
 .PP
 .SH "MATHEMATICAL FUNCTIONS"
@@ -3944,7 +4016,6 @@ With no arguments, list all \fImathfunc\fP functions in a form
 suitable for restoring the definition\&.
 The functions have not necessarily been defined by \fBzmathfuncdef\fP\&.
 .RE
-.RE
 .PP
 .SH "USER CONFIGURATION FUNCTIONS"
 .PP
@@ -3994,7 +4065,6 @@ will not be executed; or a later initialization file may override
 options or parameters, and so on\&.  The function itself does not attempt to
 detect any such conflicts\&.
 .RE
-.RE
 .PP
 .SH "OTHER FUNCTIONS"
 .PP
@@ -4014,13 +4084,14 @@ by the prompt theme system (see above)\&.  You seldom should need to run
 \fBcolors\fP more than once\&.
 .RS
 .PP
-The eight base colors are: black, red, green, yellow, blue, magenta, cyan,
-and white\&.  Each of these has codes for foreground and background\&.  In
-addition there are eight intensity attributes: bold, faint, standout,
-underline, blink, reverse, and conceal\&.  Finally, there are six codes used
-to negate attributes: none (reset all attributes to the defaults), normal
-(neither bold nor faint), no\-standout, no\-underline, no\-blink, and
-no\-reverse\&.
+The eight base colors are: \fBblack\fP, \fBred\fP, \fBgreen\fP, \fByellow\fP,
+\fBblue\fP, \fBmagenta\fP, \fBcyan\fP, and \fBwhite\fP\&.  Each of these has codes for
+foreground and background\&.  In addition there are seven intensity attributes:
+\fBbold\fP, \fBfaint\fP, \fBstandout\fP, \fBunderline\fP, \fBblink\fP, \fBreverse\fP,
+and \fBconceal\fP\&.  Finally, there are seven codes used to negate attributes:
+\fBnone\fP (reset all attributes to the defaults), \fBnormal\fP
+(neither bold nor faint), \fBno\-standout\fP, \fBno\-underline\fP, \fBno\-blink\fP,
+\fBno\-reverse\fP, and \fBno\-conceal\fP\&.
 .PP
 Some terminals do not support all combinations of colors and intensities\&.
 .PP
@@ -4029,10 +4100,10 @@ The associative arrays are:
 .PD 0
 .TP
 .PD 0
-color
+\fBcolor\fP
 .TP
 .PD
-colour
+\fBcolour\fP
 Map all the color names to their integer codes, and integer codes to the
 color names\&.  The eight base names map to the foreground color codes, as
 do names prefixed with `\fBfg\-\fP\&', such as `\fBfg\-red\fP'\&.  Names prefixed
@@ -4046,25 +4117,25 @@ other fourteen attributes from names to codes and codes to names\&.
 .RE
 .TP
 .PD 0
-fg
+\fBfg\fP
 .TP
 .PD 0
-fg_bold
+\fBfg_bold\fP
 .TP
 .PD
-fg_no_bold
+\fBfg_no_bold\fP
 Map the eight basic color names to ANSI terminal escape sequences that set
 the corresponding foreground text properties\&.  The \fBfg\fP sequences change
 the color without changing the eight intensity attributes\&.
 .TP
 .PD 0
-bg
+\fBbg\fP
 .TP
 .PD 0
-bg_bold
+\fBbg_bold\fP
 .TP
 .PD
-bg_no_bold
+\fBbg_no_bold\fP
 Map the eight basic color names to ANSI terminal escape sequences that set
 the corresponding background properties\&.  The \fBbg\fP sequences change the
 color without changing the eight intensity attributes\&.
@@ -4466,7 +4537,6 @@ but it also defines `style2\&' with `value2' for the context
 \fB:foo:bar:baz\fP and `style3\&' with `value3' for \fB:foo:bar:frob\fP\&.  Any
 \fIsubcontext\fP may be the empty string to re\-use the first context
 unchanged\&.
-.RE
 .RE
 .PP
 .SS "Styles"

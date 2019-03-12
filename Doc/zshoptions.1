@@ -1,4 +1,4 @@
-.TH "ZSHOPTIONS" "1" "January 5, 2014" "zsh 5\&.0\&.5"
+.TH "ZSHOPTIONS" "1" "August 28, 2014" "zsh 5\&.0\&.6"
 .SH "NAME"
 zshoptions \- zsh options
 .\" Yodl file: Zsh/options.yo
@@ -604,15 +604,29 @@ The file will still be periodically re\-written to trim it when the
 number of lines grows 20% beyond the value specified by
 \fB$SAVEHIST\fP (see also the HIST_SAVE_BY_COPY option)\&.
 .TP
+\fBINC_APPEND_HISTORY_TIME\fP
+This option is a variant of \fBINC_APPEND_HISTORY\fP in which, where
+possible, the history entry is written out to the file after the
+command is finished, so that the time taken by the command is recorded
+correctly in the history file in \fBEXTENDED_HISTORY\fP format\&.  This
+means that the history entry will not be available immediately from
+other instances of the shell that are using the same history file\&.
+.RS
+.PP
+This option is only useful if \fBINC_APPEND_HISTORY\fP and
+\fBSHARE_HISTORY\fP are turned off\&.  The three options should be
+considered mutually exclusive\&.
+.RE
+.TP
 \fBSHARE_HISTORY\fP <K>
 .RS
 .PP
 This option both imports new commands from the history file, and also
 causes your typed commands to be appended to the history file (the
-latter is like specifying \fBINC_APPEND_HISTORY\fP)\&.
-The history lines are also output with timestamps ala
-\fBEXTENDED_HISTORY\fP (which makes it easier to find the spot where
-we left off reading the file after it gets re\-written)\&.
+latter is like specifying \fBINC_APPEND_HISTORY\fP, which should be turned
+off if this option is in effect)\&.  The history lines are also output
+with timestamps ala \fBEXTENDED_HISTORY\fP (which makes it easier to find
+the spot where we left off reading the file after it gets re\-written)\&.
 .PP
 By default, history movement commands visit the imported lines as
 well as the local lines, but you can toggle this on and off with the
@@ -622,9 +636,9 @@ some include them\&.
 .PP
 If you find that you want more control over when commands
 get imported, you may wish to turn \fBSHARE_HISTORY\fP off,
-\fBINC_APPEND_HISTORY\fP on, and then manually import
-commands whenever you need them using `\fBfc \-RI\fP\&'\&.
-.RE
+\fBINC_APPEND_HISTORY\fP or \fBINC_APPEND_HISTORY_TIME\fP (see above) on,
+and then manually import commands whenever you need them using `\fBfc
+\-RI\fP\&'\&.
 .RE
 .PP
 .SS "Initialisation"
@@ -693,6 +707,11 @@ match words that will never be offered as corrections\&.
 .TP
 \fBCORRECT_ALL\fP (\fB\-O\fP)
 Try to correct the spelling of all arguments in a line\&.
+.RS
+.PP
+The shell variable \fBCORRECT_IGNORE_FILE\fP may be set to a pattern to
+match file names that will never be offered as corrections\&.
+.RE
 .TP
 \fBDVORAK\fP
 Use the Dvorak keyboard instead of the standard qwerty keyboard as a basis
@@ -735,7 +754,7 @@ as well as all directories that occur earlier in the path\&.
 Has no effect if neither \fBHASH_CMDS\fP nor \fBCORRECT\fP is set\&.
 .TP
 \fBHASH_EXECUTABLES_ONLY\fP
-When hashing commands because of \fBHASH_COMMANDS\fP, check that the
+When hashing commands because of \fBHASH_CMDS\fP, check that the
 file to be hashed is actually an executable\&.  This option
 is unset by default as if the path contains a large number of commands,
 or consists of many remote files, the additional tests can take
@@ -753,7 +772,7 @@ Thus if `\fB/usr/local/bin\fP\&' is in the user's path, and he or she types
 (assuming it exists)\&.
 Commands explicitly beginning with `\fB/\fP\&', `\fB\&./\fP' or `\fB\&.\&./\fP'
 are not subject to the path search\&.
-This also applies to the `\fB\&.\fP\&' builtin\&.
+This also applies to the `\fB\&.\fP\&' and \fBsource\fP builtins\&.
 .RS
 .PP
 Note that subdirectories of the current directory are always searched for
@@ -878,7 +897,6 @@ wait for the last job started in the background (as given by \fB$!\fP) even
 if that job has already exited\&.  This works even if the option is turned
 on temporarily around the use of the \fBwait\fP builtin\&.
 .RE
-.RE
 .PP
 .SS "Prompting"
 .PD 0
@@ -994,16 +1012,27 @@ except when `\fB\-n\fP\&' is supplied to the shell at startup\&.
 .TP
 \fBFUNCTION_ARGZERO\fP <C> <Z>
 When executing a shell function or sourcing a script, set \fB$0\fP
-temporarily to the name of the function/script\&.
+temporarily to the name of the function/script\&.  Note that toggling
+\fBFUNCTION_ARGZERO\fP from on to off (or off to on) does not change the
+current value of \fB$0\fP\&.  Only the state upon entry to the function or
+script has an effect\&.  Compare \fBPOSIX_ARGZERO\fP\&.
+.TP
+\fBLOCAL_LOOPS\fP
+When this option is not set, the effect of \fBbreak\fP and \fBcontinue\fP
+commands may propagate outside function scope, affecting loops in
+calling functions\&.  When the option is set in a calling function, a
+\fBbreak\fP or a \fBcontinue\fP that is not caught within a called function
+(regardless of the setting of the option within that function)
+produces a warning and the effect is cancelled\&.
 .TP
 \fBLOCAL_OPTIONS\fP <K>
 If this option is set at the point of return from a shell function,
 most options (including this one) which were in force upon entry to
 the function are restored; options that are not restored are
-\fBPRIVILEGED\fP and \fBRESTRICTED\fP\&.  Otherwise, only this option and the
-\fBXTRACE\fP and \fBPRINT_EXIT_VALUE\fP options are restored\&.  Hence
-if this is explicitly unset by a shell function the other options in
-force at the point of return will remain so\&.
+\fBPRIVILEGED\fP and \fBRESTRICTED\fP\&.  Otherwise, only this option,
+and the \fBLOCAL_LOOPS\fP, \fBXTRACE\fP and \fBPRINT_EXIT_VALUE\fP options are
+restored\&.  Hence if this is explicitly unset by a shell function the
+other options in force at the point of return will remain so\&.
 A shell function can also guarantee itself a known shell configuration
 with a formulation like `\fBemulate \-L zsh\fP\&'; the \fB\-L\fP activates
 \fBLOCAL_OPTIONS\fP\&.
@@ -1224,6 +1253,27 @@ in later lines\&.  If in doubt, avoid use of aliases in non\-interactive
 code\&.
 .RE
 .TP
+\fBPOSIX_ARGZERO\fP
+This option may be used to temporarily disable \fBFUNCTION_ARGZERO\fP and
+thereby restore the value of \fB$0\fP to the name used to invoke the shell
+(or as set by the \fB\-c\fP command line option)\&.  For compatibility with
+previous versions of the shell, emulations use \fBNO_FUNCTION_ARGZERO\fP
+instead of \fBPOSIX_ARGZERO\fP, which may result in unexpected scoping of
+\fB$0\fP if the emulation mode is changed inside a function or script\&.
+To avoid this, explicitly enable \fBPOSIX_ARGZERO\fP in the \fBemulate\fP
+command:
+.RS
+.PP
+.RS
+.nf
+\fBemulate sh \-o POSIX_ARGZERO\fP
+.fi
+.RE
+.PP
+Note that \fBNO_POSIX_ARGZERO\fP has no effect unless \fBFUNCTION_ARGZERO\fP
+was already enabled upon entry to the function or script\&.
+.RE
+.TP
 \fBPOSIX_BUILTINS\fP <K> <S>
 When this option is set the \fBcommand\fP builtin can be used to execute
 shell builtin commands\&.  Parameter assignments specified before shell
@@ -1302,7 +1352,10 @@ When the is option is set, the usual zsh behaviour of executing
 traps for \fBEXIT\fP on exit from shell functions is suppressed\&.
 In that case, manipulating \fBEXIT\fP traps always alters the global
 trap for exiting the shell; the \fBLOCAL_TRAPS\fP option is
-ignored for the \fBEXIT\fP trap\&.
+ignored for the \fBEXIT\fP trap\&.  Furthermore, a \fBreturn\fP statement
+executed in a trap with no argument passes back from the function the
+value from the surrounding context, not from code executed within the
+trap\&.
 .TP
 \fBSH_FILE_EXPANSION\fP <K> <S>
 Perform filename expansion (e\&.g\&., ~ expansion) \fIbefore\fP

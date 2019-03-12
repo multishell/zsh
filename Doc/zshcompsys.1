@@ -1,4 +1,4 @@
-.TH "ZSHCOMPSYS" "1" "January 5, 2014" "zsh 5\&.0\&.5"
+.TH "ZSHCOMPSYS" "1" "August 28, 2014" "zsh 5\&.0\&.6"
 .SH "NAME"
 zshcompsys \- zsh completion system
 .\" Yodl file: Zsh/compsys.yo
@@ -507,7 +507,6 @@ underscore\&.
 .PP
 Wherever applicable, the \fB\-a\fP option makes the \fIfunction\fP
 autoloadable, equivalent to \fBautoload \-U \fP\fIfunction\fP\&.
-.RE
 .RE
 .PP
 The function \fBcompdef\fP can be used to associate existing completion
@@ -1974,9 +1973,9 @@ only be performed with the `\fB*\fP\&' inserted\&.
 .TP
 \fBmatcher\fP
 This style is tested separately for each tag valid in the current
-context\&.  Its value is added to any match specifications given by the 
+context\&.  Its value is tried before any match specifications given by the 
 \fBmatcher\-list\fP style\&.  It should be in the form described in
-the section `Completion Matching Control\&' in \fIzshcompwid\fP(1)\&.
+the section `Completion Matching Control\&' in \fIzshcompwid\fP(1)\&.  For examples of this, see the description of the \fBtag\-order\fP style\&.
 .TP
 \fBmatcher\-list\fP
 This style can be set to a list of match specifications that are to
@@ -2000,14 +1999,16 @@ without repetition:
 .PP
 .RS
 .nf
-\fBzstyle \&':completion:*' matcher\-list '' '+m{a\-z}={A\-Z}' '+m{A\-Z}={a\-z}'\fP
+\fBzstyle \&':completion:*' matcher\-list '' '+m:{a\-z}={A\-Z}' '+m:{A\-Z}={a\-z}'\fP
 .fi
 .RE
 .PP
 It is possible to create match specifications valid for particular
-completers by using the third field of the context\&.  For example, to
-use the completers \fB_complete\fP and \fB_prefix\fP but only allow
-case\-insensitive completion with \fB_complete\fP:
+completers by using the third field of the context\&.  This applies only
+to completers that override the global matcher\-list, which as of this
+writing includes only \fB_prefix\fP and \fB_ignored\fP\&.  For example, to
+use the completers \fB_complete\fP and \fB_prefix\fP but allow
+case\-insensitive completion only with \fB_complete\fP:
 .PP
 .RS
 .nf
@@ -2346,7 +2347,7 @@ This is used by the \fB_history\fP completer and the
 should be completed\&.  
 .RS
 .PP
-If it is a singe number, only the last \fIN\fP words from the history
+If it is a single number, only the last \fIN\fP words from the history
 will be completed\&.
 .PP
 If it is a range of the form `\fImax\fP\fB:\fP\fIslice\fP\&',
@@ -2442,6 +2443,14 @@ This style is also used similarly with the \fBwords\fP style when
 completing words for the dict command\&. It allows words from different
 dictionary databases to be added separately\&.
 The default for this style is `false\&'\&.
+.TP
+\fBshow\-ambiguity\fP
+If the \fBzsh/complist\fP module is loaded, this style can be used to
+highlight the first ambiguous character in completion lists\&. The
+value is either a color indication such as those supported by the
+\fBlist\-colors\fP style or, with a value of \fBtrue\fP, a default of
+underlining is selected\&. The highlighting is only applied if the
+completion display strings correspond to the actual matches\&.
 .TP
 \fBshow\-completer\fP
 Tested whenever a new completer is tried\&.  If it is true, the completion
@@ -3087,6 +3096,14 @@ This function is also a bindable command, see
 the section `Bindable Commands\&' below\&.
 .RE
 .TP
+\fB_extensions\fP
+If the cursor follows the string `\fB*\&.\fP\&', filename extensions are
+completed\&. The extensions are taken from files in current directory or a
+directory specified at the beginning of the current word\&. For exact matches,
+completion continues to allow other completers such as \fB_expand\fP to
+expand the pattern\&. The standard \fBadd\-space\fP and \fBprefix\-hidden\fP
+styles are observed\&.
+.TP
 \fB_history\fP
 Complete words from the shell\&'s command  history\&.  This completer 
 can be controlled by the \fBremove\-all\-dups\fP, and \fBsort\fP styles as for the
@@ -3239,7 +3256,6 @@ be used as a description for the set of expansions\&.
 The return status of the function is irrelevant\&.
 .PP
 .PD
-.RE
 .RE
 .PP
 .SH "BINDABLE COMMANDS"
@@ -3726,7 +3742,6 @@ value of the style is displayed, with any appearance of the sequence
 `\fB%d\fP\&' in it replaced by the \fImessage\fP of the first \fIoptarg\fP
 that follows the \fIoptspec\fP; see below\&.
 .RE
-.RE
 .PP
 It is possible for options with a literal `+\&' or `\fB=\fP' to
 appear, but that character must be quoted, for example `\fB\-\e+\fP\&'\&.
@@ -3795,8 +3810,6 @@ the \fBwords\fP special array and the \fBCURRENT\fP special parameter are
 modified during the execution or evaluation of the \fIaction\fP to refer
 only to the words after the option\&.  When preceded by three colons, they
 are modified to refer only to the words covered by this description\&.
-.RE
-.RE
 .RE
 .RE
 .PP
@@ -3964,7 +3977,6 @@ are taken from the array parameter `\fBexpl\fP\&'; this will be set up
 before executing the \fIaction\fP and hence may be referred to inside it,
 typically in an expansion of the form `\fB$expl[@]\fP\&' which preserves empty
 elements of the array\&.
-.RE
 .RE
 .PP
 During the performance of the action the array `\fBline\fP\&' will be set to
@@ -4970,6 +4982,20 @@ This function accepts the \fBcompadd\fP options `\fB\-V\fP\&', `\fB\-J\fP',
 builtin used to add the matches\&.
 .RE
 .TP
+\fB_sequence\fP [ \fB\-s\fP \fIsep\fP ] [ \fB\-n\fP \fImax\fP ] [ \fB\-d\fP ] \fIfunction\fP [ \fB\-\fP ] \&.\&.\&.
+This function is a wrapper to other functions for completing items in a
+separated list\&. The same function is used to complete each item in the
+list\&. The separator is specified with the \fB\-s\fP option\&. If \fB\-s\fP is
+omitted it will use `\fB,\fP\&'\&. Duplicate values are not matched unless
+\fB\-d\fP is specified\&. If there is a fixed or maximum number of items in
+the list, this can be specified with the \fB\-n\fP option\&.
+.RS
+.PP
+Common \fBcompadd\fP options are passed on to the function\&. It is possible
+to use \fBcompadd\fP directly with \fB_sequence\fP, though \fB_values\fP may
+be more appropriate in this situation\&.
+.RE
+.TP
 \fB_setup\fP \fItag\fP [ \fIgroup\fP ]
 This function sets up the special
 parameters used by the completion system appropriately for the \fItag\fP
@@ -5171,7 +5197,6 @@ accept options to be passed down to \fBcompadd\fP\&.
 Like \fB_tags\fP this function supports the \fB\-C\fP option to give a
 different name for the argument context field\&.  The \fB\-x\fP option has
 the same meaning as for \fB_description\fP\&.
-.RE
 .RE
 .PP
 .SH "COMPLETION DIRECTORIES"

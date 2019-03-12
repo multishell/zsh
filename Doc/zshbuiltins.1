@@ -1,4 +1,4 @@
-.TH "ZSHBUILTINS" "1" "January 5, 2014" "zsh 5\&.0\&.5"
+.TH "ZSHBUILTINS" "1" "August 28, 2014" "zsh 5\&.0\&.6"
 .SH "NAME"
 zshbuiltins \- zsh built\-in commands
 .\" Yodl file: Zsh/builtins.yo
@@ -701,7 +701,7 @@ Do nothing and return an exit status of 1\&.
 \fBfc\fP \fB\-l\fP [ \fB\-nrdfEiD\fP ] [ \fB\-t\fP \fItimefmt\fP ] [ \fB\-m\fP \fImatch\fP ]
 .TP
 .PD 0
-      [ \fIold\fP\fB=\fP\fInew\fP \&.\&.\&. ] [ \fIfirst\fP [ \fIlast\fP ] ]
+\fB      \fP[ \fIold\fP\fB=\fP\fInew\fP \&.\&.\&. ] [ \fIfirst\fP [ \fIlast\fP ] ]
 .TP
 .PD 0
 \fBfc\fP \fB\-p\fP [ \fB\-a\fP ] [ \fIfilename\fP [ \fIhistsize\fP [ \fIsavehistsize\fP ] ] ]
@@ -738,6 +738,9 @@ If \fIfirst\fP is not specified, it will be set to \-1 (the most recent
 event), or to \-16 if the \fB\-l\fP flag is given\&.
 If \fIlast\fP is not specified, it will be set to \fIfirst\fP,
 or to \-1 if the \fB\-l\fP flag is given\&.
+However, if the current event has added entries to the history with
+`\fBprint \-s\fP\&' or `\fBfc \-R\fP', then the default \fIlast\fP for \fB\-l\fP
+includes all new history entries since the current event began\&.
 .PP
 The flag \fB\-r\fP reverses the order of the commands and the
 flag \fB\-n\fP suppresses command numbers when listing\&.
@@ -1408,8 +1411,7 @@ continuation and backslashes in the line don\&'t quote the following
 character and are not removed\&.
 .TP
 \fB\-s\fP
-Don\&'t echo back characters if reading from the terminal\&.  Currently does
-not work with the \fB\-q\fP option\&.
+Don\&'t echo back characters if reading from the terminal\&.
 .TP
 \fB\-q\fP
 Read only one character from the terminal and set \fIname\fP to
@@ -1629,12 +1631,17 @@ code to be aborted; this is behaviour is different from that of `\fBset
 POSIX standard, but \fBsetopt\fP is not\&.
 .RE
 .TP
-\fBshift\fP [ \fIn\fP ] [ \fIname\fP \&.\&.\&. ]
+\fBshift\fP [ \fB\-p\fP ] [ \fIn\fP ] [ \fIname\fP \&.\&.\&. ]
 The positional parameters \fB${\fP\fIn\fP+1\fB}\fP \&.\&.\&. are renamed
 to \fB$1\fP \&.\&.\&., where \fIn\fP is an arithmetic expression that
 defaults to 1\&.
 If any \fIname\fPs are given then the arrays with these names are
 shifted instead of the positional parameters\&.
+.RS
+.PP
+If the option \fB\-p\fP is given arguments are instead removed (popped)
+from the end rather than the start of the array\&.
+.RE
 .TP
 \fBsource\fP \fIfile\fP [ \fIarg\fP \&.\&.\&. ]
 Same as `\fB\&.\fP\&', except that the current directory is always searched and
@@ -2078,6 +2085,11 @@ The number of pseudo\-terminals\&.
 .TP
 \fB\-q\fP
 Bytes in POSIX message queues\&.
+.TP
+\fB\-r\fP
+Maximum real time priority\&.  On some systems where this
+is not available, such as NetBSD, this has the same effect as \fB\-T\fP
+for compatibility with \fBsh\fP\&.
 .TP
 \fB\-s\fP
 Kilobytes on the size of the stack\&.
