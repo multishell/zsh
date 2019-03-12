@@ -520,6 +520,8 @@ patcompile(char *exp, int inflags, char **endexp)
     char *lng, *strp = NULL;
     Patprog p;
 
+    queue_signals();
+
     startoff = sizeof(struct patprog);
     /* Ensure alignment of start of program string */
     startoff = (startoff + sizeof(union upat) - 1) & ~(sizeof(union upat) - 1);
@@ -582,8 +584,10 @@ patcompile(char *exp, int inflags, char **endexp)
 	if (!strp || (*strp && *strp != '/')) {
 	    /* No, do normal compilation. */
 	    strp = NULL;
-	    if (patcompswitch(0, &flags) == 0)
+	    if (patcompswitch(0, &flags) == 0) {
+		unqueue_signals();
 		return NULL;
+	    }
 	} else {
 	    /*
 	     * Yes, copy the string, and skip compilation altogether.
@@ -715,6 +719,8 @@ patcompile(char *exp, int inflags, char **endexp)
 
     if (endexp)
 	*endexp = patparse;
+
+    unqueue_signals();
     return p;
 }
 
@@ -1113,8 +1119,8 @@ range_type(char *start, int len)
     const char **csp;
 
     for (csp = colon_stuffs; *csp; csp++) {
-	if (!strncmp(start, *csp, len))
-	    return (csp - colon_stuffs) + PP_FIRST;
+	if (strlen(*csp) == len && !strncmp(start, *csp, len))
+		return (csp - colon_stuffs) + PP_FIRST;
     }
 
     return PP_UNKWN;
@@ -2202,20 +2208,15 @@ pattryrefs(Patprog prog, char *string, int stringlen, int unmetalen,
 		if ((patglobflags & GF_MATCHREF) &&
 		    !(patflags & PAT_FILE)) {
 		    char *str = ztrduppfx(patinstart, patinlen);
-		    char *ptr = patinstart;
-		    int mlen = 0;
+		    int mlen;
 
 		    /*
 		     * Count the characters.  We're not using CHARSUB()
-		     * because the string is still metafied.  We're
-		     * not using mb_metastrlen() because that expects
-		     * the string to be null terminated.
+		     * because the string is still metafied.
 		     */
 		    MB_METACHARINIT();
-		    while (ptr < patinstart + patinlen) {
-			mlen++;
-			ptr += MB_METACHARLEN(ptr);
-		    }
+		    mlen = MB_METASTRLEN2END(patinstart, 0,
+					     patinstart + patinlen);
 
 		    setsparam("MATCH", str);
 		    setiparam("MBEGIN",

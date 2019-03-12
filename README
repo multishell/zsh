@@ -5,11 +5,10 @@ THE Z SHELL (ZSH)
 Version
 -------
 
-This is version 5.0.8 of the shell.  This is a stable release.
-There are no significant new features since 5.0.7, but there
-are many bugfixes and some significant internal improvements, notably
-a more predictable effect for keyboard interrupts and proper parsing
-of $(...) expressions.
+This is version 5.1 of the shell.  This is a stable release.  There are
+a few visible improvements since 5.0.8 as well as many bugfixes.  Note
+in particular the two changes highlighted under "Incompatibilites
+between 5.0.8 and 5.1" below.  See NEWS for more information.
 
 Installing Zsh
 --------------
@@ -29,6 +28,32 @@ Features
 Zsh is a shell with lots of features.  For a list of some of these, see the
 file FEATURES, and for the latest changes see NEWS.  For more
 details, see the documentation.
+
+Incompatibilites between 5.0.8 and 5.1
+--------------------------------------
+
+The default behaviour when text is pasted into an X Windows terminal has
+changed significantly (unless you are using a very old terminal emulator
+that doesn't support this mode).  Now, the new "bracketed paste mode"
+treats all the pasted text as literal characters.  This means, in
+particular, that a newline is simply inserted as a visible newline; you
+need to hit Return on the keyboard to execute the pasted text in one go.
+See the description of zle_bracketed_paste in the zshparams manual for
+more.  "unset zle_bracketed_paste" restores the previous behaviour.
+
+As noted in NEWS, the builtins declare, export, float, integer, local,
+readonly and typeset now have corresponding reserved words that provide
+true assignment semantics instead of an approximation by means of normal
+command line arguments.  It is hoped that this additional consistency
+provides a more natural interface.  However, compatbility with older
+versions of zsh can be obtained by turning off the reserved word
+interface, exposing the builtin interface:
+
+  disable -r declare export float integer local readonly typeset
+
+This is also necessary in the unusual eventuality that the builtins are
+to be overridden by shell functions, since reserved words take
+precedence over functions.
 
 Incompatibilites between 5.0.7 and 5.0.8
 ----------------------------------------

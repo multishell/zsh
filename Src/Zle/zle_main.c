@@ -1119,7 +1119,7 @@ zlecore(void)
 char *
 zleread(char **lp, char **rp, int flags, int context, char *init, char *finish)
 {
-    char *s;
+    char *s, **bracket;
     int old_errno = errno;
     int tmout = getiparam("TMOUT");
 
@@ -1206,6 +1206,7 @@ zleread(char **lp, char **rp, int flags, int context, char *init, char *finish)
 	    histline = stackhist;
 	    stackhist = -1;
 	}
+	handleundo();
     }
     /*
      * If main is linked to the viins keymap, we need to register
@@ -1248,6 +1249,9 @@ zleread(char **lp, char **rp, int flags, int context, char *init, char *finish)
 
     zlecallhook(init, NULL);
 
+    if ((bracket = getaparam("zle_bracketed_paste")) && arrlen(bracket) == 2)
+	fputs(*bracket, shout);
+
     zrefresh();
 
     zlecore();
@@ -1256,6 +1260,9 @@ zleread(char **lp, char **rp, int flags, int context, char *init, char *finish)
 	setsparam((zlecontext == ZLCON_VARED) ?
 		  "ZLE_VARED_ABORTED" :
 		  "ZLE_LINE_ABORTED", zlegetline(NULL, NULL));
+
+    if ((bracket = getaparam("zle_bracketed_paste")) && arrlen(bracket) == 2)
+	fputs(bracket[1], shout);
 
     if (done && !exit_pending && !errflag)
 	zlecallhook(finish, NULL);
@@ -1858,7 +1865,7 @@ trashzle(void)
 	    clearflag = listshown = 0;
 	}
 	if (postedit)
-	    fprintf(shout, "%s", postedit);
+	    fprintf(shout, "%s", unmeta(postedit));
 	fflush(shout);
 	resetneeded = 1;
 	if (!(zlereadflags & ZLRF_NOSETTY))
@@ -1986,8 +1993,6 @@ mod_export struct hookdef zlehooks[] = {
     HOOKDEF("after_complete", NULL, 0),
     /* ACCEPTCOMPHOOK */
     HOOKDEF("accept_completion", NULL, 0),
-    /* REVERSEMENUHOOK */
-    HOOKDEF("reverse_menu", NULL, 0),
     /* INVALIDATELISTHOOK */
     HOOKDEF("invalidate_list", NULL, 0),
 };
@@ -2004,6 +2009,8 @@ static struct features module_features = {
 int
 setup_(UNUSED(Module m))
 {
+    char **bpaste;
+
     /* Set up editor entry points */
     zle_entry_ptr = zle_main_entry;
     zle_load_state = 1;
@@ -2027,6 +2034,11 @@ setup_(UNUSED(Module m))
     hascompwidgets = 0;
 
     clwords = (char **) zshcalloc((clwsize = 16) * sizeof(char *));
+
+    bpaste = zshcalloc(3*sizeof(char *));
+    bpaste[0] = ztrdup("\033[?2004h");
+    bpaste[1] = ztrdup("\033[?2004l");
+    setaparam("zle_bracketed_paste", bpaste);
 
     return 0;
 }

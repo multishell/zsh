@@ -519,7 +519,7 @@ bin_ztcp(char *nam, char **args, Options ops, UNUSED(int func))
 	    tv.tv_sec = 0;
 	    tv.tv_usec = 0;
 	    
-	    if ((ret = select(lfd+1, &rfds, NULL, NULL, &tv))) return 1;
+	    if ((ret = select(lfd+1, &rfds, NULL, NULL, &tv)) == 0) return 1;
 	    else if (ret == -1)
 	    {
 		zwarnnam(nam, "select error: %e", errno);
@@ -536,8 +536,11 @@ bin_ztcp(char *nam, char **args, Options ops, UNUSED(int func))
 	sess = zts_alloc(ZTCP_INBOUND);
 
 	len = sizeof(sess->peer.in);
-	if ((rfd = accept(lfd, (struct sockaddr *)&sess->peer.in, &len)) == -1)
-	{
+	do {
+	    rfd = accept(lfd, (struct sockaddr *)&sess->peer.in, &len);
+	} while (rfd < 0 && errno == EINTR && !errflag);
+
+	if (rfd == -1) {
 	    zwarnnam(nam, "could not accept connection: %e", errno);
 	    tcp_close(sess);
 	    return 1;

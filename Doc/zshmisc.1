@@ -1,4 +1,4 @@
-.TH "ZSHMISC" "1" "May 31, 2015" "zsh 5\&.0\&.8"
+.TH "ZSHMISC" "1" "August 30, 2015" "zsh 5\&.1"
 .SH "NAME"
 zshmisc \- everything and then some
 .\" Yodl file: Zsh/grammar.yo
@@ -450,7 +450,8 @@ word of a command unless quoted or disabled using \fBdisable \-r\fP:
 .PP
 \fBdo done esac then elif else fi for case
 if while function repeat time until
-select coproc nocorrect foreach end ! [[ { }\fP
+select coproc nocorrect foreach end ! [[ { }
+declare export float integer local readonly typeset\fP
 .PP
 Additionally, `\fB}\fP\&' is recognized in any position if neither the
 \fBIGNORE_BRACES\fP option nor the \fBIGNORE_CLOSE_BRACES\fP option is set\&.
@@ -2344,6 +2345,10 @@ print as many as there are\&.  This is most useful in prompts \fBPS2\fP for
 continuation lines and \fBPS4\fP for debugging with the \fBXTRACE\fP option; in
 the latter case it will also work non\-interactively\&.
 .TP
+\fB%^\fP
+The status of the parser in reverse\&. This is the same as `\fB%_\fP\&' other than
+the order of strings\&.  It is often used in \fBRPS2\fP\&.
+.TP
 .PD 0
 \fB%d\fP
 .TP
@@ -2474,9 +2479,10 @@ The GNU extension that a `\fB\-\fP\&' between the \fB%\fP and the
 format character causes a leading zero or space to be stripped
 is handled directly by the shell for the format characters \fBd\fP, \fBf\fP,
 \fBH\fP, \fBk\fP, \fBl\fP, \fBm\fP, \fBM\fP, \fBS\fP and \fBy\fP; any other format
-characters are provided to \fBstrftime()\fP with any leading `\fB\-\fP\&',
-present, so the handling is system dependent\&.  Further GNU
-extensions are not supported at present\&.
+characters are provided to the system\&'s strftime(3)
+with any leading `\fB\-\fP\&' present, so the handling is system dependent\&.
+Further GNU (or other) extensions are also passed to strftime(3)
+and may work if the system supports them\&.
 .RE
 .PP
 .SS "Visual effects"

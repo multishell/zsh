@@ -1,4 +1,4 @@
-.TH "ZSHCONTRIB" "1" "May 31, 2015" "zsh 5\&.0\&.8"
+.TH "ZSHCONTRIB" "1" "August 30, 2015" "zsh 5\&.1"
 .SH "NAME"
 zshcontrib \- user contributions to zsh
 .\" Yodl file: Zsh/contrib.yo
@@ -41,7 +41,7 @@ distribution in your home directory, you would use the commands:
 .RS
 .nf
 \fBmkdir ~/zsh_help
-perl ~/zsh\-5\&.0\&.8/Util/helpfiles ~/zsh_help\fP
+perl ~/zsh\-5\&.1/Util/helpfiles ~/zsh_help\fP
 .fi
 .RE
 .PP
@@ -181,7 +181,7 @@ Run \fBzkbd\fP either as an autoloaded function, or as a shell script:
 .PP
 .RS
 .nf
-\fBzsh \-f ~/zsh\-5\&.0\&.8/Functions/Misc/zkbd\fP
+\fBzsh \-f ~/zsh\-5\&.1/Functions/Misc/zkbd\fP
 .fi
 .RE
 .PP
@@ -237,7 +237,7 @@ command and redirect the output into a file:
 .PP
 .RS
 .nf
-\fB\&. ~/zsh\-5\&.0\&.8/Util/reporter > zsh\&.report\fP
+\fB\&. ~/zsh\-5\&.1/Util/reporter > zsh\&.report\fP
 .fi
 .RE
 .PP
@@ -356,9 +356,13 @@ previous working directory from a list maintained automatically\&.  It is
 similar in concept to the directory stack controlled by the \fBpushd\fP,
 \fBpopd\fP and \fBdirs\fP builtins, but is more configurable, and as it stores
 all entries in files it is maintained across sessions and (by default)
-between terminal emulators in the current session\&.  (The \fBpushd\fP
-directory stack is not actually modified or used by \fBcdr\fP unless you
-configure it to do so as described in the configuration section below\&.)
+between terminal emulators in the current session\&.  Duplicates are
+automatically removed, so that the list reflects the single most recent
+use of each directory\&.
+.PP
+Note that the \fBpushd\fP directory stack is not actually modified or used
+by \fBcdr\fP unless you configure it to do so as described in the
+configuration section below\&.
 .PP
 .SS "Installation"
 .PP
@@ -849,7 +853,7 @@ actionformats styles above, not only by a branch name but also by a
 revision number\&. This style lets you modify how that string should look\&.
 .TP
 \fBnvcsformats\fP
-These "formats" are exported when we didn\&'t detect a version control system
+These "formats" are set when we didn\&'t detect a version control system
 for the current directory or \fBvcs_info\fP was disabled\&. This is useful if
 you want \fBvcs_info\fP to completely take over the generation of your
 prompt\&. You would do something like \fBPS1=\&'${vcs_info_msg_0_}'\fP to
@@ -866,7 +870,7 @@ behavior using hooks\&.
 .TP
 \fBmax\-exports\fP
 Defines the maximum number of
-\fBvcs_info_msg_*_\fP variables \fBvcs_info\fP will export\&.
+\fBvcs_info_msg_*_\fP variables \fBvcs_info\fP will set\&.
 .TP
 \fBenable\fP
 A list of backends you want to use\&. Checked in the \fB\-init\-\fP context\&. If
@@ -1409,17 +1413,15 @@ All functions named \fBVCS_INFO_*\fP are for internal use only\&.
 .PD 0
 .TP
 .PD
-\fB${vcs_info_msg_\fP\fIN\fP\fB_\fP}Note the trailing underscore.\&')
-(
+\fB${vcs_info_msg_\fP\fIN\fP\fB_}\fP (Note the trailing underscore)
 Where \fIN\fP is an integer, e\&.g\&., \fBvcs_info_msg_0_\fP\&. These variables
 are the storage for the informational message the last \fBvcs_info\fP call
 has assembled\&. These are strongly connected to the \fBformats\fP,
 \fBactionformats\fP and \fBnvcsformats\fP styles described above\&. Those styles
 are lists\&. The first member of that list gets expanded into
 \fB${vcs_info_msg_0_}\fP, the second into \fB${vcs_info_msg_1_}\fP
-and the Nth into \fB${vcs_info_msg_N\-1_}\fP\&. These parameters are
-exported into the environment\&. (See the \fBmax\-exports\fP style above\&.)
-)
+and the Nth into \fB${vcs_info_msg_N\-1_}\fP\&. (See the \fBmax\-exports\fP
+style above\&.)
 .PP
 All variables named \fBVCS_INFO_*\fP are for internal use only\&.
 .PP
@@ -2831,7 +2833,10 @@ using a two\-character mnemonic\&.
 \fBnarrow\-to\-region \fP[ \fB\-p\fP \fIpre\fP ] [ \fB\-P\fP \fIpost\fP ]
 .TP
 .PD 0
-\fB                 \fP[ \fB\-S\fP \fIstatepm\fP | \fB\-R\fP \fIstatepm\fP ] [ \fB\-n\fP ] [ \fIstart\fP \fIend\fP ]
+\fB                 \fP[ \fB\-S\fP \fIstatepm\fP | \fB\-R\fP \fIstatepm\fP | [ \fB\-l\fP \fIlbufvar\fP ] [ \fB\-r\fP \fIrbufvar\fP ] ]
+.TP
+.PD 0
+\fB                 \fP[ \fB\-n\fP ] [ \fIstart\fP \fIend\fP ]
 .TP
 .PD
 \fBnarrow\-to\-region\-invisible\fP
@@ -2870,9 +2875,15 @@ parameter, except that parameters beginning with the prefix \fB_ntr_\fP are
 reserved for use within \fBnarrow\-to\-region\fP\&.  Typically the parameter will
 be local to the calling function\&.
 .PP
+The options \fB\-l\fP \fIlbufvar\fP and \fB\-r\fP \fIrbufvar\fP may be used to
+specify parameters where the widget will store the resulting text from
+the operation\&.  The parameter \fIlbufvar\fP will contain \fBLBUFFER\fP
+and \fIrbufvar\fP will contain \fBRBUFFER\fP\&.  Neither of these two options
+may be used with \fB\-S\fP or \fB\-R\fP\&.
+.PP
 \fBnarrow\-to\-region\-invisible\fP is a simple widget which calls
 \fBnarrow\-to\-region\fP with arguments which replace any text outside the
-region with `\fB\&.\&.\&.\fP\&'\&.
+region with `\fB\&.\&.\&.\fP\&'\&.  It does not take any arguments\&.
 .PP
 The display is restored (and the widget returns) upon any zle command
 which would usually cause the line to be accepted or aborted\&.  Hence an
@@ -4238,7 +4249,7 @@ set to the ANSI terminal escapes that turn off all attributes and turn on
 bold intensity, respectively\&.
 .RE
 .TP
-\fBfned\fP \fIname\fP
+\fBfned\fP [ \fB\-x\fP \fInum\fP ] \fIname\fP
 Same as \fBzed \-f\fP\&.  This function does not appear in the zsh
 distribution, but can be created by linking \fBzed\fP to the name \fBfned\fP
 in some directory in your \fBfpath\fP\&.
@@ -4457,7 +4468,7 @@ the difference in function between \fBzargs\fP and \fBxargs\fP) or run
 .RE
 .TP
 .PD 0
-\fBzed\fP [ \fB\-f\fP ] \fIname\fP
+\fBzed\fP [ \fB\-f\fP [ \fB\-x\fP \fInum\fP ] ] \fIname\fP
 .TP
 .PD
 \fBzed \-b\fP
@@ -4469,7 +4480,10 @@ If the \fB\-f\fP option is given, the name is taken to be that of
 a function; if the function is marked for autoloading, \fBzed\fP searches
 for it in the \fBfpath\fP and loads it\&.  Note that functions edited this way
 are installed into the current shell, but \fInot\fP written back to the
-autoload file\&.
+autoload file\&.  In this case the \fB\-x\fP option specifies that leading
+tabs indenting the function according to syntax should be converted into
+the given number of spaces; `\fB\-x 2\fP\&' is consistent with the layout
+of functions distributed with the shell\&.
 .PP
 Without \fB\-f\fP, \fIname\fP is the path name of the file to edit, which need
 not exist; it is created on write, if necessary\&.
@@ -4544,7 +4558,12 @@ The pattern is always treated as an \fBEXTENDED_GLOB\fP pattern\&.  Any file
 whose name is not changed by the substitution is simply ignored\&.  Any
 error (a substitution resulted in an empty string, two substitutions gave
 the same result, the destination was an existing regular file and \fB\-f\fP
-was not given) causes the entire function to abort without doing anything\&.
+was not given) causes the entire function to abort without doing
+anything\&.
+.PP
+In addition to pattern replacement, the variable \fB$f\fP can be referrred
+to in the second (replacement) argument\&.  This makes it possible to
+use variable substitution to alter the argument; see examples below\&.
 .PP
 Options:
 .PP
@@ -4623,6 +4642,14 @@ Further examples:
 .PP
 For any file in the current directory with at least one space in the name,
 replace every space by an underscore and display the commands executed\&.
+.PP
+.RS
+.nf
+\fBzmv \-v \&'* *' '${f// /_}'\fP
+.fi
+.RE
+.PP
+This does exactly the same by referring to the file name stored in \fB$f\fP\&.
 .PP
 For more complete examples and other implementation details, see the
 \fBzmv\fP source file, usually located in one of the directories named in

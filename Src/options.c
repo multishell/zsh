@@ -81,6 +81,7 @@ static struct optname optns[] = {
 {{NULL, "allexport",	      OPT_EMULATE},		 ALLEXPORT},
 {{NULL, "alwayslastprompt",   OPT_ALL},			 ALWAYSLASTPROMPT},
 {{NULL, "alwaystoend",	      0},			 ALWAYSTOEND},
+{{NULL, "appendcreate",	      OPT_EMULATE|OPT_BOURNE},	 APPENDCREATE},
 {{NULL, "appendhistory",      OPT_ALL},			 APPENDHISTORY},
 {{NULL, "autocd",	      OPT_EMULATE},		 AUTOCD},
 {{NULL, "autocontinue",	      0},			 AUTOCONTINUE},
@@ -172,7 +173,7 @@ static struct optname optns[] = {
 {{NULL, "kshautoload",	      OPT_EMULATE|OPT_BOURNE},	 KSHAUTOLOAD},
 {{NULL, "kshglob",	      OPT_EMULATE|OPT_KSH},	 KSHGLOB},
 {{NULL, "kshoptionprint",     OPT_EMULATE|OPT_KSH},	 KSHOPTIONPRINT},
-{{NULL, "kshtypeset",	      OPT_EMULATE|OPT_KSH},	 KSHTYPESET},
+{{NULL, "kshtypeset",	      0},			 KSHTYPESET},
 {{NULL, "kshzerosubscript",   0},			 KSHZEROSUBSCRIPT},
 {{NULL, "listambiguous",      OPT_ALL},			 LISTAMBIGUOUS},
 {{NULL, "listbeep",	      OPT_ALL},			 LISTBEEP},
@@ -192,7 +193,7 @@ static struct optname optns[] = {
 {{NULL, "monitor",	      OPT_SPECIAL},		 MONITOR},
 {{NULL, "multibyte",
 #ifdef MULTIBYTE_SUPPORT
-			      OPT_EMULATE|OPT_ZSH|OPT_CSH|OPT_KSH
+			      OPT_ALL
 #else
 			      0
 #endif

@@ -11603,7 +11603,7 @@ fi
 $as_echo "$ac_cv_have_dev_ptmx" >&6; }
 
 
-if test x$ac_cv_have_dev_ptmx = xyes && \
+if test x$ac_cv_have_dev_ptmx = xyes -o x$ac_cv_func_posix_openpt = xyes && \
    test x$ac_cv_func_grantpt = xyes && \
    test x$ac_cv_func_unlockpt = xyes && \
    test x$ac_cv_func_ptsname = xyes; then

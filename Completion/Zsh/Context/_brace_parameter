@@ -152,7 +152,7 @@ if [[ $PREFIX = *'${('[^\)]# ]]; then
     "F:join arrays with newlines"
     "g:process echo array sequences (needs options)"
     "i:sort case-insensitively"
-    "k:subsitute keys of associative arrays"
+    "k:substitute keys of associative arrays"
     "L:lower case all letters"
     "n:sort decimal integers numerically"
     "o:sort in ascending order (lexically if no other sort option)"
@@ -192,7 +192,7 @@ elif compset -P '*:([\|\*\^]|\^\^)'; then
 elif compset -P '*:'; then
     flags=(
       '-:substitute alternate value if parameter is null'
-      '+:susbtitute alternate value if parameter is non-null'
+      '+:substitute alternate value if parameter is non-null'
       '=:substitute and assign alternate value if parameter is null'
       '\:=:unconditionally assign value to parameter'
       '?:print error if parameter is set and non-null'

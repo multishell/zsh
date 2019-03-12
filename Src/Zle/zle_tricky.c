@@ -345,17 +345,8 @@ mod_export int
 reversemenucomplete(char **args)
 {
     wouldinstab = 0;
-    if (!menucmp) {
-	menucomplete(args);
-	/*
-	 * Drop through, since we are now on the first item instead of
-	 * the last.  We've already updated the display, so this is a
-	 * bit inefficient, but it's simple and it works.
-	 */
-    }
-
-    runhookdef(REVERSEMENUHOOK, NULL);
-    return 0;
+    zmult = -zmult;
+    return menucomplete(args);
 }
 
 /**/
@@ -730,11 +721,12 @@ docomplete(int lst)
 		    }
 		}
 	    }
-	    if (lst == COMP_EXPAND_COMPLETE)
+	    if (lst == COMP_EXPAND_COMPLETE) {
 		do {
 		    /* Check if there is a parameter expression. */
 		    for (; *q && *q != String; q++);
-		    if (*q == String && q[1] != Inpar && q[1] != Inbrack) {
+		    if (*q == String && q[1] != Inpar && q[1] != Inparmath &&
+			q[1] != Inbrack) {
 			if (*++q == Inbrace) {
 			    if (! skipparens(Inbrace, Outbrace, &q) &&
 				q == s + zlemetacs - wb)
@@ -778,6 +770,7 @@ docomplete(int lst)
 		    } else
 			break;
 		} while (q < s + zlemetacs - wb);
+	    }
 	    if (lst == COMP_EXPAND_COMPLETE) {
 		/* If it is still not clear if we should use expansion or   *
 		 * completion and there is a `$' or a backtick in the word, *
@@ -1182,14 +1175,31 @@ get_comp_string(void)
     do {
         qsub = noword = 0;
 
-	lincmd = ((incmdpos && !ins && !incond) ||
-		  (oins == 2 && wordpos == 2) ||
-		  (ins == 3 && wordpos == 1));
+	/*
+	 * pws: added cmdtok == NULLTOK test as fallback for detecting
+	 * we haven't had a command yet.  This is a cop out: it's needed
+	 * after SEPER because of bizarre and incomprehensible dance
+	 * that we otherwise do involving the "ins" flag when you might
+	 * have thought we'd just reset everything because we're now
+	 * considering a new command.  Consequently, although this looks
+	 * relatively harmless by itself, it's probably incomplete.
+	 */
 	linredir = (inredir && !ins);
+	lincmd = !inredir &&
+	    ((incmdpos && !ins && !incond) ||
+	     (oins == 2 && wordpos == 2) ||
+	     (ins == 3 && wordpos == 1) ||
+	     (cmdtok == NULLTOK && !incond));
 	oins = ins;
 	/* Get the next token. */
 	if (linarr)
 	    incmdpos = 0;
+	/*
+	 * Arrange to parse assignments after typeset etc...
+	 * but not if we're already in an array.
+	 */
+	if (cmdtok == TYPESET)
+	    intypeset = !linarr;
 	ctxtlex();
 
 	if (tok == LEXERR) {
@@ -1272,10 +1282,11 @@ get_comp_string(void)
 	    tt0 = NULLTOK;
 	}
 	if (lincmd && (tok == STRING || tok == FOR || tok == FOREACH ||
-		       tok == SELECT || tok == REPEAT || tok == CASE)) {
+		       tok == SELECT || tok == REPEAT || tok == CASE ||
+		       tok == TYPESET)) {
 	    /* The lexer says, this token is in command position, so *
 	     * store the token string (to find the right compctl).   */
-	    ins = (tok == REPEAT ? 2 : (tok != STRING));
+	    ins = (tok == REPEAT ? 2 : (tok != STRING && tok != TYPESET));
 	    zsfree(cmdstr);
 	    cmdstr = ztrdup(tokstr);
 	    cmdtok = tok;
@@ -1290,7 +1301,7 @@ get_comp_string(void)
 	     * handle completing multiple SEPER-ated command positions on
 	     * the same command line, e.g., pipelines.
 	     */
-	    ins = (cmdtok != STRING);
+	    ins = (cmdtok != STRING && cmdtok != TYPESET);
 	}
 	if (!lexflags && tt0 == NULLTOK) {
 	    /* This is done when the lexer reached the word the cursor is on. */
@@ -1436,7 +1447,7 @@ get_comp_string(void)
 	we = wb = zlemetacs;
 	clwpos = clwnum;
 	t0 = STRING;
-    } else if (t0 == STRING) {
+    } else if (t0 == STRING || t0 == TYPESET) {
 	/* We found a simple string. */
 	s = ztrdup(clwords[clwpos]);
     } else if (t0 == ENVSTRING) {
@@ -1492,7 +1503,7 @@ get_comp_string(void)
 	zlemetaline = tmp;
 	zlemetall = strlen(zlemetaline);
     }
-    if (t0 != STRING && inwhat != IN_MATH) {
+    if (t0 != STRING && t0 != TYPESET && inwhat != IN_MATH) {
 	if (tmp) {
 	    tmp = NULL;
 	    linptr = zlemetaline;

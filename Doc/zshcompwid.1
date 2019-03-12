@@ -1,4 +1,4 @@
-.TH "ZSHCOMPWID" "1" "May 31, 2015" "zsh 5\&.0\&.8"
+.TH "ZSHCOMPWID" "1" "August 30, 2015" "zsh 5\&.1"
 .SH "NAME"
 zshcompwid \- zsh completion widgets
 .\" Yodl file: Zsh/compwid.yo
@@ -700,7 +700,9 @@ format completion lists and to make explanatory string be shown in
 completion lists (since empty matches can be given display strings
 with the \fB\-d\fP option)\&.  And because all but one empty string would
 otherwise be removed, this option implies the \fB\-V\fP and \fB\-2\fP
-options (even if an explicit \fB\-J\fP option is given)\&.
+options (even if an explicit \fB\-J\fP option is given)\&.  This can be
+important to note as it affects the name space into which matches are
+added\&.
 .TP
 .PD 0
 \fB\-\fP

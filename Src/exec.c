@@ -1115,15 +1115,20 @@ execsimple(Estate state)
     if (code == WC_ASSIGN) {
 	cmdoutval = 0;
 	addvars(state, state->pc - 1, 0);
+	setunderscore("");
 	if (isset(XTRACE)) {
 	    fputc('\n', xtrerr);
 	    fflush(xtrerr);
 	}
 	lv = (errflag ? errflag : cmdoutval);
-    } else if (code == WC_FUNCDEF) {
-	lv = execfuncdef(state, NULL);
     } else {
-	lv = (execfuncs[code - WC_CURSH])(state, 0);
+	int q = queue_signal_level();
+	dont_queue_signals();
+	if (code == WC_FUNCDEF)
+	    lv = execfuncdef(state, NULL);
+	else
+	    lv = (execfuncs[code - WC_CURSH])(state, 0);
+	restore_queue_signals(q);
     }
 
     thisjob = otj;
@@ -1156,6 +1161,8 @@ execlist(Estate state, int dont_change_job, int exiting)
      * noerrexit here if the sublist is not of type END.
      */
     int oldnoerrexit = noerrexit;
+
+    queue_signals();
 
     cj = thisjob;
     old_pline_level = pline_level;
@@ -1350,7 +1357,13 @@ execlist(Estate state, int dont_change_job, int exiting)
 	state->pc--;
 sublist_done:
 
-	noerrexit = oldnoerrexit;
+	/*
+	 * See hairy code near the end of execif() for the
+	 * following.  "noerrexit == 2" only applies until
+	 * we hit execcmd on the way down.  We're now
+	 * on the way back up, so don't restore it.
+	 */
+	noerrexit = (oldnoerrexit == 2) ? 0 : oldnoerrexit;
 
 	if (sigtrapped[SIGDEBUG] && !isset(DEBUGBEFORECMD) && !donedebug) {
 	    /*
@@ -1421,6 +1434,8 @@ sublist_done:
 	/* Make sure this doesn't get executed again. */
 	sigtrapped[SIGEXIT] = 0;
     }
+
+    unqueue_signals();
 }
 
 /* Execute a pipeline.                                                *
@@ -1449,6 +1464,14 @@ execpline(Estate state, wordcode slcode, int how, int last1)
     else if (slflags & WC_SUBLIST_NOT)
 	last1 = 0;
 
+    /* If trap handlers are allowed to run here, they may start another
+     * external job in the middle of us starting this one, which can
+     * result in jobs being reaped before their job table entries have
+     * been initialized, which in turn leads to waiting forever for
+     * jobs that no longer exist.  So don't do that.
+     */
+    queue_signals();
+
     pj = thisjob;
     ipipe[0] = ipipe[1] = opipe[0] = opipe[1] = 0;
     child_block();
@@ -1461,6 +1484,7 @@ execpline(Estate state, wordcode slcode, int how, int last1)
      */
     if ((thisjob = newjob = initjob()) == -1) {
 	child_unblock();
+	unqueue_signals();
 	return 1;
     }
     if (how & Z_TIMED)
@@ -1516,6 +1540,7 @@ execpline(Estate state, wordcode slcode, int how, int last1)
 	else
 	    spawnjob();
 	child_unblock();
+	unqueue_signals();
 	/* Executing background code resets shell status */
 	return lastval = 0;
     } else {
@@ -1573,15 +1598,18 @@ execpline(Estate state, wordcode slcode, int how, int last1)
 		}
 		if (!(jn->stat & STAT_LOCKED)) {
 		    updated = hasprocs(thisjob);
-		    waitjobs();
+		    waitjobs();		/* deals with signal queue */
 		    child_block();
 		} else
 		    updated = 0;
 		if (!updated &&
 		    list_pipe_job && hasprocs(list_pipe_job) &&
 		    !(jobtab[list_pipe_job].stat & STAT_STOPPED)) {
+		    int q = queue_signal_level();
 		    child_unblock();
 		    child_block();
+		    dont_queue_signals();
+		    restore_queue_signals(q);
 		}
 		if (list_pipe_child &&
 		    jn->stat & STAT_DONE &&
@@ -1665,6 +1693,7 @@ execpline(Estate state, wordcode slcode, int how, int last1)
 		    break;
 	    }
 	    child_unblock();
+	    unqueue_signals();
 
 	    if (list_pipe && (lastval & 0200) && pj >= 0 &&
 		(!(jn->stat & STAT_INUSE) || (jn->stat & STAT_DONE))) {
@@ -2264,14 +2293,14 @@ addvars(Estate state, Wordcode pc, int addflags)
 		state->pc = opc;
 		return;
 	    }
-	    if (!isstr || (isset(GLOBASSIGN) &&
+	    if (!isstr || (isset(GLOBASSIGN) && isstr &&
 			   haswilds((char *)getdata(firstnode(vl))))) {
 		globlist(vl, 0);
 		/* Unset the parameter to force it to be recreated
 		 * as either scalar or array depending on how many
 		 * matches were found for the glob.
 		 */
-		if (isset(GLOBASSIGN))
+		if (isset(GLOBASSIGN) && isstr)
 		    unsetparam(name);
 	    }
 	    if (errflag) {
@@ -2436,13 +2465,13 @@ execcmd(Estate state, int input, int output, int how, int last1)
     char *text;
     int save[10];
     int fil, dfil, is_cursh, type, do_exec = 0, redir_err = 0, i, htok = 0;
-    int nullexec = 0, assign = 0, forked = 0;
+    int nullexec = 0, assign = 0, forked = 0, postassigns = 0;
     int is_shfunc = 0, is_builtin = 0, is_exec = 0, use_defpath = 0;
     /* Various flags to the command. */
     int cflags = 0, orig_cflags = 0, checked = 0, oautocont = -1;
     LinkList redir;
     wordcode code;
-    Wordcode beg = state->pc, varspc;
+    Wordcode beg = state->pc, varspc, assignspc = (Wordcode)0;
     FILE *oxtrerr = xtrerr, *newxtrerr = NULL;
 
     doneps4 = 0;
@@ -2463,8 +2492,28 @@ execcmd(Estate state, int input, int output, int how, int last1)
     /* It would be nice if we could use EC_DUPTOK instead of EC_DUP here.
      * But for that we would need to check/change all builtins so that
      * they don't modify their argument strings. */
-    args = (type == WC_SIMPLE ?
-	    ecgetlist(state, WC_SIMPLE_ARGC(code), EC_DUP, &htok) : NULL);
+    switch (type) {
+    case WC_SIMPLE:
+	args = ecgetlist(state, WC_SIMPLE_ARGC(code), EC_DUP, &htok);
+	break;
+
+    case WC_TYPESET:
+	args = ecgetlist(state, WC_TYPESET_ARGC(code), EC_DUP, &htok);
+	postassigns = *state->pc++;
+	assignspc = state->pc;
+	for (i = 0; i < postassigns; i++) {
+	    code = *state->pc;
+	    DPUTS(wc_code(code) != WC_ASSIGN,
+		  "BUG: miscounted typeset assignments");
+	    state->pc += (WC_ASSIGN_TYPE(code) == WC_ASSIGN_SCALAR ?
+			  3 : WC_ASSIGN_NUM(code) + 2);
+	}
+	break;
+
+    default:
+	args = NULL;
+    }
+
     /*
      * If assignment but no command get the status from variable
      * assignment.
@@ -2487,7 +2536,7 @@ execcmd(Estate state, int input, int output, int how, int last1)
 
     /* If the command begins with `%', then assume it is a *
      * reference to a job in the job table.                */
-    if (type == WC_SIMPLE && args && nonempty(args) &&
+    if ((type == WC_SIMPLE || type == WC_TYPESET) && args && nonempty(args) &&
 	*(char *)peekfirst(args) == '%') {
         if (how & Z_DISOWN) {
 	    oautocont = opts[AUTOCONTINUE];
@@ -2516,20 +2565,32 @@ execcmd(Estate state, int input, int output, int how, int last1)
      * command if it contains some tokens (e.g. x=ex; ${x}port), so this *
      * only works in simple cases.  has_token() is called to make sure   *
      * this really is a simple case.                                     */
-    if (type == WC_SIMPLE) {
+    if (type == WC_SIMPLE || type == WC_TYPESET) {
 	while (args && nonempty(args)) {
 	    char *cmdarg = (char *) peekfirst(args);
 	    checked = !has_token(cmdarg);
 	    if (!checked)
 		break;
-	    if (!(cflags & (BINF_BUILTIN | BINF_COMMAND)) &&
-		(hn = shfunctab->getnode(shfunctab, cmdarg))) {
-		is_shfunc = 1;
-		break;
-	    }
-	    if (!(hn = builtintab->getnode(builtintab, cmdarg))) {
-		checked = !(cflags & BINF_BUILTIN);
-		break;
+	    if (type == WC_TYPESET &&
+		(hn = builtintab->getnode2(builtintab, cmdarg))) {
+		/*
+		 * If reserved word for typeset command found (and so
+		 * enabled), use regardless of whether builtin is
+		 * enabled as we share the implementation.
+		 *
+		 * Reserved words take precedence over shell functions.
+		 */
+		checked = 1;
+	    } else {
+		if (!(cflags & (BINF_BUILTIN | BINF_COMMAND)) &&
+		    (hn = shfunctab->getnode(shfunctab, cmdarg))) {
+		    is_shfunc = 1;
+		    break;
+		}
+		if (!(hn = builtintab->getnode(builtintab, cmdarg))) {
+		    checked = !(cflags & BINF_BUILTIN);
+		    break;
+		}
 	    }
 	    orig_cflags |= cflags;
 	    cflags &= ~BINF_BUILTIN & ~BINF_COMMAND;
@@ -2660,7 +2721,7 @@ execcmd(Estate state, int input, int output, int how, int last1)
     if (args && htok)
 	prefork(args, esprefork);
 
-    if (type == WC_SIMPLE) {
+    if (type == WC_SIMPLE || type == WC_TYPESET) {
 	int unglobbed = 0;
 
 	for (;;) {
@@ -2896,7 +2957,7 @@ execcmd(Estate state, int input, int output, int how, int last1)
 	return;
     }
 
-    if (type == WC_SIMPLE && !nullexec) {
+    if ((type == WC_SIMPLE || type == WC_TYPESET) && !nullexec) {
 	char *s;
 	char trycd = (isset(AUTOCD) && isset(SHINSTDIN) &&
 		      (!redir || empty(redir)) && args && !empty(args) &&
@@ -3008,6 +3069,7 @@ execcmd(Estate state, int input, int output, int how, int last1)
 	    addproc(pid, text, 0, &bgtime);
 	    if (oautocont >= 0)
 		opts[AUTOCONTINUE] = oautocont;
+	    pipecleanfilelist(jobtab[thisjob].filelist, 1);
 	    return;
 	}
 	/* pid == 0 */
@@ -3282,7 +3344,8 @@ execcmd(Estate state, int input, int output, int how, int last1)
 		    fil = -1;
 		else if (IS_APPEND_REDIR(fn->type))
 		    fil = open(unmeta(fn->name),
-			       (unset(CLOBBER) && !IS_CLOBBER_REDIR(fn->type)) ?
+			       ((unset(CLOBBER) && unset(APPENDCREATE)) &&
+				!IS_CLOBBER_REDIR(fn->type)) ?
 			       O_WRONLY | O_APPEND | O_NOCTTY :
 			       O_WRONLY | O_APPEND | O_CREAT | O_NOCTTY, 0666);
 		else
@@ -3350,6 +3413,7 @@ execcmd(Estate state, int input, int output, int how, int last1)
 	    fflush(xtrerr);
 	}
     } else if (isset(EXECOPT) && !errflag) {
+	int q = queue_signal_level();
 	/*
 	 * We delay the entersubsh() to here when we are exec'ing
 	 * the current shell (including a fake exec to run a builtin then
@@ -3390,11 +3454,14 @@ execcmd(Estate state, int input, int output, int how, int last1)
 	    } else
 		redir_prog = NULL;
 
+	    dont_queue_signals();
 	    lastval = execfuncdef(state, redir_prog);
+	    restore_queue_signals(q);
 	}
 	else if (type >= WC_CURSH) {
 	    if (last1 == 1)
 		do_exec = 1;
+	    dont_queue_signals();
 	    if (type == WC_AUTOFN) {
 		/*
 		 * We pre-loaded this to get any redirs.
@@ -3403,6 +3470,7 @@ execcmd(Estate state, int input, int output, int how, int last1)
 		lastval =  execautofn_basic(state, do_exec);
 	    } else
 		lastval = (execfuncs[type - WC_CURSH])(state, do_exec);
+	    restore_queue_signals(q);
 	} else if (is_builtin || is_shfunc) {
 	    LinkList restorelist = 0, removelist = 0;
 	    /* builtin or shell function */
@@ -3452,13 +3520,126 @@ execcmd(Estate state, int input, int output, int how, int last1)
 
 	    if (is_shfunc) {
 		/* It's a shell function */
-		pipecleanfilelist(filelist);
+		pipecleanfilelist(filelist, 0);
 		execshfunc((Shfunc) hn, args);
 	    } else {
 		/* It's a builtin */
+		LinkList assigns = (LinkList)0;
 		if (forked)
 		    closem(FDT_INTERNAL);
-		lastval = execbuiltin(args, (Builtin) hn);
+		if (postassigns) {
+		    Wordcode opc = state->pc;
+		    state->pc = assignspc;
+		    assigns = newlinklist();
+		    while (postassigns--) {
+			wordcode ac = *state->pc++;
+			char *name = ecgetstr(state, EC_DUPTOK, &htok);
+			Asgment asg;
+			local_list1(svl);
+
+			DPUTS(wc_code(ac) != WC_ASSIGN,
+			      "BUG: bad assignment list for typeset");
+			if (htok) {
+			    init_list1(svl, name);
+			    if (WC_ASSIGN_TYPE(ac) == WC_ASSIGN_SCALAR &&
+				WC_ASSIGN_TYPE2(ac) == WC_ASSIGN_INC) {
+				char *data;
+				/*
+				 * Special case: this is a name only, so
+				 * it's not required to be a single
+				 * expansion.  Furthermore, for
+				 * consistency with the builtin
+				 * interface, it may expand into
+				 * scalar assignments:
+				 *  ass=(one=two three=four)
+				 *  typeset a=b $ass
+				 */
+				/* Unused dummy value for name */
+				(void)ecgetstr(state, EC_DUPTOK, &htok);
+				prefork(&svl, PREFORK_TYPESET);
+				if (errflag) {
+				    state->pc = opc;
+				    break;
+				}
+				globlist(&svl, 0);
+				if (errflag) {
+				    state->pc = opc;
+				    break;
+				}
+				while ((data = ugetnode(&svl))) {
+				    char *ptr;
+				    asg = (Asgment)zhalloc(sizeof(struct asgment));
+				    asg->is_array = 0;
+				    if ((ptr = strchr(data, '='))) {
+					*ptr++ = '\0';
+					asg->name = data;
+					asg->value.scalar = ptr;
+				    } else {
+					asg->name = data;
+					asg->value.scalar = NULL;
+				    }
+				    uaddlinknode(assigns, &asg->node);
+				}
+				continue;
+			    }
+			    prefork(&svl, PREFORK_SINGLE);
+			    name = empty(&svl) ? "" :
+				(char *)getdata(firstnode(&svl));
+			}
+			untokenize(name);
+			asg = (Asgment)zhalloc(sizeof(struct asgment));
+			asg->name = name;
+			if (WC_ASSIGN_TYPE(ac) == WC_ASSIGN_SCALAR) {
+			    char *val = ecgetstr(state, EC_DUPTOK, &htok);
+			    asg->is_array = 0;
+			    if (WC_ASSIGN_TYPE2(ac) == WC_ASSIGN_INC) {
+				/* Fake assignment, no value */
+				asg->value.scalar = NULL;
+			    } else {
+				if (htok) {
+				    init_list1(svl, val);
+				    prefork(&svl, PREFORK_SINGLE|PREFORK_ASSIGN);
+				    if (errflag) {
+					state->pc = opc;
+					break;
+				    }
+				    /*
+				     * No globassign for typeset
+				     * arguments, thank you
+				     */
+				    val = empty(&svl) ? "" :
+					(char *)getdata(firstnode(&svl));
+				}
+				untokenize(val);
+				asg->value.scalar = val;
+			    }
+			} else {
+			    asg->is_array = 1;
+			    asg->value.array =
+				ecgetlist(state, WC_ASSIGN_NUM(ac),
+					  EC_DUPTOK, &htok);
+			    if (asg->value.array)
+			    {
+				prefork(asg->value.array, PREFORK_ASSIGN);
+				if (errflag) {
+				    state->pc = opc;
+				    break;
+				}
+				globlist(asg->value.array, 0);
+				if (errflag) {
+				    state->pc = opc;
+				    break;
+				}
+			    }
+			}
+
+			uaddlinknode(assigns, &asg->node);
+		    }
+		    state->pc = opc;
+		}
+		dont_queue_signals();
+		lastval = execbuiltin(args, assigns, (Builtin) hn);
+		restore_queue_signals(q);
 		fflush(stdout);
 		if (save[1] == -2) {
 		    if (ferror(stdout)) {
@@ -3500,7 +3681,7 @@ execcmd(Estate state, int input, int output, int how, int last1)
 		if (!subsh && isset(RCS) && interact && !nohistsave)
 		    savehistfile(NULL, 1, HFILE_USE_OPTIONS);
 	    }
-	    if (type == WC_SIMPLE) {
+	    if (type == WC_SIMPLE || type == WC_TYPESET) {
 		if (varspc) {
 		    int addflags = ADDVAR_EXPORT|ADDVAR_RESTRICT;
 		    if (forked)
@@ -3531,7 +3712,7 @@ execcmd(Estate state, int input, int output, int how, int last1)
 		DPUTS(varspc,
 		      "BUG: assignment before complex command");
 		list_pipe = 0;
-		pipecleanfilelist(filelist);
+		pipecleanfilelist(filelist, 0);
 		/* If we're forked (and we should be), no need to return */
 		DPUTS(last1 != 1 && !forked, "BUG: not exiting?");
 		DPUTS(type != WC_SUBSH, "Not sure what we're doing.");
@@ -4133,6 +4314,10 @@ namedpipe(void)
 {
     char *tnam = gettempname(NULL, 1);
 
+    if (!tnam) {
+	zerr("failed to create named pipe: %e", errno);
+	return NULL;
+    }
 # ifdef HAVE_MKFIFO
     if (mkfifo(tnam, 0600) < 0){
 # else
@@ -4664,11 +4849,9 @@ execshfunc(Shfunc shf, LinkList args)
     if ((osfc = sfcontext) == SFC_NONE)
 	sfcontext = SFC_DIRECT;
     xtrerr = stderr;
-    unqueue_signals();
 
     doshfunc(shf, args, 0);
 
-    queue_signals();
     sfcontext = osfc;
     free(cmdstack);
     cmdstack = ocs;
@@ -4882,6 +5065,8 @@ doshfunc(Shfunc shfunc, LinkList doshargs, int noreturnval)
 #ifdef MAX_FUNCTION_DEPTH
     static int funcdepth;
 #endif
+
+    queue_signals();	/* Lots of memory and global state changes coming */
 
     pushheap();
 
@@ -5105,6 +5290,8 @@ doshfunc(Shfunc shfunc, LinkList doshargs, int noreturnval)
     }
     popheap();
 
+    unqueue_signals();
+
     /*
      * Exit with a tidy up.
      * Only leave if we're at the end of the appropriate function ---
@@ -5143,6 +5330,8 @@ runshfunc(Eprog prog, FuncWrap wrap, char *name)
     int cont, ouu;
     char *ou;
 
+    queue_signals();
+
     ou = zalloc(ouu = underscoreused);
     if (ou)
 	memcpy(ou, zunderscore, underscoreused);
@@ -5164,12 +5353,14 @@ runshfunc(Eprog prog, FuncWrap wrap, char *name)
 	wrap = wrap->next;
     }
     startparamscope();
-    execode(prog, 1, 0, "shfunc");
+    execode(prog, 1, 0, "shfunc");	/* handles signal unqueueing */
     if (ou) {
 	setunderscore(ou);
 	zfree(ou, ouu);
     }
     endparamscope();
+
+    unqueue_signals();
 }
 
 /* Search fpath for an undefined function.  Finds the file, and returns the *

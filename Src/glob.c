@@ -102,8 +102,14 @@ int badcshglob;
 /**/
 int pathpos;		/* position in pathbuf (needed by pattern code) */
 
+/*
+ * pathname buffer (needed by pattern code).
+ * It is currently believed the string in here is stored metafied and is
+ * unmetafied temporarily as needed by system calls.
+ */
+
 /**/
-char *pathbuf;		/* pathname buffer (needed by pattern code) */
+char *pathbuf;
 
 typedef struct stat *Statptr;	 /* This makes the Ultrix compiler happy.  Go figure. */
 
@@ -216,22 +222,26 @@ static struct globdata curglobdata;
 
 #define save_globstate(N) \
   do { \
+    queue_signals(); \
     memcpy(&(N), &curglobdata, sizeof(struct globdata)); \
     (N).gd_pathpos = pathpos; \
     (N).gd_pathbuf = pathbuf; \
     (N).gd_glob_pre = glob_pre; \
     (N).gd_glob_suf = glob_suf; \
     pathbuf = NULL; \
+    unqueue_signals(); \
   } while (0)
 
 #define restore_globstate(N) \
   do { \
+    queue_signals(); \
     zfree(pathbuf, pathbufsz); \
     memcpy(&curglobdata, &(N), sizeof(struct globdata)); \
     pathpos = (N).gd_pathpos; \
     pathbuf = (N).gd_pathbuf; \
     glob_pre = (N).gd_glob_pre; \
     glob_suf = (N).gd_glob_suf; \
+    unqueue_signals(); \
   } while (0)
 
 /* pathname component in filename patterns */
@@ -253,7 +263,7 @@ addpath(char *s, int l)
 {
     DPUTS(!pathbuf, "BUG: pathbuf not initialised");
     while (pathpos + l + 1 >= pathbufsz)
-	pathbuf = realloc(pathbuf, pathbufsz *= 2);
+	pathbuf = zrealloc(pathbuf, pathbufsz *= 2);
     while (l--)
 	pathbuf[pathpos++] = *s++;
     pathbuf[pathpos++] = '/';
@@ -491,7 +501,7 @@ scanner(Complist q, int shortcircuit)
 
 	    if (l >= PATH_MAX)
 		return;
-	    err = lchdir(pathbuf + pathbufcwd, &ds, 0);
+	    err = lchdir(unmeta(pathbuf + pathbufcwd), &ds, 0);
 	    if (err == -1)
 		return;
 	    if (err) {
@@ -513,7 +523,7 @@ scanner(Complist q, int shortcircuit)
 		    else if (!strcmp(str, "..")) {
 			struct stat sc, sr;
 
-			add = (stat("/", &sr) || stat(pathbuf, &sc) ||
+			add = (stat("/", &sr) || stat(unmeta(pathbuf), &sc) ||
 			       sr.st_ino != sc.st_ino ||
 			       sr.st_dev != sc.st_dev);
 		    }
@@ -560,7 +570,7 @@ scanner(Complist q, int shortcircuit)
 
 		    DPUTS(pathpos == pathbufcwd,
 			  "BUG: filename longer than PATH_MAX");
-		    err = lchdir(pathbuf + pathbufcwd, &ds, 0);
+		    err = lchdir(unmeta(pathbuf + pathbufcwd), &ds, 0);
 		    if (err == -1)
 			break;
 		    if (err) {
@@ -2237,7 +2247,7 @@ xpandbraces(LinkList list, LinkNode *np)
 #ifdef MULTIBYTE_SUPPORT
 		char *ncptr;
 		int nclen;
-		mb_metacharinit();
+		mb_charinit();
 		ncptr = wcs_nicechar(cend, NULL, NULL);
 		nclen = strlen(ncptr);
 		p = zhalloc(lenalloc + nclen);
@@ -2805,7 +2815,7 @@ igetmatch(char **sp, Patprog p, int fl, int n, char *replstr,
 		     * ... now we know whether it's worth looking for the
 		     * shortest, which we do by brute force.
 		     */
-		    mb_metacharinit();
+		    mb_charinit();
 		    for (t = s, umlen = 0; t < s + mlen; ) {
 			set_pat_end(p, *t);
 			if (pattrylen(p, s, t - s, umlen, 0)) {
@@ -2831,7 +2841,7 @@ igetmatch(char **sp, Patprog p, int fl, int n, char *replstr,
 	     * so that match, mbegin, mend and MATCH, MBEGIN, MEND are
 	     * correct.
 	     */
-	    mb_metacharinit();
+	    mb_charinit();
 	    tmatch = NULL;
 	    for (ioff = 0, t = s, umlen = umltot; t < s + l; ioff++) {
 		set_pat_start(p, t-s);
@@ -2855,7 +2865,7 @@ igetmatch(char **sp, Patprog p, int fl, int n, char *replstr,
 	    /* Largest possible match at tail of string:       *
 	     * move forward along string until we get a match. *
 	     * Again there's no optimisation.                  */
-	    mb_metacharinit();
+	    mb_charinit();
 	    for (ioff = 0, t = s, umlen = umltot; t < s + l; ioff++) {
 		set_pat_start(p, t-s);
 		if (pattrylen(p, t, s + l - t, umlen, ioff)) {
@@ -2889,7 +2899,7 @@ igetmatch(char **sp, Patprog p, int fl, int n, char *replstr,
 	    }
 	    ioff = 0;		/* offset into string */
 	    umlen = umltot;
-	    mb_metacharinit();
+	    mb_charinit();
 	    do {
 		/* loop over all matches for global substitution */
 		matched = 0;
@@ -2986,7 +2996,7 @@ igetmatch(char **sp, Patprog p, int fl, int n, char *replstr,
 	     */
 	    nmatches = 0;
 	    tmatch = NULL;
-	    mb_metacharinit();
+	    mb_charinit();
 	    for (ioff = 0, t = s, umlen = umltot; t < s + l; ioff++) {
 		set_pat_start(p, t-s);
 		if (pattrylen(p, t, s + l - t, umlen, ioff)) {
@@ -3002,7 +3012,7 @@ igetmatch(char **sp, Patprog p, int fl, int n, char *replstr,
 		     * We need to find the n'th last match.
 		     */
 		    n = nmatches - n;
-		    mb_metacharinit();
+		    mb_charinit();
 		    for (ioff = 0, t = s, umlen = umltot; t < s + l; ioff++) {
 			set_pat_start(p, t-s);
 			if (pattrylen(p, t, s + l - t, umlen, ioff) &&

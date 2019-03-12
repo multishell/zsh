@@ -339,6 +339,7 @@ ctxtlex(void)
 	incmdpos = 1;
 	break;
     case STRING:
+    case TYPESET:
  /* case ENVSTRING: */
     case ENVARRAY:
     case OUTPAR:
@@ -1182,7 +1183,7 @@ gettokstr(int c, int sub)
 			c = Outpar;
 		    }
 		} else if (peek != ENVSTRING &&
-			   incmdpos && !bct && !brct) {
+			   (incmdpos || intypeset) && !bct && !brct) {
 		    char *t = tokstr;
 		    if (idigit(*t))
 			while (++t < lexbuf.ptr && idigit(*t));
@@ -1200,7 +1201,7 @@ gettokstr(int c, int sub)
 			t++;
 		    if (t == lexbuf.ptr) {
 			e = hgetc();
-			if (e == '(' && incmdpos) {
+			if (e == '(') {
 			    *lexbuf.ptr = '\0';
 			    return ENVARRAY;
 			}
@@ -1387,7 +1388,7 @@ dquote_parse(char endchar, int sub)
 {
     int pct = 0, brct = 0, bct = 0, intick = 0, err = 0;
     int c;
-    int math = endchar == ')' || endchar == ']';
+    int math = endchar == ')' || endchar == ']' || infor;
     int zlemath = math && zlemetacs > zlemetall + addedx - inbufct;
 
     while (((c = hgetc()) != endchar || bct ||
@@ -1994,8 +1995,10 @@ skipcomm(void)
 #else
     char *new_tokstr;
     int new_lexstop, new_lex_add_raw;
+    int save_infor = infor;
     struct lexbufstate new_lexbuf;
 
+    infor = 0;
     cmdpush(CS_CMDSUBST);
     SETPARBEGIN
     add(Inpar);
@@ -2020,6 +2023,18 @@ skipcomm(void)
 	new_tokstr = tokstr;
 	new_lexbuf = lexbuf;
 
+	/*
+	 * If we're expanding an alias at this point, we need the whole
+	 * remaining text as part of the string for the command in
+	 * parentheses, so don't backtrack.  This is different from the
+	 * usual case where the alias is fully within the command, where
+	 * we want the unexpanded text so that it will be expanded
+	 * again when the command in the parentheses is executed.
+	 *
+	 * I never wanted to be a software engineer, you know.
+	 */
+	if (inbufflags & INP_ALIAS)
+	    inbufflags |= INP_RAW_KEEP;
 	zcontext_save_partial(ZCONTEXT_LEX|ZCONTEXT_PARSE);
 	hist_in_word(1);
     } else {
@@ -2052,6 +2067,7 @@ skipcomm(void)
      * the recursive parsing.
      */
     lexflags &= ~LEXFLAGS_ZLE;
+    dbparens = 0;	/* restored by zcontext_restore_partial() */
 
     if (!parse_event(OUTPAR) || tok != OUTPAR)
 	lexstop = 1;
@@ -2098,6 +2114,7 @@ skipcomm(void)
     if (!lexstop)
 	SETPAREND
     cmdpop();
+    infor = save_infor;
 
     return lexstop;
 #endif

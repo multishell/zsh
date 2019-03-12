@@ -517,10 +517,12 @@ copyregionaskill(char **args)
 
 /*
  * kct: index into kill ring, or -1 for original cutbuffer of yank.
- * yankb, yanke: mark the start and end of last yank in editing buffer.
  * yankcs marks the cursor position preceding the last yank
  */
-static int kct, yankb, yanke, yankcs;
+static int kct, yankcs;
+
+/**/
+int yankb, yanke; /* mark the start and end of last yank in editing buffer. */
 
 /* The original cutbuffer, either cutbuf or one of the vi buffers. */
 static Cutbuffer kctbuf;
@@ -732,6 +734,71 @@ yankpop(UNUSED(char **args))
     foredel(yanke - yankb, CUT_RAW);
     zlecs = yankcs;
     pastebuf(buf, 1, !!(lastcmd & ZLE_YANKAFTER));
+    return 0;
+}
+
+/**/
+mod_export char *
+bracketedstring(void)
+{
+    static const char endesc[] = "\033[201~";
+    int endpos = 0;
+    size_t psize = 64;
+    char *pbuf = zalloc(psize);
+    size_t current = 0;
+    int next, timeout;
+
+    while (endesc[endpos]) {
+	if (current + 1 >= psize)
+	    pbuf = zrealloc(pbuf, psize *= 2);
+	if ((next = getbyte(1L, &timeout)) == EOF)
+	    break;
+	if (!endpos || next != endesc[endpos++])
+	    endpos = (next == *endesc);
+	if (imeta(next)) {
+	    pbuf[current++] = Meta;
+	    pbuf[current++] = next ^ 32;
+	} else if (next == '\r')
+	    pbuf[current++] = '\n';
+	else
+	    pbuf[current++] = next;
+    }
+    pbuf[current-endpos] = '\0';
+    return pbuf;
+}
+
+/**/
+int
+bracketedpaste(char **args)
+{
+    char *pbuf = bracketedstring();
+
+    if (*args) {
+	setsparam(*args, pbuf);
+    } else {
+	int n;
+	ZLE_STRING_T wpaste;
+	wpaste = stringaszleline((zmult == 1) ? pbuf :
+	    quotestring(pbuf, NULL, QT_SINGLE_OPTIONAL), 0, &n, NULL, NULL);
+	cuttext(wpaste, n, CUT_REPLACE);
+	if (!(zmod.flags & MOD_VIBUF)) {
+	    kct = -1;
+	    kctbuf = &cutbuf;
+	    zmult = 1;
+	    if (region_active)
+		killregion(zlenoargs);
+	    /* Chop a final newline if its insertion would be hard to
+	     * distinguish by the user from the line being accepted. */
+	    else if (n > 1 && zlecontext != ZLCON_VARED &&
+		    (zlecs + (insmode ? 0 : n - 1)) >= zlell &&
+		    wpaste[n-1] == ZWC('\n'))
+		n--;
+	    yankcs = yankb = zlecs;
+	    doinsert(wpaste, n);
+	    yanke = zlecs;
+	}
+	free(pbuf); free(wpaste);
+    }
     return 0;
 }
 
@@ -1264,6 +1331,22 @@ executenamedcommand(char *prmt)
 	    if (listed)
 		clearlist = listshown = 1;
 	    curlist = 0;
+	} else if (cmd == Th(z_bracketedpaste)) {
+	    char *insert = bracketedstring();
+	    size_t inslen = strlen(insert);
+	    if (len + inslen > NAMLEN)
+		feep = 1;
+	    else {
+		strcpy(ptr, insert);
+		len += inslen;
+		ptr += inslen;
+		if (listed) {
+		    clearlist = listshown = 1;
+		    listed = 0;
+		} else
+		    curlist = 0;
+	    }
+	    free(insert);
 	} else {
 	    if(cmd == Th(z_acceptline) || cmd == Th(z_vicmdmode)) {
 		Thingy r;
@@ -1484,13 +1567,13 @@ makesuffix(int n)
 {
     char *suffixchars;
 
-    if (!(suffixchars = getsparam("ZLE_REMOVE_SUFFIX_CHARS")))
+    if (!(suffixchars = getsparam_u("ZLE_REMOVE_SUFFIX_CHARS")))
 	suffixchars = " \t\n;&|";
 
     addsuffixstring(SUFTYP_POSSTR, 0, suffixchars, n);
 
     /* Do this second so it takes precedence */
-    if ((suffixchars = getsparam("ZLE_SPACE_SUFFIX_CHARS")) && *suffixchars)
+    if ((suffixchars = getsparam_u("ZLE_SPACE_SUFFIX_CHARS")) && *suffixchars)
 	addsuffixstring(SUFTYP_POSSTR, SUFFLAGS_SPACE, suffixchars, n);
 
     suffixlen = n;

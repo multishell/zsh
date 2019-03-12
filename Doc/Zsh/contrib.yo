@@ -339,9 +339,13 @@ previous working directory from a list maintained automatically.  It is
 similar in concept to the directory stack controlled by the tt(pushd),
 tt(popd) and tt(dirs) builtins, but is more configurable, and as it stores
 all entries in files it is maintained across sessions and (by default)
-between terminal emulators in the current session.  (The tt(pushd)
-directory stack is not actually modified or used by tt(cdr) unless you
-configure it to do so as described in the configuration section below.)
+between terminal emulators in the current session.  Duplicates are
+automatically removed, so that the list reflects the single most recent
+use of each directory.
+
+Note that the tt(pushd) directory stack is not actually modified or used
+by tt(cdr) unless you configure it to do so as described in the
+configuration section below.
 
 subsect(Installation)
 
@@ -756,7 +760,7 @@ revision number. This style lets you modify how that string should look.
 )
 kindex(nvcsformats)
 item(tt(nvcsformats))(
-These "formats" are exported when we didn't detect a version control system
+These "formats" are set when we didn't detect a version control system
 for the current directory or tt(vcs_info) was disabled. This is useful if
 you want tt(vcs_info) to completely take over the generation of your
 prompt. You would do something like tt(PS1='${vcs_info_msg_0_}') to
@@ -775,7 +779,7 @@ behavior using hooks.
 kindex(max-exports)
 item(tt(max-exports))(
 Defines the maximum number of
-tt(vcs_info_msg_*_) variables tt(vcs_info) will export.
+tt(vcs_info_msg_*_) variables tt(vcs_info) will set.
 )
 kindex(enable)
 item(tt(enable))(
@@ -1224,16 +1228,15 @@ All functions named tt(VCS_INFO_*) are for internal use only.
 subsect(Variable Description)
 
 startitem()
-item(tt(${vcs_info_msg_)var(N)tt(_)}) (Note the trailing underscore))
-(
+item(tt(${vcs_info_msg_)var(N)tt(_}) (Note the trailing underscore))(
 Where var(N) is an integer, e.g., tt(vcs_info_msg_0_). These variables
 are the storage for the informational message the last tt(vcs_info) call
 has assembled. These are strongly connected to the tt(formats),
 tt(actionformats) and tt(nvcsformats) styles described above. Those styles
 are lists. The first member of that list gets expanded into
 tt(${vcs_info_msg_0_}), the second into tt(${vcs_info_msg_1_})
-and the Nth into tt(${vcs_info_msg_N-1_}). These parameters are
-exported into the environment. (See the tt(max-exports) style above.)
+and the Nth into tt(${vcs_info_msg_N-1_}). (See the tt(max-exports)
+style above.)
 )
 enditem()
 
@@ -2272,7 +2275,8 @@ tindex(narrow-to-region)
 tindex(narrow-to-region-invisible)
 redef(SPACES)(0)(tt(ifztexi(NOTRANS(@ @ @ @ @ @ @ @ @ @ @ @ @ @ @ @ @ ))ifnztexi(                 )))
 xitem(tt(narrow-to-region )[ tt(-p) var(pre) ] [ tt(-P) var(post) ])
-xitem(SPACES()[ tt(-S) var(statepm) | tt(-R) var(statepm) ] [ tt(-n) ] [ var(start) var(end) ])
+xitem(SPACES()[ tt(-S) var(statepm) | tt(-R) var(statepm) | [ tt(-l) var(lbufvar) ] [ tt(-r) var(rbufvar) ] ])
+xitem(SPACES()[ tt(-n) ] [ var(start) var(end) ])
 item(tt(narrow-to-region-invisible))(
 Narrow the editable portion of the buffer to the region between the cursor
 and the mark, which may be in either order.  The region may not be empty.
@@ -2308,9 +2312,15 @@ parameter, except that parameters beginning with the prefix tt(_ntr_) are
 reserved for use within tt(narrow-to-region).  Typically the parameter will
 be local to the calling function.
 
+The options tt(-l) var(lbufvar) and tt(-r) var(rbufvar) may be used to
+specify parameters where the widget will store the resulting text from
+the operation.  The parameter var(lbufvar) will contain tt(LBUFFER)
+and var(rbufvar) will contain tt(RBUFFER).  Neither of these two options
+may be used with tt(-S) or tt(-R).
+
 tt(narrow-to-region-invisible) is a simple widget which calls
 tt(narrow-to-region) with arguments which replace any text outside the
-region with `tt(...)'.
+region with `tt(...)'.  It does not take any arguments.
 
 The display is restored (and the widget returns) upon any zle command
 which would usually cause the line to be accepted or aborted.  Hence an
@@ -3561,7 +3571,7 @@ set to the ANSI terminal escapes that turn off all attributes and turn on
 bold intensity, respectively.
 )
 findex(fned)
-item(tt(fned) var(name))(
+item(tt(fned) [ tt(-x) var(num) ] var(name))(
 Same as tt(zed -f).  This function does not appear in the zsh
 distribution, but can be created by linking tt(zed) to the name tt(fned)
 in some directory in your tt(fpath).
@@ -3749,7 +3759,7 @@ the difference in function between tt(zargs) and tt(xargs)) or run
 tt(zargs) with the tt(-)tt(-help) option.
 )
 findex(zed)
-xitem(tt(zed) [ tt(-f) ] var(name))
+xitem(tt(zed) [ tt(-f) [ tt(-x) var(num) ] ] var(name))
 item(tt(zed -b))(
 This function uses the ZLE editor to edit a file or function.
 
@@ -3758,7 +3768,10 @@ If the tt(-f) option is given, the name is taken to be that of
 a function; if the function is marked for autoloading, tt(zed) searches
 for it in the tt(fpath) and loads it.  Note that functions edited this way
 are installed into the current shell, but em(not) written back to the
-autoload file.
+autoload file.  In this case the tt(-x) option specifies that leading
+tabs indenting the function according to syntax should be converted into
+the given number of spaces; `tt(-x 2)' is consistent with the layout
+of functions distributed with the shell.
 
 Without tt(-f), var(name) is the path name of the file to edit, which need
 not exist; it is created on write, if necessary.
@@ -3825,7 +3838,12 @@ The pattern is always treated as an tt(EXTENDED_GLOB) pattern.  Any file
 whose name is not changed by the substitution is simply ignored.  Any
 error (a substitution resulted in an empty string, two substitutions gave
 the same result, the destination was an existing regular file and tt(-f)
-was not given) causes the entire function to abort without doing anything.
+was not given) causes the entire function to abort without doing
+anything.
+
+In addition to pattern replacement, the variable tt($f) can be referrred
+to in the second (replacement) argument.  This makes it possible to
+use variable substitution to alter the argument; see examples below.
 
 Options:
 
@@ -3873,6 +3891,10 @@ example(zmv -v '(* *)' '${1// /_}')
 
 For any file in the current directory with at least one space in the name,
 replace every space by an underscore and display the commands executed.
+
+example(zmv -v '* *' '${f// /_}')
+
+This does exactly the same by referring to the file name stored in tt($f).
 
 For more complete examples and other implementation details, see the
 tt(zmv) source file, usually located in one of the directories named in

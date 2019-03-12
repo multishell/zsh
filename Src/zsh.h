@@ -336,7 +336,8 @@ enum lextok {
     THEN,	/* then      */
     TIME,	/* time      */ /* 60 */
     UNTIL,	/* until     */
-    WHILE	/* while     */
+    WHILE,	/* while     */
+    TYPESET     /* typeset or similar */
 };
 
 /* Redirection types.  If you modify this, you may also have to modify *
@@ -424,6 +425,7 @@ enum {
 #define INP_HISTCONT  (1<<5)	/* stack is continued from history expn.   */
 #define INP_LINENO    (1<<6)    /* update line number                      */
 #define INP_APPEND    (1<<7)    /* Append new lines to allow backup        */
+#define INP_RAW_KEEP  (1<<8)    /* Input needed in raw mode even if alias  */
 
 /* Flags for metafy */
 #define META_REALLOC	0
@@ -671,14 +673,6 @@ struct multio {
     int fds[MULTIOUNIT];	/* list of src/dests redirected to/from this fd */
 };
 
-/* structure for foo=bar assignments */
-
-struct asgment {
-    struct asgment *next;
-    char *name;
-    char *value;
-};
-
 /* lvalue for variable assignment/expansion */
 
 struct value {
@@ -789,23 +783,24 @@ struct eccstr {
 #define WC_REDIR    4
 #define WC_ASSIGN   5
 #define WC_SIMPLE   6
-#define WC_SUBSH    7
-#define WC_CURSH    8
-#define WC_TIMED    9
-#define WC_FUNCDEF 10
-#define WC_FOR     11
-#define WC_SELECT  12
-#define WC_WHILE   13
-#define WC_REPEAT  14
-#define WC_CASE    15
-#define WC_IF      16
-#define WC_COND    17
-#define WC_ARITH   18
-#define WC_AUTOFN  19
-#define WC_TRY     20
+#define WC_TYPESET  7
+#define WC_SUBSH    8
+#define WC_CURSH    9
+#define WC_TIMED   10
+#define WC_FUNCDEF 11
+#define WC_FOR     12
+#define WC_SELECT  13
+#define WC_WHILE   14
+#define WC_REPEAT  15
+#define WC_CASE    16
+#define WC_IF      17
+#define WC_COND    18
+#define WC_ARITH   19
+#define WC_AUTOFN  20
+#define WC_TRY     21
 
 /* increment as necessary */
-#define WC_COUNT   21
+#define WC_COUNT   22
 
 #define WCB_END()           wc_bld(WC_END, 0)
 
@@ -849,12 +844,21 @@ struct eccstr {
 #define WC_ASSIGN_SCALAR    0
 #define WC_ASSIGN_ARRAY     1
 #define WC_ASSIGN_NEW       0
+/*
+ * In normal assignment, this indicate += to append.
+ * In assignment following a typeset, where that's not allowed,
+ * we overload this to indicate a variable without an
+ * assignment.
+ */
 #define WC_ASSIGN_INC       1
 #define WC_ASSIGN_NUM(C)    (wc_data(C) >> 2)
 #define WCB_ASSIGN(T,A,N)   wc_bld(WC_ASSIGN, ((T) | ((A) << 1) | ((N) << 2)))
 
 #define WC_SIMPLE_ARGC(C)   wc_data(C)
 #define WCB_SIMPLE(N)       wc_bld(WC_SIMPLE, (N))
+
+#define WC_TYPESET_ARGC(C)  wc_data(C)
+#define WCB_TYPESET(N)      wc_bld(WC_TYPESET, (N))
 
 #define WC_SUBSH_SKIP(C)    wc_data(C)
 #define WCB_SUBSH(O)        wc_bld(WC_SUBSH, (O))
@@ -1140,6 +1144,32 @@ struct alias {
 /* is this an alias for suffix handling? */
 #define ALIAS_SUFFIX	(1<<2)
 
+/* structure for foo=bar assignments */
+
+struct asgment {
+    struct linknode node;
+    char *name;
+    int is_array;
+    union {
+	char *scalar;
+	LinkList array;
+    } value;
+};
+
+/*
+ * Assignment is array?
+ */
+#define ASG_ARRAYP(asg) ((asg)->is_array)
+
+/*
+ * Assignment has value?
+ * If the assignment is an arrray, then it certainly has a value --- we
+ * can only tell if there's an expicit assignment.
+ */
+
+#define ASG_VALUEP(asg) (ASG_ARRAYP(asg) ||			\
+			 ((asg)->value.scalar != (char *)0))
+
 /* node in command path hash table (cmdnamtab) */
 
 struct cmdnam {
@@ -1268,6 +1298,7 @@ struct options {
  */
 
 typedef int (*HandlerFunc) _((char *, char **, Options, int));
+typedef int (*HandlerFuncAssign) _((char *, char **, LinkList, Options, int));
 #define NULLBINCMD ((HandlerFunc) 0)
 
 struct builtin {
@@ -1311,6 +1342,12 @@ struct builtin {
   * does not terminate options.
   */
 #define BINF_HANDLES_OPTS	(1<<18)
+/*
+ * Handles the assignement interface.  The argv list actually contains
+ * two nested litsts, the first of normal arguments, and the second of
+ * assignment structures.
+ */
+#define BINF_ASSIGN		(1<<19)
 
 struct module {
     struct hashnode node;
@@ -1715,9 +1752,10 @@ struct tieddata {
 				  * necessarily want to match multiple
 				  * elements
 				  */
-#define SCANPM_ISVAR_AT   ((-1)<<15)	/* "$foo[@]"-style substitution
-					 * Only sign bit is significant
-					 */
+/* "$foo[@]"-style substitution
+ * Only sign bit is significant
+ */
+#define SCANPM_ISVAR_AT   ((int)(((unsigned int)-1)<<15))
 
 /*
  * Flags for doing matches inside parameter substitutions, i.e.
@@ -2084,6 +2122,7 @@ enum {
     CHASELINKS,
     CHECKJOBS,
     CLOBBER,
+    APPENDCREATE,
     COMBININGCHARS,
     COMPLETEALIASES,
     COMPLETEINWORD,
@@ -2779,6 +2818,7 @@ struct parse_stack {
     int incasepat;
     int isnewlin;
     int infor;
+    int intypeset;
 
     int eclen, ecused, ecnpats;
     Wordcode ecbuf;
@@ -2921,14 +2961,22 @@ enum {
 #define AFTERTRAPHOOK  (zshhooks + 2)
 
 #ifdef MULTIBYTE_SUPPORT
+/* Metafied input */
 #define nicezputs(str, outs)	(void)mb_niceformat((str), (outs), NULL, 0)
-#define MB_METACHARINIT()	mb_metacharinit()
+#define MB_METACHARINIT()	mb_charinit()
 typedef wint_t convchar_t;
 #define MB_METACHARLENCONV(str, cp)	mb_metacharlenconv((str), (cp))
 #define MB_METACHARLEN(str)	mb_metacharlenconv(str, NULL)
-#define MB_METASTRLEN(str)	mb_metastrlen(str, 0)
-#define MB_METASTRWIDTH(str)	mb_metastrlen(str, 1)
-#define MB_METASTRLEN2(str, widthp)	mb_metastrlen(str, widthp)
+#define MB_METASTRLEN(str)	mb_metastrlenend(str, 0, NULL)
+#define MB_METASTRWIDTH(str)	mb_metastrlenend(str, 1, NULL)
+#define MB_METASTRLEN2(str, widthp)	mb_metastrlenend(str, widthp, NULL)
+#define MB_METASTRLEN2END(str, widthp, eptr)	\
+    mb_metastrlenend(str, widthp, eptr)
+
+/* Unmetafined input */
+#define MB_CHARINIT()		mb_charinit()
+#define MB_CHARLENCONV(str, len, cp)	mb_charlenconv((str), (len), (cp))
+#define MB_CHARLEN(str, len)	mb_charlenconv((str), (len), NULL)
 
 /*
  * We replace broken implementations with one that uses Unicode
@@ -3011,6 +3059,11 @@ typedef int convchar_t;
 #define MB_METASTRLEN(str)	ztrlen(str)
 #define MB_METASTRWIDTH(str)	ztrlen(str)
 #define MB_METASTRLEN2(str, widthp)	ztrlen(str)
+#define MB_METASTRLEN2END(str, widthp, eptr)	ztrlenend(str, eptr)
+
+#define MB_CHARINIT()
+#define MB_CHARLENCONV(str, len, cp) charlenconv((str), (len), (cp))
+#define MB_CHARLEN(str, len) ((len) ? 1 : 0)
 
 #define WCWIDTH_WINT(c)	(1)
 

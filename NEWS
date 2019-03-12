@@ -4,7 +4,54 @@ CHANGES FROM PREVIOUS VERSIONS OF ZSH
 
 Note also the list of incompatibilities in the README file.
 
-Changes from 5.0.7 to 5.0.8
+Changes from 5.0.8 to 5.1
+-------------------------
+
+The builtins declare, export, local, readonly and typeset
+now have corresponding reserved words.  When used in
+this form, the builtin syntax is extended so that assignments
+following the reserved word are treated similarly to
+assignments that appear at the start of the command line.
+For example,
+  local scalar=`echo one word` array=(several words)
+creates a local "scalar" containing the text "one word"
+and an array "array" containing the words "several"
+"words".
+
+- The print builtin has new options -x and -X to expand tabs.
+
+- Several new command completions and numerous updates to others.
+
+- Options to "fc" to segregate internal and shared history.
+
+- All emulations including "sh" use multibyte by default; several
+  repairs to multibyte handling.
+
+- ZLE supports "bracketed paste" mode to avoid interpreting pasted
+  newlines as accept-line.  Pastes can be highlighted for visibility
+  and to make it more obvious whether accept-line has occurred.
+
+- Improved (though still not perfect) POSIX compatibility for getopts
+  builtin when POSIX_BUILTINS is set.
+
+- New setopt APPEND_CREATE for POSIX-compatible NO_CLOBBER behavior.
+
+- Completion of date values now displays in a calendar format when
+  the complist module is available.  Controllable by zstyle.
+
+- New parameter UNDO_LIMIT_NO for more control over ZLE undo repeat.
+
+- Several repairs/improvements to the contributed narrow-to-region
+  ZLE function.
+
+- Many changes to child-process and signal handling to eliminate race
+  conditions and avoid deadlocks on descriptor and memory management.
+
+- New builtin sysopen in zsh/system module for detailed control of
+  file descriptor modes.
+
+
+Changes from 5.0.0 to 5.0.8
 ---------------------------
 
 - Global aliases can be created for syntactic tokens such as command
@@ -46,9 +93,6 @@ Changes from 5.0.7 to 5.0.8
 
 - Some rationalisations have been made to the zsh/db/gdbm module that
   should make it more useful and predictable in operation.
-
-Changes from 5.0.0 to 5.0.7
----------------------------
 
 - Numeric constants encountered in mathematical expressions (but not other
   contexts) can contain underscores as separators that will be ignored on

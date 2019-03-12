@@ -1,4 +1,4 @@
-.TH "ZSHMODULES" "1" "May 31, 2015" "zsh 5\&.0\&.8"
+.TH "ZSHMODULES" "1" "August 30, 2015" "zsh 5\&.1"
 .SH "NAME"
 zshmodules \- zsh loadable modules
 .\" Yodl file: Zsh/modules.yo
@@ -2346,6 +2346,66 @@ not recognised (no message is printed for this)\&.
 
 .TP
 .PD 0
+\fBsysopen\fP [ \fB\-arw\fP ] [ \fB\-m\fP \fIpermissions\fP ] [ \fB\-o\fP \fIoptions\fP ]
+.TP
+.PD
+\fB        \fP\fB\-u\fP \fIfd\fP \fIfile\fP
+This command opens a file\&. The \fB\-r\fP, \fB\-w\fP and \fB\-a\fP flags indicate
+whether the file should be opened for reading, writing and appending,
+respectively\&. The \fB\-m\fP option allows the initial permissions to use when
+creating a file to be specified in octal form\&.  The file descriptor is
+specified with \fB\-u\fP\&. Either an explicit file descriptor in the range 0 to 9 can
+be specified or a variable name can be given to which the file descriptor
+number will be assigned\&.
+.RS
+.PP
+The \fB\-o\fP option allows various system specific options to be
+specified as a comma\-separated list\&. The following is a list of possible
+options\&. Note that, depending on the system, some may not be available\&.
+.PD 0
+.TP
+.PD
+\fBcloexec\fP
+mark file to be closed when other programs are executed
+.TP
+.PD 0
+\fBcreate\fP
+.TP
+.PD
+\fBcreat\fP
+create file if it does not exist
+.TP
+\fBexcl\fP
+create file, error if it already exists
+.TP
+\fBnoatime\fP
+suppress updating of the file atime
+.TP
+\fBnofollow\fP
+fail if \fIfile\fP is a symbolic link
+.TP
+\fBsync\fP
+request that writes wait until data has been physically written
+.TP
+.PD 0
+\fBtruncate\fP
+.TP
+.PD
+\fBtrunc\fP
+truncate file to size 0
+.PP
+To close the file, use one of the following:
+.PP
+.RS
+.nf
+\fB\fBexec {\fP\fIfd\fP\fB}<&\-\fP
+\fBexec {\fP\fIfd\fP\fB}>&\-\fP\fP
+.fi
+.RE
+.RE
+
+.TP
+.PD 0
 \fBsysread \fP[ \fB\-c\fP \fIcountvar\fP ] [ \fB\-i\fP \fIinfd\fP ] [ \fB\-o\fP \fIoutfd\fP ]
 .TP
 .PD
@@ -2408,6 +2468,14 @@ No system error occurred, but zero bytes were read\&.  This usually
 indicates end of file\&.  The parameters are set according to the
 usual rules; no write to \fIoutfd\fP is attempted\&.
 .RE
+.TP
+\fBsysseek\fP [ \fB\-u\fP \fIfd\fP ] [ \fB\-w\fP \fBstart\fP|\fBend\fP|\fBcurrent\fP ] \fIoffset\fP
+The current file position at which future reads and writes will take place is
+adjusted to the specified byte offset\&. The \fIoffset\fP is evaluated as a math
+expression\&. The \fB\-u\fP option allows the file descriptor to be specified\&. By
+default the offset is specified relative to the start or the file but, with the
+\fB\-w\fP option, it is possible to specify that the offset should be relative to
+the current position or the end of the file\&.
 .TP
 \fBsyswrite\fP [ \fB\-c\fP \fIcountvar\fP ] [ \fB\-o\fP \fIoutfd\fP ] \fIdata\fP
 The data (a single string of bytes) are written to the file descriptor
@@ -2485,6 +2553,15 @@ is returned\&.  Status 1 can indicate one of two things:  \fIsubcommand\fP
 is known but not supported by the current operating system, or
 \fIsubcommand\fP is not known (possibly because this is an older
 version of the shell before it was implemented)\&.
+.PP
+.SS "Math Functions"
+.PP
+.PD 0
+.TP
+.PD
+\fBsystell(\fIfd\fP)\fP
+The systell math function returns the current file position for the file
+descriptor passed as an argument\&.
 .PP
 .SS "Parameters"
 .PP
@@ -3390,6 +3467,13 @@ characters are echoed\&.
 .PP
 With the \fB\-b\fP option, input to and output from the pseudo\-terminal are
 made non\-blocking\&.
+.PP
+The shell parameter \fBREPLY\fP is set to the file descriptor assigned to
+the master side of the pseudo\-terminal\&.  This allows the terminal to be
+monitored with ZLE descriptor handlers (see \fIzshzle\fP(1)) or manipulated with \fBsysread\fP and
+\fBsyswrite\fP (see THE ZSH/SYSTEM MODULE in \fIzshmodules\fP(1))\&.  \fIWarning\fP: Use of \fBsysread\fP
+and \fBsyswrite\fP is \fInot\fP recommended, use \fBzpty \-r\fP and \fBzpty \-w\fP
+unless you know exactly what you are doing\&.
 .RE
 .TP
 \fBzpty\fP \fB\-d\fP [ \fIname\fP \&.\&.\&. ]

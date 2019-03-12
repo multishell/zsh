@@ -1,4 +1,4 @@
-.TH "ZSHEXPN" "1" "May 31, 2015" "zsh 5\&.0\&.8"
+.TH "ZSHEXPN" "1" "August 30, 2015" "zsh 5\&.1"
 .SH "NAME"
 zshexpn \- zsh expansion and substitution
 .\" Yodl file: Zsh/expn.yo
@@ -304,6 +304,19 @@ forms of expansion\&.
 .PP
 Note that if a `\fB&\fP\&' is used within glob qualifiers an extra backslash
 is needed as a \fB&\fP is a special character in this case\&.
+.PP
+Also note that the order of expansions affects the interpretation of
+\fIl\fP and \fIr\fP\&.  When used in a history expansion, which occurs before
+any other expansions, \fIl\fP and \fIr\fP are treated as literal strings
+(except as explained for \fBHIST_SUBST_PATTERN\fP below)\&.  When used in
+parameter expansion, the replacement of \fIr\fP into the parameter\&'s value
+is done first, and then any additional process, parameter, command,
+arithmetic, or brace references are applied, which may evaluate those
+substitutions and expansions more than once if \fIl\fP appears more than
+once in the starting value\&.  When used in a glob qualifier, any
+substitutions or expansions are performed once at the time the qualifier
+is parsed, even before the `\fB:s\fP\&' expression itself is divided into
+\fIl\fP and \fIr\fP sides\&.
 .PP
 If the option \fBHIST_SUBST_PATTERN\fP is set, \fIl\fP is treated as
 a pattern of the usual form described in
@@ -973,6 +986,35 @@ array index order\&.  Note that `\fBa\fP\&' is therefore equivalent to the
 default but `\fBOa\fP\&' is useful for obtaining an array's elements in reverse
 order\&.
 .TP
+\fBb\fP
+Quote with backslashes only characters that are special to pattern
+matching\&. This is useful when the contents of the variable are to be
+tested using \fBGLOB_SUBST\fP, including the \fB${~\fP\fI\&.\&.\&.\fP\fB}\fP switch\&.
+.RS
+.PP
+Quoting using one of the \fBq\fP family of flags does not work
+for this purpose since quotes are not stripped from non\-pattern
+characters by \fBGLOB_SUBST\fP\&.  In other words,
+.PP
+.RS
+.nf
+\fBpattern=${(q)str}
+[[ $str = ${~pattern} ]]\fP
+.fi
+.RE
+.PP
+works if \fB$str\fP is `\fBa*b\fP\&' but not if it is `\fBa b\fP', whereas
+.PP
+.RS
+.nf
+\fBpattern=${(b)str}
+[[ $str = ${~pattern} ]]\fP
+.fi
+.RE
+.PP
+is always true for any possible value of \fB$str\fP\&.
+.RE
+.TP
 \fBc\fP
 With \fB${#\fP\fIname\fP\fB}\fP, count the total number of characters in an array,
 as if the elements were concatenated with spaces between them\&.  This is not
@@ -1078,35 +1120,6 @@ If a \fBq\-\fP is given (only a single \fBq\fP may appear), a minimal
 form of single quoting is used that only quotes the string if needed to
 protect special characters\&.  Typically this form gives the most readable
 output\&.
-.RE
-.TP
-\fBb\fP
-Quote with backslashes only characters that are special to pattern
-matching\&. This is useful when the contents of the variable are to be
-tested using \fBGLOB_SUBST\fP, including the \fB${~\fP\fI\&.\&.\&.\fP\fB}\fP switch\&.
-.RS
-.PP
-Quoting using one of the \fBq\fP family of flags does not work
-for this purpose since quotes are not stripped from non\-pattern
-characters by \fBGLOB_SUBST\fP\&.  In other words,
-.PP
-.RS
-.nf
-\fBpattern=${(q)str}
-[[ $str = ${~pattern} ]]\fP
-.fi
-.RE
-.PP
-works if \fB$str\fP is \fB\&'a*b'\fP but not if it is \fB'a b'\fP, whereas
-.PP
-.RS
-.nf
-\fBpattern=${(b)str}
-[[ $str = ${~pattern} ]]\fP
-.fi
-.RE
-.PP
-is always true for any possible value of \fB$str\fP\&.
 .RE
 .TP
 \fBQ\fP

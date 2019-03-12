@@ -196,7 +196,7 @@ static const struct gsu_integer ttyidle_gsu =
 { ttyidlegetfn, nullintsetfn, stdunsetfn };
 
 static const struct gsu_scalar argzero_gsu =
-{ argzerogetfn, nullstrsetfn, nullunsetfn };
+{ argzerogetfn, argzerosetfn, nullunsetfn };
 static const struct gsu_scalar username_gsu =
 { usernamegetfn, usernamesetfn, stdunsetfn };
 static const struct gsu_scalar dash_gsu =
@@ -1116,14 +1116,12 @@ getarg(char **str, int *inv, Value v, int a2, zlong *w,
     Patprog pprog = NULL;
 
     /*
-     * If in NO_EXEC mode, the parameters won't be set up
-     * properly, so there's no point even doing any sanity checking.
-     * Just return 0 now.
+     * If in NO_EXEC mode, the parameters won't be set up properly,
+     * so just pretend everything is a hash for subscript parsing
      */
-    if (unset(EXECOPT))
-	return 0;
 
-    ishash = (v->pm && PM_TYPE(v->pm->node.flags) == PM_HASHED);
+    ishash = (unset(EXECOPT) ||
+	      (v->pm && PM_TYPE(v->pm->node.flags) == PM_HASHED));
     if (prevcharlen)
 	*prevcharlen = 1;
     if (nextcharlen)
@@ -1278,8 +1276,18 @@ getarg(char **str, int *inv, Value v, int a2, zlong *w,
     }
     if (!c)
 	return 0;
-    s = dupstrpfx(s, t - s);
     *str = tt = t;
+
+    /*
+     * If in NO_EXEC mode, the parameters won't be set up properly,
+     * so there's no additional sanity checking we can do.
+     * Just return 0 now.
+     */
+    if (unset(EXECOPT))
+	return 0;
+
+    s = dupstrpfx(s, t - s);
+
     /* If we're NOT reverse subscripting, strip the inull()s so brackets *
      * are not backslashed after parsestr().  Otherwise leave them alone *
      * so that the brackets will be escaped when we patcompile() or when *
@@ -2631,6 +2639,15 @@ getsparam(char *s)
     return getstrvalue(v);
 }
 
+/**/
+mod_export char *
+getsparam_u(char *s)
+{
+    if ((s = getsparam(s)))
+	return unmetafy(s, NULL);
+    return s;
+}
+
 /* Retrieve an array parameter */
 
 /**/
@@ -3963,7 +3980,7 @@ setlang(char *x)
     struct localename *ln;
     char *x2;
 
-    if ((x2 = getsparam("LC_ALL")) && *x2)
+    if ((x2 = getsparam_u("LC_ALL")) && *x2)
 	return;
 
     /*
@@ -3977,10 +3994,10 @@ setlang(char *x)
      * from this is meaningless.  So just all $LANG to show through in
      * that case.
      */
-    setlocale(LC_ALL, x ? x : "");
+    setlocale(LC_ALL, x ? unmeta(x) : "");
     queue_signals();
     for (ln = lc_names; ln->name; ln++)
-	if ((x = getsparam(ln->name)) && *x)
+	if ((x = getsparam_u(ln->name)) && *x)
 	    setlocale(ln->category, x);
     unqueue_signals();
 }
@@ -3996,7 +4013,7 @@ lc_allsetfn(Param pm, char *x)
      * that with any LC_* that are set.
      */
     if (!x || !*x) {
-	x = getsparam("LANG");
+	x = getsparam_u("LANG");
 	if (x && *x) {
 	    queue_signals();
 	    setlang(x);
@@ -4004,7 +4021,7 @@ lc_allsetfn(Param pm, char *x)
 	}
     }
     else
-	setlocale(LC_ALL, x);
+	setlocale(LC_ALL, unmeta(x));
 }
 
 /**/
@@ -4012,7 +4029,7 @@ void
 langsetfn(Param pm, char *x)
 {
     strsetfn(pm, x);
-    setlang(x);
+    setlang(unmeta(x));
 }
 
 /**/
@@ -4038,11 +4055,26 @@ lcsetfn(Param pm, char *x)
     if (x && *x) {
 	for (ln = lc_names; ln->name; ln++)
 	    if (!strcmp(ln->name, pm->node.nam))
-		setlocale(ln->category, x);
+		setlocale(ln->category, unmeta(x));
     }
     unqueue_signals();
 }
 #endif /* USE_LOCALE */
+
+/* Function to set value for special parameter `0' */
+
+/**/
+static void
+argzerosetfn(UNUSED(Param pm), char *x)
+{
+    if (x) {
+	if (!isset(POSIXARGZERO)) {
+	    zsfree(argzero);
+	    argzero = ztrdup(x);
+	}
+	zsfree(x);
+    }
+}
 
 /* Function to get value for special parameter `0' */
 
@@ -5076,8 +5108,10 @@ printparamvalue(Param p, int printflags)
 	break;
     case PM_ARRAY:
 	/* array */
-	if (!(printflags & PRINT_KV_PAIR))
+	if (!(printflags & PRINT_KV_PAIR)) {
 	    putchar('(');
+	    putchar(' ');
+	}
 	u = p->gsu.a->getfn(p);
 	if(*u) {
 	    quotedzputs(*u++, stdout);
@@ -5086,13 +5120,17 @@ printparamvalue(Param p, int printflags)
 		quotedzputs(*u++, stdout);
 	    }
 	}
-	if (!(printflags & PRINT_KV_PAIR))
+	if (!(printflags & PRINT_KV_PAIR)) {
+	    putchar(' ');
 	    putchar(')');
+	}
 	break;
     case PM_HASHED:
 	/* association */
-	if (!(printflags & PRINT_KV_PAIR))
+	if (!(printflags & PRINT_KV_PAIR)) {
 	    putchar('(');
+	    putchar(' ');
+	}
 	{
             HashTable ht = p->gsu.h->getfn(p);
             if (ht)

@@ -1,4 +1,4 @@
-.TH "ZSHPARAM" "1" "May 31, 2015" "zsh 5\&.0\&.8"
+.TH "ZSHPARAM" "1" "August 30, 2015" "zsh 5\&.1"
 .SH "NAME"
 zshparam \- zsh parameters
 .\" Yodl file: Zsh/params.yo
@@ -1662,6 +1662,26 @@ precedence over the \fBNOBEEP\fP option\&.
 \fBZDOTDIR\fP
 The directory to search for shell startup files (\&.zshrc, etc),
 if not \fB$HOME\fP\&.
+.TP
+\fBzle_bracketed_paste\fP
+Many terminal emulators have a feature that allows applications to
+identify when text is pasted into the terminal rather than being typed
+normally\&. For ZLE, this means that special characters such as tabs
+and newlines can be inserted instead of invoking editor commands\&.
+Furthermore, pasted text forms a single undo event and if the region is
+active, pasted text will replace the region\&.
+.RS
+.PP
+This two\-element array contains the terminal escape sequences for
+enabling and disabling the feature\&. These escape sequences are used to
+enable bracketed paste when ZLE is active and disable it at other times\&.
+Unsetting the parameter has the effect of ensuring that bracketed paste
+remains disabled\&.
+.RE
+.TP
+\fBzle_highlight\fP
+An array describing contexts in which ZLE should highlight the input text\&.
+See \fICharacter Highlighting\fP in \fIzshzle\fP(1)\&.
 .TP
 \fBZLE_LINE_ABORTED\fP
 This parameter is set by the line editor when an error occurs\&.  It

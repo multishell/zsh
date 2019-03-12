@@ -487,6 +487,12 @@ wait_for_processes(void)
 	    break;
 	}
 
+	/* This is necessary to be sure queueing_enabled > 0 when
+	 * we enter printjob() from update_job(), so that we don't
+	 * decrement to zero in should_report_time() and improperly
+	 * run other handlers in the middle of processing this one */
+	queue_signals();
+
 	/*
 	 * Find the process and job containing this pid and
 	 * update it.
@@ -528,8 +534,16 @@ wait_for_processes(void)
 	 * and is not equal to the current foreground job.
 	 */
 	if (jn && !(jn->stat & (STAT_CURSH|STAT_BUILTIN)) &&
-	    jn - jobtab != thisjob)
-	    addbgstatus(pid, (int)lastval2);
+	    jn - jobtab != thisjob) {
+	    int val = (WIFSIGNALED(status) ?
+		   0200 | WTERMSIG(status) :
+		   (WIFSTOPPED(status) ?
+		    0200 | WEXITSTATUS(status) :
+		    WEXITSTATUS(status)));
+	    addbgstatus(pid, val);
+	}
+
+	unqueue_signals();
     }
 }
 
@@ -1207,6 +1221,8 @@ dotrapargs(int sig, int *sigtr, void *sigfn)
 	}
     }
 
+    queue_signals();	/* Any time we manage memory or global state */
+
     intrap++;
     *sigtr |= ZSIG_IGNORED;
 
@@ -1244,7 +1260,7 @@ dotrapargs(int sig, int *sigtr, void *sigfn)
 
 	sfcontext = SFC_SIGNAL;
 	incompfunc = 0;
-	doshfunc((Shfunc)sigfn, args, 1);
+	doshfunc((Shfunc)sigfn, args, 1);	/* manages signal queueing */
 	sfcontext = osc;
 	incompfunc= old_incompfunc;
 	freelinklist(args, (FreeFunc) NULL);
@@ -1254,7 +1270,7 @@ dotrapargs(int sig, int *sigtr, void *sigfn)
 	trap_state = TRAP_STATE_PRIMED;
 	trapisfunc = isfunc = 0;
 
-	execode((Eprog)sigfn, 1, 0, "trap");
+	execode((Eprog)sigfn, 1, 0, "trap");	/* manages signal queueing */
     }
     runhookdef(AFTERTRAPHOOK, NULL);
 
@@ -1321,6 +1337,8 @@ dotrapargs(int sig, int *sigtr, void *sigfn)
     if (*sigtr != ZSIG_IGNORED)
 	*sigtr &= ~ZSIG_IGNORED;
     intrap--;
+
+    unqueue_signals();
 }
 
 /* Standard call to execute a trap for a given signal. */
