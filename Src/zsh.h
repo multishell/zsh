@@ -1867,7 +1867,7 @@ struct tieddata {
 /* The following are the same since they *
  * both represent -U option to typeset   */
 #define PM_UNIQUE	(1<<13)	/* remove duplicates                        */
-#define PM_UNALIASED	(1<<13)	/* do not expand aliases when autoloading   */
+#define PM_UNALIASED	(1<<13)	/* (function) do not expand aliases when autoloading   */
 
 #define PM_HIDE		(1<<14)	/* Special behaviour hidden by local        */
 #define PM_CUR_FPATH    (1<<14) /* (function): can use $fpath with filename */
@@ -1876,28 +1876,30 @@ struct tieddata {
 #define PM_TIED 	(1<<16)	/* array tied to colon-path or v.v.         */
 #define PM_TAGGED_LOCAL (1<<16) /* (function): non-recursive PM_TAGGED      */
 
-#define PM_KSHSTORED	(1<<17) /* function stored in ksh form              */
-#define PM_ZSHSTORED	(1<<18) /* function stored in zsh form              */
-
 /* Remaining flags do not correspond directly to command line arguments */
-#define PM_DONTIMPORT_SUID (1<<19) /* do not import if running setuid */
-#define PM_LOADDIR      (1<<19) /* (function) filename gives load directory */
-#define PM_SINGLE       (1<<20) /* special can only have a single instance  */
-#define PM_ANONYMOUS    (1<<20) /* (function) anonymous function            */
-#define PM_LOCAL	(1<<21) /* this parameter will be made local        */
-#define PM_SPECIAL	(1<<22) /* special builtin parameter                */
-#define PM_DONTIMPORT	(1<<23)	/* do not import this variable              */
-#define PM_RESTRICTED	(1<<24) /* cannot be changed in restricted mode     */
-#define PM_UNSET	(1<<25)	/* has null value                           */
-#define PM_REMOVABLE	(1<<26)	/* special can be removed from paramtab     */
-#define PM_AUTOLOAD	(1<<27) /* autoloaded from module                   */
-#define PM_NORESTORE	(1<<28)	/* do not restore value of local special    */
-#define PM_AUTOALL	(1<<28) /* autoload all features in module
+#define PM_DONTIMPORT_SUID (1<<17) /* do not import if running setuid */
+#define PM_LOADDIR      (1<<17) /* (function) filename gives load directory */
+#define PM_SINGLE       (1<<18) /* special can only have a single instance  */
+#define PM_ANONYMOUS    (1<<18) /* (function) anonymous function            */
+#define PM_LOCAL	(1<<19) /* this parameter will be made local        */
+#define PM_KSHSTORED	(1<<19) /* (function) stored in ksh form              */
+#define PM_SPECIAL	(1<<20) /* special builtin parameter                */
+#define PM_ZSHSTORED	(1<<20) /* (function) stored in zsh form              */
+#define PM_RO_BY_DESIGN (1<<21) /* to distinguish from specials that can be
+				   made read-only by the user               */
+#define PM_READONLY_SPECIAL (PM_SPECIAL|PM_READONLY|PM_RO_BY_DESIGN)
+#define PM_DONTIMPORT	(1<<22)	/* do not import this variable              */
+#define PM_RESTRICTED	(1<<23) /* cannot be changed in restricted mode     */
+#define PM_UNSET	(1<<24)	/* has null value                           */
+#define PM_REMOVABLE	(1<<25)	/* special can be removed from paramtab     */
+#define PM_AUTOLOAD	(1<<26) /* autoloaded from module                   */
+#define PM_NORESTORE	(1<<27)	/* do not restore value of local special    */
+#define PM_AUTOALL	(1<<27) /* autoload all features in module
 				 * when loading: valid only if PM_AUTOLOAD
 				 * is also present.
 				 */
-#define PM_HASHELEM     (1<<29) /* is a hash-element */
-#define PM_NAMEDDIR     (1<<30) /* has a corresponding nameddirtab entry    */
+#define PM_HASHELEM     (1<<28) /* is a hash-element */
+#define PM_NAMEDDIR     (1<<29) /* has a corresponding nameddirtab entry    */
 
 /* The option string corresponds to the first of the variables above */
 #define TYPESET_OPTSTR "aiEFALRZlurtxUhHTkz"
@@ -2138,6 +2140,8 @@ typedef groupset *Groupset;
 #define PRINT_INCLUDEVALUE	(1<<4)
 #define PRINT_TYPESET		(1<<5)
 #define PRINT_LINE	        (1<<6)
+#define PRINT_POSIX_EXPORT	(1<<7)
+#define PRINT_POSIX_READONLY	(1<<8)
 
 /* flags for printing for the whence builtin */
 #define PRINT_WHENCE_CSH	(1<<7)
@@ -2629,6 +2633,12 @@ struct ttyinfo {
  * Text attributes for displaying in ZLE
  */
 
+#ifdef HAVE_STDINT_H
+  typedef uint64_t zattr;
+#else
+  typedef zulong zattr;
+#endif
+
 #define TXTBOLDFACE   0x0001
 #define TXTSTANDOUT   0x0002
 #define TXTUNDERLINE  0x0004
@@ -2660,32 +2670,41 @@ struct ttyinfo {
  */
 #define TXT_MULTIWORD_MASK  0x0400
 
+/* used when, e.g an invalid colour is specified */
+#define TXT_ERROR 0x0800
+
 /* Mask for colour to use in foreground */
-#define TXT_ATTR_FG_COL_MASK     0x000FF000
+#define TXT_ATTR_FG_COL_MASK     0x000000FFFFFF0000
 /* Bits to shift the foreground colour */
-#define TXT_ATTR_FG_COL_SHIFT    (12)
+#define TXT_ATTR_FG_COL_SHIFT    (16)
 /* Mask for colour to use in background */
-#define TXT_ATTR_BG_COL_MASK     0x0FF00000
+#define TXT_ATTR_BG_COL_MASK     0xFFFFFF0000000000
 /* Bits to shift the background colour */
-#define TXT_ATTR_BG_COL_SHIFT    (20)
+#define TXT_ATTR_BG_COL_SHIFT    (40)
 
 /* Flag to use termcap AF sequence to set colour, if available */
-#define TXT_ATTR_FG_TERMCAP      0x10000000
+#define TXT_ATTR_FG_TERMCAP      0x1000
 /* Flag to use termcap AB sequence to set colour, if available */
-#define TXT_ATTR_BG_TERMCAP      0x20000000
+#define TXT_ATTR_BG_TERMCAP      0x2000
+
+/* Flag to indicate that foreground is a 24-bit colour */
+#define TXT_ATTR_FG_24BIT        0x4000
+/* Flag to indicate that background is a 24-bit colour */
+#define TXT_ATTR_BG_24BIT        0x8000
 
 /* Things to turn on, including values for the colour elements */
 #define TXT_ATTR_ON_VALUES_MASK	\
     (TXT_ATTR_ON_MASK|TXT_ATTR_FG_COL_MASK|TXT_ATTR_BG_COL_MASK|\
-     TXT_ATTR_FG_TERMCAP|TXT_ATTR_BG_TERMCAP)
+     TXT_ATTR_FG_TERMCAP|TXT_ATTR_BG_TERMCAP|\
+     TXT_ATTR_FG_24BIT|TXT_ATTR_BG_24BIT)
 
 /* Mask out everything to do with setting a foreground colour */
 #define TXT_ATTR_FG_ON_MASK \
-    (TXTFGCOLOUR|TXT_ATTR_FG_COL_MASK|TXT_ATTR_FG_TERMCAP)
+    (TXTFGCOLOUR|TXT_ATTR_FG_COL_MASK|TXT_ATTR_FG_TERMCAP|TXT_ATTR_FG_24BIT)
 
 /* Mask out everything to do with setting a background colour */
 #define TXT_ATTR_BG_ON_MASK \
-    (TXTBGCOLOUR|TXT_ATTR_BG_COL_MASK|TXT_ATTR_BG_TERMCAP)
+    (TXTBGCOLOUR|TXT_ATTR_BG_COL_MASK|TXT_ATTR_BG_TERMCAP|TXT_ATTR_BG_24BIT)
 
 /* Mask out everything to do with activating colours */
 #define TXT_ATTR_COLOUR_ON_MASK			\
@@ -2702,6 +2721,12 @@ struct ttyinfo {
 #define COL_SEQ_FG	(0)
 #define COL_SEQ_BG	(1)
 #define COL_SEQ_COUNT	(2)
+
+struct color_rgb {
+    unsigned int red, green, blue;
+};
+
+typedef struct color_rgb *Color_rgb;
 
 /*
  * Flags to testcap() and set_colour_attribute (which currently only
@@ -3199,6 +3224,7 @@ enum {
 #define EXITHOOK       (zshhooks + 0)
 #define BEFORETRAPHOOK (zshhooks + 1)
 #define AFTERTRAPHOOK  (zshhooks + 2)
+#define GETCOLORATTR   (zshhooks + 3)
 
 #ifdef MULTIBYTE_SUPPORT
 /* Final argument to mb_niceformat() */

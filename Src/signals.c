@@ -540,8 +540,8 @@ wait_for_processes(void)
 		if (WIFEXITED(status) &&
 		    pn->pid == jn->gleader &&
 		    killpg(pn->pid, 0) == -1) {
-		    jn->gleader = 0;
-		    if (!(jn->stat & STAT_NOSTTY)) {
+		    if (last_attached_pgrp == jn->gleader &&
+			!(jn->stat & STAT_NOSTTY)) {
 			/*
 			 * This PID was in control of the terminal;
 			 * reclaim terminal now it has exited.
@@ -552,6 +552,7 @@ wait_for_processes(void)
 			attachtty(mypgrp);
 			adjustwinsize(0);
 		    }
+		    jn->gleader = 0;
 		}
 	    }
 	    update_job(jn);
@@ -781,7 +782,20 @@ killjb(Job jn, int sig)
 		    if (kill(pn->pid, sig) == -1 && errno != ESRCH)
 			err = -1;
 
-                return err;
+		/*
+		 * The following marks both the superjob and subjob
+		 * as running, as done elsewhere.
+		 *
+		 * It's not entirely clear to me what the right way
+		 * to flag the status of a still-pausd final process,
+		 * as handled above, but we should be cnsistent about
+		 * this inside makerunning() rather than doing anything
+		 * special here.
+		 */
+		if (err != -1)
+		    makerunning(jn);
+
+		return err;
             }
             if (killpg(jobtab[jn->other].gleader, sig) == -1 && errno != ESRCH)
 		err = -1;
@@ -791,8 +805,11 @@ killjb(Job jn, int sig)
 
 	    return err;
         }
-        else
-	    return killpg(jn->gleader, sig);
+        else {
+	    err = killpg(jn->gleader, sig);
+	    if (sig == SIGCONT && err != -1)
+		makerunning(jn);
+	}
     }
     for (pn = jn->procs; pn; pn = pn->next) {
 	/*

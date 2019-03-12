@@ -1,4 +1,4 @@
-.TH "ZSHBUILTINS" "1" "September 14, 2018" "zsh 5\&.6\&.2"
+.TH "ZSHBUILTINS" "1" "January 24, 2019" "zsh 5\&.7"
 .SH "NAME"
 zshbuiltins \- zsh built\-in commands
 .\" Yodl file: Zsh/builtins.yo
@@ -1460,7 +1460,7 @@ If any of `\fB\-m\fP\&', `\fB\-o\fP' or `\fB\-O\fP' are used in combination with
 case of `\fB\-m\fP\&') then nothing is printed\&.
 .RE
 .TP
-\fBprintf\fP [ \-v \fIname\fP ] \fIformat\fP [ \fIarg\fP \&.\&.\&. ]
+\fBprintf\fP [ \fB\-v\fP \fIname\fP ] \fIformat\fP [ \fIarg\fP \&.\&.\&. ]
 Print the arguments according to the format specification\&. Formatting
 rules are the same as used in C\&. The same escape sequences as for \fBecho\fP
 are recognised in the format\&. All C conversion specifications ending in
@@ -2206,6 +2206,9 @@ scalar version causes a split on all separators (which cannot be quoted)\&.
 It is possible to apply \fB\-T\fP to two previously tied variables but with a
 different separator character, in which case the variables remain joined
 as before but the separator is changed\&.
+.PP
+When an existing scalar is tied to a new array, the value of the scalar
+is preserved but no attribute other than export will be preserved\&.
 .RE
 .PP
 Attribute flags that transform the final value (\fB\-L\fP, \fB\-R\fP, \fB\-Z\fP,
@@ -2254,12 +2257,12 @@ flag\&.
 .TP
 \fB\-U\fP
 For arrays (but not for associative arrays), keep only the first
-occurrence of each duplicated value\&.  This may also be set for
-colon\-separated special parameters like \fBPATH\fP or \fBFIGNORE\fP, etc\&.
-Note the flag takes effect on assignment, and the type of the
-variable being assigned to is determinative; for variables with
-shared values it is therefore recommended to set the flag for
-all interfaces, e\&.g\&. `\fBtypeset \-U PATH path\fP\&'\&.
+occurrence of each duplicated value\&.  This may also be set for tied
+parameters (see \fB\-T\fP) or colon\-separated special parameters like
+\fBPATH\fP or \fBFIGNORE\fP, etc\&.  Note the flag takes effect on assignment,
+and the type of the variable being assigned to is determinative; for
+variables with shared values it is therefore recommended to set the flag
+for all interfaces, e\&.g\&. `\fBtypeset \-U PATH path\fP\&'\&.
 .RS
 .PP
 This flag has a different meaning when used with \fB\-f\fP; see below\&.
@@ -2355,9 +2358,17 @@ be turned off\&.
 If the \fBPOSIX_BUILTINS\fP option is set, the readonly attribute is
 more restrictive: unset variables can be marked readonly and cannot then
 be set; furthermore, the readonly attribute cannot be removed from any
-variable\&.  Note that in zsh (unlike other shells) it is still possible
-to create a local variable of the same name as this is considered a
-different variable (though this variable, too, can be marked readonly)\&.
+variable\&.
+.PP
+It is still possible to change other attributes of the variable though,
+some of which like \fB\-U\fP or \fB\-Z\fP would affect the value\&. More generally,
+the readonly attribute should not be relied on as a security mechanism\&.
+.PP
+Note that in zsh (like in pdksh but unlike most other shells) it is
+still possible to create a local variable of the same name as this is
+considered a different variable (though this variable, too, can be marked
+readonly)\&. Special variables that have been made readonly retain their value
+and readonly attribute when made local\&.
 .RE
 .TP
 \fB\-t\fP
@@ -2563,6 +2574,8 @@ then all currently active child processes are waited for\&.
 Each \fIjob\fP can be either a job specification or the process ID
 of a job in the job table\&.
 The exit status from this command is that of the job waited for\&.
+If \fIjob\fP represents an unknown job or process ID, a warning is printed
+(unless the \fBPOSIX_BUILTINS\fP option is set) and the exit status is 127\&.
 .RS
 .PP
 It is possible to wait for recent processes (specified by process ID,
@@ -2586,6 +2599,12 @@ to process IDs\&.
 For each \fIname\fP, indicate how it would be interpreted if used as a
 command name\&.
 .RS
+.PP
+If \fIname\fP is not an alias, built\-in command, external command, shell
+function, hashed command, or a reserved word, the exit status shall be
+non\-zero, and \-\- if \fB\-v\fP, \fB\-c\fP, or \fB\-w\fP was passed \-\- a message
+will be written to standard output\&.  (This is different from other shells that
+write that message to standard error\&.)
 .PP
 \fBwhence\fP is most useful when \fIname\fP is only the last path component
 of a command, i\&.e\&. does not include a `\fB/\fP\&'; in particular, pattern

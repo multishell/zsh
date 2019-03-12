@@ -1332,7 +1332,7 @@ If any of `tt(-m)', `tt(-o)' or `tt(-O)' are used in combination with
 case of `tt(-m)') then nothing is printed.
 )
 findex(printf)
-item(tt(printf) [ -v var(name) ] var(format) [ var(arg) ... ])(
+item(tt(printf) [ tt(-v) var(name) ] var(format) [ var(arg) ... ])(
 Print the arguments according to the format specification. Formatting
 rules are the same as used in C. The same escape sequences as for tt(echo)
 are recognised in the format. All C conversion specifications ending in
@@ -2029,6 +2029,9 @@ scalar version causes a split on all separators (which cannot be quoted).
 It is possible to apply tt(-T) to two previously tied variables but with a
 different separator character, in which case the variables remain joined
 as before but the separator is changed.
+
+When an existing scalar is tied to a new array, the value of the scalar
+is preserved but no attribute other than export will be preserved.
 )
 enditem()
 
@@ -2076,12 +2079,12 @@ flag.
 )
 item(tt(-U))(
 For arrays (but not for associative arrays), keep only the first
-occurrence of each duplicated value.  This may also be set for
-colon-separated special parameters like tt(PATH) or tt(FIGNORE), etc.
-Note the flag takes effect on assignment, and the type of the
-variable being assigned to is determinative; for variables with
-shared values it is therefore recommended to set the flag for
-all interfaces, e.g. `tt(typeset -U PATH path)'.
+occurrence of each duplicated value.  This may also be set for tied
+parameters (see tt(-T)) or colon-separated special parameters like
+tt(PATH) or tt(FIGNORE), etc.  Note the flag takes effect on assignment,
+and the type of the variable being assigned to is determinative; for
+variables with shared values it is therefore recommended to set the flag
+for all interfaces, e.g. `tt(typeset -U PATH path)'.
 
 This flag has a different meaning when used with tt(-f); see below.
 )
@@ -2174,9 +2177,17 @@ be turned off.
 If the tt(POSIX_BUILTINS) option is set, the readonly attribute is
 more restrictive: unset variables can be marked readonly and cannot then
 be set; furthermore, the readonly attribute cannot be removed from any
-variable.  Note that in zsh (unlike other shells) it is still possible
-to create a local variable of the same name as this is considered a
-different variable (though this variable, too, can be marked readonly).
+variable.
+
+It is still possible to change other attributes of the variable though,
+some of which like tt(-U) or tt(-Z) would affect the value. More generally,
+the readonly attribute should not be relied on as a security mechanism.
+
+Note that in zsh (like in pdksh but unlike most other shells) it is
+still possible to create a local variable of the same name as this is
+considered a different variable (though this variable, too, can be marked
+readonly). Special variables that have been made readonly retain their value
+and readonly attribute when made local.
 )
 item(tt(-t))(
 Tags the named parameters.  Tags have no special meaning to the shell.
@@ -2351,6 +2362,8 @@ then all currently active child processes are waited for.
 Each var(job) can be either a job specification or the process ID
 of a job in the job table.
 The exit status from this command is that of the job waited for.
+If var(job) represents an unknown job or process ID, a warning is printed
+(unless the tt(POSIX_BUILTINS) option is set) and the exit status is 127.
 
 It is possible to wait for recent processes (specified by process ID,
 not by job) that were running in the background even if the process has
@@ -2372,6 +2385,12 @@ findex(whence)
 item(tt(whence) [ tt(-vcwfpamsS) ] [ tt(-x) var(num) ] var(name) ...)(
 For each var(name), indicate how it would be interpreted if used as a
 command name.
+
+If var(name) is not an alias, built-in command, external command, shell
+function, hashed command, or a reserved word, the exit status shall be
+non-zero, and DASH()- if tt(-v), tt(-c), or tt(-w) was passed DASH()- a message
+will be written to standard output.  (This is different from other shells that
+write that message to standard error.)
 
 tt(whence) is most useful when var(name) is only the last path component
 of a command, i.e. does not include a `tt(/)'; in particular, pattern

@@ -1,4 +1,4 @@
-.TH "ZSHEXPN" "1" "September 14, 2018" "zsh 5\&.6\&.2"
+.TH "ZSHEXPN" "1" "January 24, 2019" "zsh 5\&.7"
 .SH "NAME"
 zshexpn \- zsh expansion and substitution
 .\" Yodl file: Zsh/expn.yo
@@ -1805,10 +1805,17 @@ accents, like `\fB`\fP\&.\&.\&.\fB`\fP\&', is replaced with its standard output,
 any trailing newlines deleted\&.
 If the substitution is not enclosed in double quotes, the
 output is broken into words using the \fBIFS\fP parameter\&.
+.PP
 The substitution `\fB$(cat\fP \fIfoo\fP\fB)\fP\&' may be replaced
-by the equivalent but faster `\fB$(<\fP\fIfoo\fP\fB)\fP\&'\&.
-In either case, if the option \fBGLOB_SUBST\fP is set,
-the output is eligible for filename generation\&.
+by the faster `\fB$(<\fP\fIfoo\fP\fB)\fP\&'\&.  In this case \fIfoo\fP
+undergoes single word shell expansions (\fIparameter expansion\fP,
+\fIcommand substitution\fP and \fIarithmetic expansion\fP), but not
+filename generation\&.
+.PP
+If the option \fBGLOB_SUBST\fP is set, the result of any unquoted command
+substitution, including the special form just mentioned, is eligible for
+filename generation\&.
+.PP
 .SH "ARITHMETIC EXPANSION"
 A string of the form `\fB$[\fP\fIexp\fP\fB]\fP\&' or
 `\fB$((\fP\fIexp\fP\fB))\fP\&' is substituted

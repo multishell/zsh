@@ -64,7 +64,7 @@ static struct builtin builtins[] =
     BUILTIN("enable", 0, bin_enable, 0, -1, BIN_ENABLE, "afmprs", NULL),
     BUILTIN("eval", BINF_PSPECIAL, bin_eval, 0, -1, BIN_EVAL, NULL, NULL),
     BUILTIN("exit", BINF_PSPECIAL, bin_break, 0, 1, BIN_EXIT, NULL, NULL),
-    BUILTIN("export", BINF_PLUSOPTS | BINF_MAGICEQUALS | BINF_PSPECIAL | BINF_ASSIGN, (HandlerFunc)bin_typeset, 0, -1, 0, "E:%F:%HL:%R:%TUZ:%afhi:%lp:%rtu", "xg"),
+    BUILTIN("export", BINF_PLUSOPTS | BINF_MAGICEQUALS | BINF_PSPECIAL | BINF_ASSIGN, (HandlerFunc)bin_typeset, 0, -1, BIN_EXPORT, "E:%F:%HL:%R:%TUZ:%afhi:%lp:%rtu", "xg"),
     BUILTIN("false", 0, bin_false, 0, -1, 0, NULL, NULL),
     /*
      * We used to behave as if the argument to -e was optional.
@@ -2258,6 +2258,22 @@ typeset_single(char *cname, char *pname, Param pm, UNUSED(int func),
 	    } else if (pm->env && !(pm->node.flags & PM_HASHELEM))
 		delenv(pm);
 	    DPUTS(ASG_ARRAYP(asg), "BUG: typeset got array value where scalar expected");
+	    if (altpm && !(pm->node.flags & PM_SPECIAL)) {
+		struct tieddata* tdp = (struct tieddata *) pm->u.data;
+		if (tdp) {
+		    if (tdp->joinchar != joinchar && !asg->value.scalar) {
+			/*
+			 * Reassign the scalar to itself to do the splitting with
+			 * the new joinchar
+			 */
+			tdp->joinchar = joinchar;
+			if (!(pm = assignsparam(pname, ztrdup(getsparam(pname)), 0)))
+			    return NULL;
+		    }
+		}
+		else
+		    DPUTS(!tdp, "BUG: no join character to update");
+	    }
 	    if (asg->value.scalar &&
 		!(pm = assignsparam(pname, ztrdup(asg->value.scalar), 0)))
 		return NULL;
@@ -2325,6 +2341,9 @@ typeset_single(char *cname, char *pname, Param pm, UNUSED(int func),
 	    zerrnam(cname, "%s: can only have a single instance", pname);
 	    return pm;
 	}
+
+	on |= pm->node.flags & PM_TIED;
+
 	/*
 	 * For specials, we keep the same struct but zero everything.
 	 * Maybe it would be easier to create a new struct but copy
@@ -2476,7 +2495,7 @@ typeset_single(char *cname, char *pname, Param pm, UNUSED(int func),
 	return NULL;
     }
 
-    if (altpm && PM_TYPE(pm->node.flags) == PM_SCALAR) {
+    if (altpm && PM_TYPE(pm->node.flags) == PM_SCALAR && !(pm->node.flags & PM_SPECIAL)) {
 	/*
 	 * It seems safer to set this here than in createparam(),
 	 * to make sure we only ever use the colonarr functions
@@ -2646,7 +2665,17 @@ bin_typeset(char *name, char **argv, LinkList assigns, Options ops, int func)
 
     /* Given no arguments, list whatever the options specify. */
     if (OPT_ISSET(ops,'p')) {
-	printflags |= PRINT_TYPESET;
+
+	if (isset(POSIXBUILTINS) && SHELL_EMULATION() != EMULATE_KSH) {
+	  if (func == BIN_EXPORT)
+	    printflags |= PRINT_POSIX_EXPORT;
+	  else if (func == BIN_READONLY)
+	    printflags |= PRINT_POSIX_READONLY;
+	  else
+	    printflags |= PRINT_TYPESET;
+	} else
+	    printflags |= PRINT_TYPESET;
+
 	if (OPT_HASARG(ops,'p')) {
 	    char *eptr;
 	    int pflag = (int)zstrtol(OPT_ARG(ops,'p'), &eptr, 10);
@@ -2662,13 +2691,20 @@ bin_typeset(char *name, char **argv, LinkList assigns, Options ops, int func)
     }
     hasargs = *argv != NULL || (assigns && firstnode(assigns));
     if (!hasargs) {
+	int exclude = 0;
 	if (!OPT_ISSET(ops,'p')) {
 	    if (!(on|roff))
 		printflags |= PRINT_TYPE;
 	    if (roff || OPT_ISSET(ops,'+'))
 		printflags |= PRINT_NAMEONLY;
+	} else if (printflags & (PRINT_POSIX_EXPORT|PRINT_POSIX_READONLY)) {
+	    /*
+	     * For POSIX export/readonly, exclude non-scalars unless
+	     * explicitly requested.
+	     */
+	    exclude = (PM_ARRAY|PM_HASHED) & ~(on|roff);
 	}
-	scanhashtable(paramtab, 1, on|roff, 0, paramtab->printnode, printflags);
+	scanhashtable(paramtab, 1, on|roff, exclude, paramtab->printnode, printflags);
 	unqueue_signals();
 	return 0;
     }
@@ -2683,6 +2719,7 @@ bin_typeset(char *name, char **argv, LinkList assigns, Options ops, int func)
 	struct asgment asg0, asg2;
 	char *oldval = NULL, *joinstr;
 	int joinchar, nargs;
+	int already_tied = 0;
 
 	if (OPT_ISSET(ops,'m')) {
 	    zwarnnam(name, "incompatible options for -T");
@@ -2765,47 +2802,81 @@ bin_typeset(char *name, char **argv, LinkList assigns, Options ops, int func)
 	    joinchar = joinstr[1] ^ 32;
 	else
 	    joinchar = *joinstr;
-	/*
-	 * Keep the old value of the scalar.  We need to do this
-	 * here as if it is already tied to the same array it
-	 * will be unset when we retie the array.  This is all
-	 * so that typeset -T is idempotent.
-	 *
-	 * We also need to remember here whether the damn thing is
-	 * exported and pass that along.  Isn't the world complicated?
-	 */
-	if ((pm = (Param) paramtab->getnode(paramtab, asg0.name))
-	    && !(pm->node.flags & PM_UNSET)
-	    && (locallevel == pm->level || !(on & PM_LOCAL))) {
-	    if (pm->node.flags & PM_TIED) {
+
+	pm = (Param) paramtab->getnode(paramtab, asg0.name);
+	apm = (Param) paramtab->getnode(paramtab, asg->name);
+
+	if (pm && (pm->node.flags & (PM_SPECIAL|PM_TIED)) == (PM_SPECIAL|PM_TIED)) {
+	    /*
+	     * Only allow typeset -T on special tied parameters if the tied
+	     * parameter and join char are the same
+	     */
+	    if (strcmp(pm->ename, asg->name) || !(apm->node.flags & PM_SPECIAL)) {
+		zwarnnam(name, "%s special parameter can only be tied to special parameter %s", asg0.name, pm->ename);
 		unqueue_signals();
-		if (PM_TYPE(pm->node.flags) != PM_SCALAR) {
-		    zwarnnam(name, "already tied as non-scalar: %s", asg0.name);
-		} else if (!strcmp(asg->name, pm->ename)) {
-		    /*
-		     * Already tied in the fashion requested.
-		     */
-		    struct tieddata *tdp = (struct tieddata*)pm->u.data;
-		    int flags = (asg->flags & ASG_KEY_VALUE) ?
-			ASSPM_KEY_VALUE : 0;
-		    /* Update join character */
-		    tdp->joinchar = joinchar;
-		    if (asg0.value.scalar)
-			assignsparam(asg0.name, ztrdup(asg0.value.scalar), 0);
-		    else if (asg->value.array)
-			assignaparam(
-			    asg->name, zlinklist2array(asg->value.array),flags);
-		    return 0;
-		} else {
-		    zwarnnam(name, "can't tie already tied scalar: %s",
-			    asg0.name);
-		}
 		return 1;
 	    }
-	    if (!asg0.value.scalar && !asg->value.array &&
-		!(PM_TYPE(pm->node.flags) & (PM_ARRAY|PM_HASHED)))
-		oldval = ztrdup(getsparam(asg0.name));
-	    on |= (pm->node.flags & PM_EXPORTED);
+	    if (joinchar != ':') {
+		zwarnnam(name, "cannot change the join character of special tied parameters");
+		unqueue_signals();
+		return 1;
+	    }
+	    already_tied = 1;
+	} else if (apm && (apm->node.flags & (PM_SPECIAL|PM_TIED)) == (PM_SPECIAL|PM_TIED)) {
+	    /*
+	     * For the array variable, this covers attempts to tie the
+	     * array to a different scalar or to the scalar after it has
+	     * been made non-special
+	     */
+	    zwarnnam(name, "%s special parameter can only be tied to special parameter %s", asg->name, apm->ename);
+	    unqueue_signals();
+	    return 1;
+	} else if (pm) {
+	    if (!(pm->node.flags & PM_UNSET)
+		&& (locallevel == pm->level || !(on & PM_LOCAL))) {
+		if (pm->node.flags & PM_TIED) {
+		    if (PM_TYPE(pm->node.flags) != PM_SCALAR) {
+			zwarnnam(name, "already tied as non-scalar: %s", asg0.name);
+			unqueue_signals();
+			return 1;
+		    } else if (!strcmp(asg->name, pm->ename)) {
+			already_tied = 1;
+		    } else {
+			zwarnnam(name, "can't tie already tied scalar: %s",
+				 asg0.name);
+			unqueue_signals();
+			return 1;
+		    }
+		} else {
+		    /*
+		     * Variable already exists in the current scope but is not tied.
+		     * We're preserving its value and export attribute but no other
+		     * attributes upon converting to "tied".
+		     */
+		    if (!asg0.value.scalar && !asg->value.array &&
+			!(PM_TYPE(pm->node.flags) & (PM_ARRAY|PM_HASHED)))
+			oldval = ztrdup(getsparam(asg0.name));
+		    on |= (pm->node.flags & ~roff) & PM_EXPORTED;
+		}
+	    }
+	}
+	if (already_tied) {
+	    int ret;
+	    /*
+	     * If already tied, we still need to call typeset_single on
+	     * both the array and colonarray, if only to update the attributes
+	     * of both, and of course to set the new value if one is provided
+	     * for either of them.
+	     */
+	    ret = !(typeset_single(name, asg0.name, pm,
+				   func, on, off, roff, &asg0, apm,
+				   ops, joinchar) &&
+		    typeset_single(name, asg->name, apm,
+				   func, (on | PM_ARRAY) & ~PM_EXPORTED,
+				   off & ~PM_ARRAY, roff, asg, NULL, ops, 0)
+		   );
+	    unqueue_signals();
+	    return ret;
 	}
 	/*
 	 * Create the tied array; this is normal except that
@@ -2832,9 +2903,7 @@ bin_typeset(char *name, char **argv, LinkList assigns, Options ops, int func)
 	 * Create the tied colonarray.  We make it as a normal scalar
 	 * and fix up the oddities later.
 	 */
-	if (!(pm=typeset_single(name, asg0.name,
-				(Param)paramtab->getnode(paramtab,
-							 asg0.name),
+	if (!(pm=typeset_single(name, asg0.name, pm,
 				func, on, off, roff, &asg0, apm,
 				ops, joinchar))) {
 	    if (oldval)
@@ -5578,8 +5647,9 @@ bin_break(char *name, char **argv, UNUSED(Options ops), int func)
 	    if (stopmsg || (zexit(0,2), !stopmsg)) {
 		retflag = 1;
 		breaks = loops;
-		exit_pending = (num << 1) | 1;
+		exit_pending = 1;
 		exit_level = locallevel;
+		exit_val = num;
 	    }
 	} else
 	    zexit(num, 0);
@@ -5629,6 +5699,42 @@ checkjobs(void)
 /**/
 int shell_exiting;
 
+/*
+ * Exit status if explicitly set by an exit command.
+ * This is complicated by the fact the exit command may be within
+ * a function whose state we need to unwind (exit_pending set
+ * and the exit will happen up the stack), or we may need to execute
+ * additional code such as a trap after we are committed to exiting
+ * (shell_exiting and the exit will happen down the stack).
+ *
+ * It's lucky this is all so obvious there is no possibility of any
+ * bugs.  (C.f. the entire rest of the shell.)
+ */
+/**/
+int exit_val;
+
+/*
+ * Actually exit the shell, working out the status locally.
+ * This is exit_val if "exit" has explicitly been called in the shell,
+ * else lastval.
+ */
+
+/**/
+void
+realexit(void)
+{
+    exit((shell_exiting || exit_pending) ? exit_val : lastval);
+}
+
+/* As realexit(), but call _exit instead */
+
+/**/
+void
+_realexit(void)
+{
+    _exit((shell_exiting || exit_pending) ? exit_val : lastval);
+}
+
 /* exit the shell.  val is the return value of the shell.  *
  * from_where is
  *   1   if zexit is called because of a signal
@@ -5640,7 +5746,12 @@ int shell_exiting;
 mod_export void
 zexit(int val, int from_where)
 {
-    /* Don't do anything recursively:  see below */
+    /*
+     * Don't do anything recursively:  see below.
+     * Do, however, update exit status --- there's no nesting,
+     * a later value always overrides an earlier.
+     */
+    exit_val = val;
     if (shell_exiting == -1)
 	return;
 
@@ -5688,7 +5799,7 @@ zexit(int val, int from_where)
 #endif
 	}
     }
-    lastval = val;
+    lastval = exit_val;
     /*
      * Now we are committed to exiting any previous state
      * is irrelevant.  Ensure trap can run.
@@ -5702,9 +5813,9 @@ zexit(int val, int from_where)
        release_pgrp();
     }
     if (mypid != getpid())
-	_exit(val);
+	_exit(exit_val);
     else
-	exit(val);
+	exit(exit_val);
 }
 
 /* . (dot), source */

@@ -3334,19 +3334,28 @@ morefmt:
 #endif
 	    switch (*fmt++) {
 	    case '.':
-		if (ztrftimebuf(&bufsize, digs))
-		    return -1;
+	    {
+		long fnsec = nsec;
 		if (digs > 9)
 		    digs = 9;
+		if (ztrftimebuf(&bufsize, digs))
+		    return -1;
 		if (digs < 9) {
 		    int trunc;
-		    for (trunc = 8 - digs; trunc; trunc--)
-			nsec /= 10;
-		    nsec = (nsec + 8) / 10;
+		    long max = 100000000;
+		    for (trunc = 8 - digs; trunc; trunc--) {
+			max /= 10;
+			fnsec /= 10;
+		    }
+		    max -= 1;
+		    fnsec = (fnsec + 5) / 10;
+		    if (fnsec > max)
+			fnsec = max;
 		}
-		sprintf(buf, "%0*ld", digs, nsec);
+		sprintf(buf, "%0*ld", digs, fnsec);
 		buf += digs;
 		break;
+	    }
 	    case '\0':
 		/* Guard against premature end of string */
 		*buf++ = '%';
@@ -3820,6 +3829,14 @@ wordcount(char *s, char *sep, int mul)
     return r;
 }
 
+/*
+ * 's' is a NULL-terminated array of strings.
+ * 'sep' is a string.
+ *
+ * Return a string consisting of the elements of 's' joined by 'sep',
+ * allocated on the heap iff 'heap'.
+ */
+
 /**/
 mod_export char *
 sepjoin(char **s, char *sep, int heap)
@@ -3829,7 +3846,7 @@ sepjoin(char **s, char *sep, int heap)
     char sepbuf[2];
 
     if (!*s)
-	return heap ? "" : ztrdup("");
+	return heap ? dupstring("") : ztrdup("");
     if (!sep) {
 	/* optimise common case that ifs[0] is space */
 	if (ifs && *ifs != ' ') {
@@ -4669,6 +4686,10 @@ attachtty(pid_t pgrp)
 		opts[MONITOR] = 0;
 		ep = 1;
 	    }
+	}
+	else
+	{
+	    last_attached_pgrp = pgrp;
 	}
     }
 }
@@ -7447,19 +7468,28 @@ mailstat(char *path, struct stat *st)
 
        /* See if cur/ is present */
        dir = appstr(ztrdup(path), "/cur");
-       if (stat(dir, &st_tmp) || !S_ISDIR(st_tmp.st_mode)) return 0;
+       if (stat(dir, &st_tmp) || !S_ISDIR(st_tmp.st_mode)) {
+	   zsfree(dir);
+	   return 0;
+       }
        st_ret.st_atime = st_tmp.st_atime;
 
        /* See if tmp/ is present */
        dir[plen] = 0;
        dir = appstr(dir, "/tmp");
-       if (stat(dir, &st_tmp) || !S_ISDIR(st_tmp.st_mode)) return 0;
+       if (stat(dir, &st_tmp) || !S_ISDIR(st_tmp.st_mode)) {
+	   zsfree(dir);
+	   return 0;
+       }
        st_ret.st_mtime = st_tmp.st_mtime;
 
        /* And new/ */
        dir[plen] = 0;
        dir = appstr(dir, "/new");
-       if (stat(dir, &st_tmp) || !S_ISDIR(st_tmp.st_mode)) return 0;
+       if (stat(dir, &st_tmp) || !S_ISDIR(st_tmp.st_mode)) {
+	   zsfree(dir);
+	   return 0;
+       }
        st_ret.st_mtime = st_tmp.st_mtime;
 
 #if THERE_IS_EXACTLY_ONE_MAILDIR_IN_MAILPATH
@@ -7471,6 +7501,7 @@ mailstat(char *path, struct stat *st)
            st_tmp.st_atime == st_new_last.st_atime &&
            st_tmp.st_mtime == st_new_last.st_mtime) {
 	   *st = st_ret_last;
+	   zsfree(dir);
 	   return 0;
        }
        st_new_last = st_tmp;

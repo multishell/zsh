@@ -1613,6 +1613,7 @@ parsestr(char **s)
 		zerr("parse error near `%c'", err);
 	    else
 		zerr("parse error");
+	    tok = LEXERR;
 	}
     }
     return err;
@@ -1626,7 +1627,7 @@ parsestrnoerr(char **s)
 
     zcontext_save();
     untokenize(*s);
-    inpush(dupstring(*s), 0, NULL);
+    inpush(dupstring_wlen(*s, l), 0, NULL);
     strinbeg(0);
     lexbuf.len = 0;
     lexbuf.ptr = tokstr = *s;
@@ -1658,7 +1659,7 @@ parse_subscript(char *s, int sub, int endchar)
     if (!*s || *s == endchar)
 	return 0;
     zcontext_save();
-    untokenize(t = dupstring(s));
+    untokenize(t = dupstring_wlen(s, l));
     inpush(t, 0, NULL);
     strinbeg(0);
     /*
@@ -1674,7 +1675,7 @@ parse_subscript(char *s, int sub, int endchar)
      * length preservation.
      */
     lexbuf.len = 0;
-    lexbuf.ptr = tokstr = dupstring(s);
+    lexbuf.ptr = tokstr = dupstring_wlen(s, l);
     lexbuf.siz = l + 1;
     err = dquote_parse(endchar, sub);
     toklen = (int)(lexbuf.ptr - tokstr);
@@ -1713,7 +1714,7 @@ parse_subst_string(char *s)
 	return 0;
     zcontext_save();
     untokenize(s);
-    inpush(dupstring(s), 0, NULL);
+    inpush(dupstring_wlen(s, l), 0, NULL);
     strinbeg(0);
     lexbuf.len = 0;
     lexbuf.ptr = tokstr = s;

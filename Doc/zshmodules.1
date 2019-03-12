@@ -1,4 +1,4 @@
-.TH "ZSHMODULES" "1" "September 14, 2018" "zsh 5\&.6\&.2"
+.TH "ZSHMODULES" "1" "January 24, 2019" "zsh 5\&.7"
 .SH "NAME"
 zshmodules \- zsh loadable modules
 .\" Yodl file: Zsh/modules.yo
@@ -65,6 +65,9 @@ Access to external files via a special associative array\&.
 .TP
 \fBzsh/mathfunc\fP
 Standard scientific functions for use in mathematical evaluations\&.
+.TP
+\fBzsh/nearcolor\fP
+Map colours to the nearest colour in the available palette\&.
 .TP
 \fBzsh/newuser\fP
 Arrange for files for new users to be installed\&.
@@ -1097,11 +1100,15 @@ The \fBzsh/datetime\fP module makes available one builtin command:
 .PD 0
 .TP
 .PD 0
-\fBstrftime\fP [ \fB\-s\fP \fIscalar\fP ] \fIformat\fP \fIepochtime\fP 
+\fBstrftime\fP [ \fB\-s\fP \fIscalar\fP ] \fIformat\fP [ \fIepochtime\fP [ \fInanoseconds\fP ] ] 
 .TP
 .PD
 \fBstrftime\fP \fB\-r\fP [ \fB\-q\fP ] [ \fB\-s\fP \fIscalar\fP ] \fIformat\fP \fItimestring\fP 
-Output the date denoted by \fIepochtime\fP in the \fIformat\fP specified\&.
+Output the date in the \fIformat\fP specified\&.  With no \fIepochtime\fP, the
+current system date/time is used; optionally, \fIepochtime\fP may be used to
+specify the number of seconds since the epoch, and \fInanoseconds\fP may
+additionally be used to specify the number of nanoseconds past the second
+(otherwise that number is assumed to be 0)\&.
 See \fIstrftime\fP(3) for details\&.  The zsh extensions described in
 the section EXPANSION OF PROMPT SEQUENCES in \fIzshmisc\fP(1) are also available\&.
 .RS
@@ -1655,6 +1662,45 @@ the seeds used for the two initialisations, so for more secure uses, you
 should generate your own 12\-byte seed\&.  The third call returns to the same
 sequence of random numbers used in the first call, unaffected by the
 intervening \fBrand48()\fP\&.
+.SH "THE ZSH/NEARCOLOR MODULE"
+.\" Yodl file: Zsh/mod_nearcolor.yo
+
+The \fBzsh/nearcolor\fP module replaces colours specified as hex triplets
+with the nearest colour in the 88 or 256 colour palettes that are widely
+used by terminal emulators\&.  By default, 24\-bit true colour escape codes
+are generated when colours are specified using hex triplets\&.  These are
+not supported by all terminals\&.  The purpose of this module is to make
+it easier to define colour preferences in a form that can work across a
+range of terminal emulators\&.
+.PP
+Aside from the default colour, the ANSI standard for terminal escape
+codes provides for eight colours\&. The bright attribute brings this to
+sixteen\&. These basic colours are commonly used in terminal applications
+due to being widely supported\&. Expanded 88 and 256 colour palettes are
+also common and, while the first sixteen colours vary somewhat between
+terminals and configurations, these add a generally consistent and
+predictable set of colours\&.
+.PP
+In order to use the \fBzsh/nearcolor\fP module, it only needs to be
+loaded\&. Thereafter, whenever a colour is specified using a hex triplet,
+it will be compared against each of the available colours and the
+closest will be selected\&. The first sixteen colours are never matched in
+this process due to being unpredictable\&.
+.PP
+It isn\&'t possible to reliably detect support for true colour in the
+terminal emulator\&. It is therefore recommended to be selective in
+loading the \fBzsh/nearcolor\fP module\&. For example, the following
+checks the \fBCOLORTERM\fP environment variable:
+.PP
+.RS
+.nf
+\fB[[ $COLORTERM = *(24bit|truecolor)* ]] || zmodload zsh/nearcolor\fP
+.fi
+.RE
+.PP
+Note that some terminals accept the true color escape codes but map
+them internally to a more limited palette in a similar manner to the
+\fBzsh/nearcolor\fP module\&.
 .SH "THE ZSH/NEWUSER MODULE"
 .\" Yodl file: Zsh/mod_newuser.yo
 
@@ -3689,7 +3735,8 @@ The \fB\-w\fP option can be used to send the to command \fIname\fP the given
 .PP
 If no \fIstring\fP is provided, the standard input is copied to the
 pseudo\-terminal; this may stop before copying the full input if the
-pseudo\-terminal is non\-blocking\&.
+pseudo\-terminal is non\-blocking\&.  The exact input is always copied:
+the \fB\-n\fP option is not applied\&.
 .PP
 Note that the command under the pseudo\-terminal sees this input as if it
 were typed, so beware when sending special tty driver characters such as

@@ -1,4 +1,4 @@
-.TH "ZSHMISC" "1" "September 14, 2018" "zsh 5\&.6\&.2"
+.TH "ZSHMISC" "1" "January 24, 2019" "zsh 5\&.7"
 .SH "NAME"
 zshmisc \- everything and then some
 .\" Yodl file: Zsh/grammar.yo
@@ -162,12 +162,15 @@ If each \fBelif\fP \fIlist\fP returns nonzero status, the \fBelse\fP \fIlist\fP
 is executed\&.
 .TP
 \fBfor\fP \fIname\fP \&.\&.\&. [ \fBin\fP \fIword\fP \&.\&.\&. ] \fIterm\fP \fBdo\fP \fIlist\fP \fBdone\fP
-where \fIterm\fP is at least one newline or \fB;\fP\&.
 Expand the list of \fIword\fPs, and set the parameter
-\fIname\fP to each of them in turn, executing
-\fIlist\fP each time\&.  If the \fBin\fP \fIword\fP is omitted,
+\fIname\fP to each of them in turn, executing \fIlist\fP
+each time\&.  If the `\fBin\fP \fIword\fP\&' is omitted,
 use the positional parameters instead of the \fIword\fPs\&.
 .RS
+.PP
+The \fIterm\fP consists of one or more newline or \fB;\fP
+which terminate the \fIword\fPs, and are optional when the
+`\fBin\fP \fIword\fP\&' is omitted\&.
 .PP
 More than one parameter \fIname\fP can appear before the list of
 \fIword\fPs\&.  If \fIN\fP \fIname\fPs are given, then on each execution of the
@@ -735,6 +738,7 @@ separate filename in turn\&.
 .PD
 \fB<\fP \fIword\fP
 Open file \fIword\fP for reading as standard input\&.
+It is an error to open a file in this fashion if it does not exist\&.
 .TP
 \fB<>\fP \fIword\fP
 Open file \fIword\fP for reading and writing as standard input\&.
@@ -990,6 +994,9 @@ Note that a pipe is an implicit redirection; thus
 .PP
 writes the date to the file `\fBfoo\fP\&', and also pipes it to cat\&.
 .PP
+Note that the shell opens all the files to be used in the multio process
+immediately, not at the point they are about to be written\&.
+.PP
 Note also that redirections are always expanded in order\&.  This happens
 regardless of the setting of the \fBMULTIOS\fP option, but with the option
 in effect there are additional consequences\&. For example,
@@ -1040,9 +1047,13 @@ Similarly, you can do
 .PP
 If the user tries to open a file descriptor for reading more than once,
 the shell opens the file descriptor as a pipe to a process that copies
-all the specified inputs to its output in the order
-specified, similar to \fBcat\fP,
-provided the \fBMULTIOS\fP option is set\&.  Thus
+all the specified inputs to its output in the order specified, provided
+the \fBMULTIOS\fP option is set\&.  It should be noted that each file is
+opened immediately, not at the point where it is about to be read:
+this behaviour differs from \fBcat\fP, so if strictly standard behaviour
+is needed, \fBcat\fP should be used instead\&.
+.PP
+Thus
 .PP
 .RS
 .nf

@@ -27,8 +27,8 @@
 @end iftex
 @titlepage
 @title The Z Shell Manual
-@subtitle Version 5.6.2
-@subtitle Updated September 14, 2018
+@subtitle Version 5.7
+@subtitle Updated January 24, 2019
 @author Original documentation by Paul Falstad
 @page
 This is a texinfo version of the documentation for the Z Shell, originally by 
@@ -63,7 +63,7 @@ POSIX shells, but its default mode is not POSIX compatible, either.
 
 @noindent
 @cindex version
-Version 5.6.2, last updated September 14, 2018.
+Version 5.7, last updated January 24, 2019.
 @end ifinfo
 
 @menu
@@ -233,6 +233,7 @@ Zsh Modules
 * The zsh/langinfo Module::
 * The zsh/mapfile Module::
 * The zsh/mathfunc Module::
+* The zsh/nearcolor Module::
 * The zsh/newuser Module::
 * The zsh/parameter Module::
 * The zsh/pcre Module::
@@ -1323,11 +1324,15 @@ is executed.
 @cindex for loops
 @cindex loops, for
 @item @t{for} @var{name} ... [ @t{in} @var{word} ... ] @var{term} @t{do} @var{list} @t{done}
-where @var{term} is at least one newline or @t{;}.
 Expand the list of @var{word}s, and set the parameter
-@var{name} to each of them in turn, executing
-@var{list} each time.  If the @t{in} @var{word} is omitted,
+@var{name} to each of them in turn, executing @var{list}
+each time.  If the `@t{in} @var{word}' is omitted,
 use the positional parameters instead of the @var{word}s.
+
+@noindent
+The @var{term} consists of one or more newline or @t{;}
+which terminate the @var{word}s, and are optional when the
+`@t{in} @var{word}' is omitted.
 
 @noindent
 More than one parameter @var{name} can appear before the list of
@@ -1956,6 +1961,7 @@ separate filename in turn.
 @table @asis
 @item @t{<} @var{word}
 Open file @var{word} for reading as standard input.
+It is an error to open a file in this fashion if it does not exist.
 
 @item @t{<>} @var{word}
 Open file @var{word} for reading and writing as standard input.
@@ -2197,6 +2203,10 @@ date >foo | cat
 writes the date to the file `@t{foo}', and also pipes it to cat.
 
 @noindent
+Note that the shell opens all the files to be used in the multio process
+immediately, not at the point they are about to be written.
+
+@noindent
 Note also that redirections are always expanded in order.  This happens
 regardless of the setting of the @t{MULTIOS} option, but with the option
 in effect there are additional consequences. For example,
@@ -2248,9 +2258,14 @@ echo exit 0 >> *.sh
 @noindent
 If the user tries to open a file descriptor for reading more than once,
 the shell opens the file descriptor as a pipe to a process that copies
-all the specified inputs to its output in the order
-specified, similar to @cite{cat},
-provided the @t{MULTIOS} option is set.  Thus
+all the specified inputs to its output in the order specified, provided
+the @t{MULTIOS} option is set.  It should be noted that each file is
+opened immediately, not at the point where it is about to be read:
+this behaviour differs from @t{cat}, so if strictly standard behaviour
+is needed, @t{cat} should be used instead.
+
+@noindent
+Thus
 
 @noindent
 @example
@@ -6041,10 +6056,20 @@ any trailing newlines deleted.
 If the substitution is not enclosed in double quotes, the
 output is broken into words using the @t{IFS} parameter.
 @vindex IFS, use of
+
+@noindent
 The substitution `@t{$(cat} @var{foo}@t{)}' may be replaced
-by the equivalent but faster `@t{$(<}@var{foo}@t{)}'.
-In either case, if the option @t{GLOB_SUBST} is set,
-the output is eligible for filename generation.
+by the faster `@t{$(<}@var{foo}@t{)}'.  In this case @var{foo}
+undergoes single word shell expansions (@emph{parameter expansion},
+@emph{command substitution} and @emph{arithmetic expansion}), but not
+filename generation.
+
+@noindent
+If the option @t{GLOB_SUBST} is set, the result of any unquoted command
+substitution, including the special form just mentioned, is eligible for
+filename generation.
+
+@noindent
 @node Arithmetic Expansion, Brace Expansion, Command Substitution, Expansion
 
 @section Arithmetic Expansion
@@ -10305,7 +10330,9 @@ set by default if zsh is invoked as @t{sh} or @t{ksh}.
 @cindex parameters, substituting unset
 @cindex unset parameters, substituting
 @item @t{UNSET} (@t{+u}, ksh: @t{+u}) <K> <S> <Z>
-Treat unset parameters as if they were empty when substituting.
+Treat unset parameters as if they were empty when substituting, and as if
+they were zero when reading their values in arithmetic expansion and
+arithmetic commands.
 Otherwise they are treated as an error.
 
 @pindex WARN_CREATE_GLOBAL
@@ -13960,7 +13987,7 @@ If any of `@t{-m}', `@t{-o}' or `@t{-O}' are used in combination with
 case of `@t{-m}') then nothing is printed.
 
 @findex printf
-@item @t{printf} [ -v @var{name} ] @var{format} [ @var{arg} ... ]
+@item @t{printf} [ @t{-v} @var{name} ] @var{format} [ @var{arg} ... ]
 Print the arguments according to the format specification. Formatting
 rules are the same as used in C. The same escape sequences as for @t{echo}
 are recognised in the format. All C conversion specifications ending in
@@ -14749,6 +14776,10 @@ It is possible to apply @t{-T} to two previously tied variables but with a
 different separator character, in which case the variables remain joined
 as before but the separator is changed.
 
+@noindent
+When an existing scalar is tied to a new array, the value of the scalar
+is preserved but no attribute other than export will be preserved.
+
 @end table
 
 @noindent
@@ -14798,12 +14829,12 @@ flag.
 
 @item @t{-U}
 For arrays (but not for associative arrays), keep only the first
-occurrence of each duplicated value.  This may also be set for
-colon-separated special parameters like @t{PATH} or @t{FIGNORE}, etc.
-Note the flag takes effect on assignment, and the type of the
-variable being assigned to is determinative; for variables with
-shared values it is therefore recommended to set the flag for
-all interfaces, e.g. `@t{typeset -U PATH path}'.
+occurrence of each duplicated value.  This may also be set for tied
+parameters (see @t{-T}) or colon-separated special parameters like
+@t{PATH} or @t{FIGNORE}, etc.  Note the flag takes effect on assignment,
+and the type of the variable being assigned to is determinative; for
+variables with shared values it is therefore recommended to set the flag
+for all interfaces, e.g. `@t{typeset -U PATH path}'.
 
 @noindent
 This flag has a different meaning when used with @t{-f}; see below.
@@ -14897,9 +14928,19 @@ be turned off.
 If the @t{POSIX_BUILTINS} option is set, the readonly attribute is
 more restrictive: unset variables can be marked readonly and cannot then
 be set; furthermore, the readonly attribute cannot be removed from any
-variable.  Note that in zsh (unlike other shells) it is still possible
-to create a local variable of the same name as this is considered a
-different variable (though this variable, too, can be marked readonly).
+variable.
+
+@noindent
+It is still possible to change other attributes of the variable though,
+some of which like @t{-U} or @t{-Z} would affect the value. More generally,
+the readonly attribute should not be relied on as a security mechanism.
+
+@noindent
+Note that in zsh (like in pdksh but unlike most other shells) it is
+still possible to create a local variable of the same name as this is
+considered a different variable (though this variable, too, can be marked
+readonly). Special variables that have been made readonly retain their value
+and readonly attribute when made local.
 
 @item @t{-t}
 Tags the named parameters.  Tags have no special meaning to the shell.
@@ -15111,6 +15152,8 @@ then all currently active child processes are waited for.
 Each @var{job} can be either a job specification or the process ID
 of a job in the job table.
 The exit status from this command is that of the job waited for.
+If @var{job} represents an unknown job or process ID, a warning is printed
+(unless the @t{POSIX_BUILTINS} option is set) and the exit status is 127.
 
 @noindent
 It is possible to wait for recent processes (specified by process ID,
@@ -15134,6 +15177,13 @@ to process IDs.
 @item @t{whence} [ @t{-vcwfpamsS} ] [ @t{-x} @var{num} ] @var{name} ...
 For each @var{name}, indicate how it would be interpreted if used as a
 command name.
+
+@noindent
+If @var{name} is not an alias, built-in command, external command, shell
+function, hashed command, or a reserved word, the exit status shall be
+non-zero, and --- if @t{-v}, @t{-c}, or @t{-w} was passed --- a message
+will be written to standard output.  (This is different from other shells that
+write that message to standard error.)
 
 @noindent
 @t{whence} is most useful when @var{name} is only the last path component
@@ -15740,9 +15790,9 @@ by default be entered in emacs mode by holding the alt key and typing
 a number, or pressing escape before each digit, and in vi command mode
 by typing the number before entering a command.  Generally the numeric
 argument causes the next command entered to be repeated the specified
-number of times, unless otherwise noted below. See also
-@ref{Arguments} for some other ways the numeric argument can be modified. The default
-bindings mentioned here use the @t{digit-argument} widget.
+number of times, unless otherwise noted below; this is implemented
+by the @t{digit-argument} widget. See also
+@ref{Arguments} for some other ways the numeric argument can be modified.
 
 @noindent
 @menu
@@ -18624,7 +18674,9 @@ defaults shown in parentheses are widely used.
 @cindex terminal escape sequences for highlighting
 @item @t{fg_start_code} (@t{\e[3})
 The start of the escape sequence for the foreground colour.
-This is followed by an ASCII digit representing the colour.
+This is followed by one to three ASCII digits representing the colour.
+Only used for palette colors, i.e. not 24-bit colors specified via a
+color triplet.
 
 @item @t{fg_default_code} (@t{9})
 The number to use instead of the colour to reset the default foreground
@@ -18635,7 +18687,7 @@ The end of the escape sequence for the foreground colour.
 
 @item @t{bg_start_code} (@t{\e[4})
 The start of the escape sequence for the background colour.
-This is followed by an ASCII digit representing the colour.
+See @t{fg_start_code} above.
 
 @item @t{bg_default_code} (@t{9})
 The number to use instead of the colour to reset the default
@@ -18658,8 +18710,9 @@ this to appear with other types of highlighting; it is used to override
 a default.
 
 @item @t{fg=}@var{colour}
-The foreground colour should be set to @var{colour}, a decimal integer
-or the name of one of the eight most widely-supported colours.
+The foreground colour should be set to @var{colour}, a decimal integer,
+the name of one of the eight most widely-supported colours or as a
+`@t{#}' followed by an RGB triplet in hexadecimal format.
 
 @noindent
 Not all terminals support this and, of those that do, not all provide
@@ -18677,6 +18730,14 @@ number of colours supported may be tested by the command `@t{echotc
 Co}'; if this succeeds, it indicates a limit on the number of colours which
 will be enforced by the line editor.  The number of colours is in any case
 limited to 256 (i.e. the range 0 to 255).
+
+@noindent
+Some modern terminal emulators have support for 24-bit true colour (16
+million colours). In this case, the hex triplet format can be used. This
+consists of either a three or six digit hexadecimal number describing
+the red, green and blue components of the colour. Hex triplets can also
+be used with 88 and 256 colour terminals via the @t{zsh/nearcolor}
+module (see @ref{The zsh/nearcolor Module}).
 
 @noindent
 Colour is also known as color.
@@ -20608,7 +20669,11 @@ The parameter @t{$_compskip} may be set by any function defined for a
 pattern context.  If it is set to a value containing the substring
 `@t{patterns}' none of the pattern-functions will be called; if it is
 set to a value containing the substring `@t{all}', no other function
-will be called.
+will be called.  Setting @t{$_compskip} in this manner is of particular
+utility when using the @t{-p} option, as otherwise the dispatcher will
+move on to additional functions (likely the default one) after calling
+the pattern-context one, which can mangle the display of completion
+possibilities if not handled properly.
 
 @noindent
 The form with @t{-k} defines a widget with the same name as the @var{function}
@@ -21799,6 +21864,16 @@ sorted alphabetically by name.  If the value contains the string
 contains the string `@t{follow}', timestamps are associated with the
 targets of symbolic links; the default is to use the timestamps
 of the links themselves.
+
+@kindex file-split-chars, completion style
+@item @t{file-split-chars}
+A set of characters that will cause @emph{all} file completions for
+the given context to be split at the point where any of the characters
+occurs.  A typical use is to set the style to @t{:}; then everything
+up to and including the last @t{:} in the string so far is ignored when
+completing files.  As this is quite heavy-handed, it is usually
+preferable to update completion functions for contexts where this
+behaviour is useful.
 
 @kindex filter, completion style
 @item @t{filter}
@@ -26931,6 +27006,9 @@ Access to external files via a special associative array.
 @item @t{zsh/mathfunc}
 Standard scientific functions for use in mathematical evaluations.
 
+@item @t{zsh/nearcolor}
+Map colours to the nearest colour in the available palette.
+
 @item @t{zsh/newuser}
 Arrange for files for new users to be installed.
 
@@ -27008,6 +27086,7 @@ styles.
 * The zsh/langinfo Module::
 * The zsh/mapfile Module::
 * The zsh/mathfunc Module::
+* The zsh/nearcolor Module::
 * The zsh/newuser Module::
 * The zsh/parameter Module::
 * The zsh/pcre Module::
@@ -28073,9 +28152,13 @@ The @t{zsh/datetime} module makes available one builtin command:
 @table @asis
 @findex strftime
 @cindex date string, printing
-@item @t{strftime} [ @t{-s} @var{scalar} ] @var{format} @var{epochtime} 
+@item @t{strftime} [ @t{-s} @var{scalar} ] @var{format} [ @var{epochtime} [ @var{nanoseconds} ] ] 
 @itemx @t{strftime} @t{-r} [ @t{-q} ] [ @t{-s} @var{scalar} ] @var{format} @var{timestring} 
-Output the date denoted by @var{epochtime} in the @var{format} specified.
+Output the date in the @var{format} specified.  With no @var{epochtime}, the
+current system date/time is used; optionally, @var{epochtime} may be used to
+specify the number of seconds since the epoch, and @var{nanoseconds} may
+additionally be used to specify the number of nanoseconds past the second
+(otherwise that number is assumed to be 0).
 See man page strftime(3) for details.  The zsh extensions described in
 @ref{Prompt Expansion} are also available.
 
@@ -28600,7 +28683,7 @@ It is unfortunate that the mechanism for loading modules does not yet allow
 the user to specify the name of the shell parameter to be given the special
 behaviour.
 @c (avoiding a yodl bug)
-@node The zsh/mathfunc Module, The zsh/newuser Module, The zsh/mapfile Module, Zsh Modules
+@node The zsh/mathfunc Module, The zsh/nearcolor Module, The zsh/mapfile Module, Zsh Modules
 
 @section The zsh/mathfunc Module
 @noindent
@@ -28718,7 +28801,53 @@ should generate your own 12-byte seed.  The third call returns to the same
 sequence of random numbers used in the first call, unaffected by the
 intervening @t{rand48()}.
 @c (avoiding a yodl bug)
-@node The zsh/newuser Module, The zsh/parameter Module, The zsh/mathfunc Module, Zsh Modules
+@node The zsh/nearcolor Module, The zsh/newuser Module, The zsh/mathfunc Module, Zsh Modules
+
+@section The zsh/nearcolor Module
+@noindent
+@c Yodl file: Zsh/mod_nearcolor.yo
+
+The @t{zsh/nearcolor} module replaces colours specified as hex triplets
+with the nearest colour in the 88 or 256 colour palettes that are widely
+used by terminal emulators.  By default, 24-bit true colour escape codes
+are generated when colours are specified using hex triplets.  These are
+not supported by all terminals.  The purpose of this module is to make
+it easier to define colour preferences in a form that can work across a
+range of terminal emulators.
+
+@noindent
+Aside from the default colour, the ANSI standard for terminal escape
+codes provides for eight colours. The bright attribute brings this to
+sixteen. These basic colours are commonly used in terminal applications
+due to being widely supported. Expanded 88 and 256 colour palettes are
+also common and, while the first sixteen colours vary somewhat between
+terminals and configurations, these add a generally consistent and
+predictable set of colours.
+
+@noindent
+In order to use the @t{zsh/nearcolor} module, it only needs to be
+loaded. Thereafter, whenever a colour is specified using a hex triplet,
+it will be compared against each of the available colours and the
+closest will be selected. The first sixteen colours are never matched in
+this process due to being unpredictable.
+
+@noindent
+It isn't possible to reliably detect support for true colour in the
+terminal emulator. It is therefore recommended to be selective in
+loading the @t{zsh/nearcolor} module. For example, the following
+checks the @t{COLORTERM} environment variable:
+
+@noindent
+@example
+[[ $COLORTERM = *(24bit|truecolor)* ]] || zmodload zsh/nearcolor
+@end example
+
+@noindent
+Note that some terminals accept the true color escape codes but map
+them internally to a more limited palette in a similar manner to the
+@t{zsh/nearcolor} module.
+@c (avoiding a yodl bug)
+@node The zsh/newuser Module, The zsh/parameter Module, The zsh/nearcolor Module, Zsh Modules
 
 @section The zsh/newuser Module
 @noindent
@@ -30968,7 +31097,8 @@ The @t{-w} option can be used to send the to command @var{name} the given
 @noindent
 If no @var{string} is provided, the standard input is copied to the
 pseudo-terminal; this may stop before copying the full input if the
-pseudo-terminal is non-blocking.
+pseudo-terminal is non-blocking.  The exact input is always copied:
+the @t{-n} option is not applied.
 
 @noindent
 Note that the command under the pseudo-terminal sees this input as if it
@@ -34402,7 +34532,7 @@ distribution in your home directory, you would use the commands:
 @noindent
 @example
 mkdir ~/zsh_help
-perl ~/zsh-5.6.2/Util/helpfiles ~/zsh_help
+perl ~/zsh-5.7/Util/helpfiles ~/zsh_help
 @end example
 
 @noindent
@@ -34563,7 +34693,7 @@ Run @t{zkbd} either as an autoloaded function, or as a shell script:
 
 @noindent
 @example
-zsh -f ~/zsh-5.6.2/Functions/Misc/zkbd
+zsh -f ~/zsh-5.7/Functions/Misc/zkbd
 @end example
 
 @noindent
@@ -34628,7 +34758,7 @@ command and redirect the output into a file:
 
 @noindent
 @example
-. ~/zsh-5.6.2/Util/reporter > zsh.report
+. ~/zsh-5.7/Util/reporter > zsh.report
 @end example
 
 @noindent
@@ -36419,7 +36549,7 @@ generated; the @t{get-unapplied} style must be true.
 
 @noindent
 This hook gets the names of all unapplied patches which @t{vcs_info}
-collected so far in the opposite order, which mean that the first argument is
+collected so far in order, which means that the first argument is
 the patch next-in-line to be applied and so forth.
 
 @noindent

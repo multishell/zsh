@@ -63,7 +63,8 @@ Zsh/mod_compctl.yo Zsh/mod_complete.yo Zsh/mod_complist.yo \
 Zsh/mod_computil.yo Zsh/mod_curses.yo \
 Zsh/mod_datetime.yo Zsh/mod_db_gdbm.yo Zsh/mod_deltochar.yo \
 Zsh/mod_example.yo Zsh/mod_files.yo Zsh/mod_langinfo.yo \
-Zsh/mod_mapfile.yo Zsh/mod_mathfunc.yo Zsh/mod_newuser.yo \
+Zsh/mod_mapfile.yo Zsh/mod_mathfunc.yo \
+Zsh/mod_nearcolor.yo Zsh/mod_newuser.yo \
 Zsh/mod_parameter.yo Zsh/mod_pcre.yo Zsh/mod_private.yo \
 Zsh/mod_regex.yo Zsh/mod_sched.yo Zsh/mod_socket.yo \
 Zsh/mod_stat.yo  Zsh/mod_system.yo Zsh/mod_tcp.yo \
@@ -142,7 +143,7 @@ zsh.info: $(sdir)/zsh.texi
 .yo.1:
 	@case $@ in \
 	  */*) target=$@ ;; \
-	  *) target=$(sdir)/$@ ;; \
+	  *) target=$@ ;; \
 	esac; \
 	case '$(YODL)' in :*) touch $$target ;; *) \
 	    echo $(YODL) -o $$target -I$(sdir):. -w zman.yo version.yo $< ; \
@@ -176,9 +177,9 @@ zsh_toc.html: $(sdir)/zsh.texi texi2html.conf
 	             --init-file texi2html.conf $(sdir)/zsh.texi
 
 zshall.1: zsh.yo
-	@case $@ in \
+	case $@ in \
 	  */*) target=$@ ;; \
-	  *) target=$(sdir)/$@ ;; \
+	  *) target=$@ ;; \
 	esac; \
 	case '$(YODL)' in :*) touch $$target ;; *) \
 	    echo $(YODL) -o $$target -I$(sdir) -DZSHALL -w zman.yo version.yo zsh.yo; \
@@ -203,7 +204,7 @@ runhelp: help.txt
 help.txt: zshbuiltins.1
 	@-rm -f $@ help/*
 	perl $(sdir_top)/Util/helpfiles \
-	    $(sdir)/zshbuiltins.1 help help.txt \
+	    zshbuiltins.1 help help.txt \
 	    || rm -f help.txt help/*
 
 $(MAN): zmacros.yo zman.yo
@@ -328,8 +329,8 @@ uninstall: uninstall.man uninstall.runhelp
 install.man: man
 	${SHELL} $(sdir_top)/mkinstalldirs $(DESTDIR)$(mandir)/man1
 	for file in $(MAN); do \
-	    test -s $(sdir)/$$file || exit 1; \
-	    $(INSTALL_DATA) $(sdir)/$$file $(DESTDIR)$(mandir)/man1/`echo $$file | sed 's|zsh|$(tzsh)|'` || exit 1; \
+	    test -s $$file || exit 1; \
+	    $(INSTALL_DATA) $$file $(DESTDIR)$(mandir)/man1/`echo $$file | sed 's|zsh|$(tzsh)|'` || exit 1; \
 	done
 .PHONY: install.man
 

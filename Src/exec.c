@@ -738,7 +738,7 @@ execute(LinkList args, int flags, int defpath)
 
 	if (!search_defpath(arg0, pbuf, PATH_MAX)) {
 	    if (commandnotfound(arg0, args) == 0)
-		_exit(lastval);
+		_realexit();
 	    zerr("command not found: %s", arg0);
 	    _exit(127);
 	}
@@ -802,7 +802,7 @@ execute(LinkList args, int flags, int defpath)
     if (eno)
 	zerr("%e: %s", eno, arg0);
     else if (commandnotfound(arg0, args) == 0)
-	_exit(lastval);
+	_realexit();
     else
 	zerr("command not found: %s", arg0);
     _exit((eno == EACCES || eno == ENOEXEC) ? 126 : 127);
@@ -1012,6 +1012,7 @@ entersubsh(int flags, struct entersubsh_ret *retp)
 		unsettrap(sig);
     monitor = isset(MONITOR);
     job_control_ok = monitor && (flags & ESUB_JOB_CONTROL) && isset(POSIXJOBS);
+    exit_val = 0; 		/* parent exit status is irrelevant */
     if (flags & ESUB_NOMONITOR)
 	opts[MONITOR] = 0;
     if (!isset(MONITOR)) {
@@ -1036,7 +1037,7 @@ entersubsh(int flags, struct entersubsh_ret *retp)
 		if (!(flags & ESUB_ASYNC))
 		    attachtty(jobtab[thisjob].gleader);
 	    }
-	    if (retp) {
+	    if (retp && !(flags & ESUB_ASYNC)) {
 		retp->gleader = jobtab[list_pipe_job].gleader;
 		retp->list_pipe_job = list_pipe_job;
 	    }
@@ -1058,12 +1059,13 @@ entersubsh(int flags, struct entersubsh_ret *retp)
 		!jobtab[list_pipe_job].gleader)
 		jobtab[list_pipe_job].gleader = jobtab[thisjob].gleader;
 	    setpgrp(0L, jobtab[thisjob].gleader);
-	    if (!(flags & ESUB_ASYNC))
+	    if (!(flags & ESUB_ASYNC)) {
 		attachtty(jobtab[thisjob].gleader);
-	    if (retp) {
-		retp->gleader = jobtab[thisjob].gleader;
-		if (list_pipe_job != thisjob)
-		    retp->list_pipe_job = list_pipe_job;
+		if (retp) {
+		    retp->gleader = jobtab[thisjob].gleader;
+		    if (list_pipe_job != thisjob)
+			retp->list_pipe_job = list_pipe_job;
+		}
 	    }
 	}
     }
@@ -1534,9 +1536,9 @@ sublist_done:
 		    if (sigtrapped[SIGEXIT])
 			dotrap(SIGEXIT);
 		    if (mypid != getpid())
-			_exit(lastval);
+			_realexit();
 		    else
-			exit(lastval);
+			realexit();
 		}
 		if (errreturn) {
 		    retflag = 1;
@@ -2744,7 +2746,10 @@ execcmd_fork(Estate state, int how, int type, Wordcode varspc,
 	flags |= ESUB_JOB_CONTROL;
     *filelistp = jobtab[thisjob].filelist;
     entersubsh(flags, &esret);
-    write(synch[1], &esret, sizeof(esret));
+    if (write_loop(synch[1], (const void *) &esret, sizeof(esret)) != sizeof(esret)) {
+	zerr("Failed to send entersubsh_ret report: %e", errno);
+	return -1;
+    }
     close(synch[1]);
     zclose(close_if_forked);
 
@@ -2930,7 +2935,7 @@ execcmd_exec(Estate state, Execcmd_params eparams,
 		/* autoload the builtin if necessary */
 		if (!(hn = resolvebuiltin(cmdarg, hn))) {
 		    if (forked)
-			_exit(lastval);
+			_realexit();
 		    return;
 		}
 		if (type != WC_TYPESET)
@@ -3111,7 +3116,7 @@ execcmd_exec(Estate state, Execcmd_params eparams,
 			    lastval = 1;
 			    errflag |= ERRFLAG_ERROR;
 			    if (forked)
-				_exit(lastval);
+				_realexit();
 			    return;
 			}
 		    }
@@ -3206,7 +3211,7 @@ execcmd_exec(Estate state, Execcmd_params eparams,
 			lastval = 1;
 			errflag |= ERRFLAG_ERROR;
 			if (forked)
-			    _exit(lastval);
+			    _realexit();
 			return;
 		    } else if (!nullcmd || !*nullcmd || opts[SHNULLCMD]) {
 			if (!args)
@@ -3226,7 +3231,7 @@ execcmd_exec(Estate state, Execcmd_params eparams,
 		} else if ((cflags & BINF_PREFIX) && (cflags & BINF_COMMAND)) {
 		    lastval = 0;
 		    if (forked)
-			_exit(lastval);
+			_realexit();
 		    return;
 		} else {
 		    /*
@@ -3238,7 +3243,7 @@ execcmd_exec(Estate state, Execcmd_params eparams,
 			zerr("no match");
 			lastval = 1;
 			if (forked)
-			    _exit(lastval);
+			    _realexit();
 			return;
 		    }
 		    cmdoutval = use_cmdoutval ? lastval : 0;
@@ -3256,7 +3261,7 @@ execcmd_exec(Estate state, Execcmd_params eparams,
 			fflush(xtrerr);
 		    }
 		    if (forked)
-			_exit(lastval);
+			_realexit();
 		    return;
 		}
 	    } else if (isset(RESTRICTED) && (cflags & BINF_EXEC) && do_exec) {
@@ -3264,7 +3269,7 @@ execcmd_exec(Estate state, Execcmd_params eparams,
 			(char *) getdata(firstnode(args)));
 		lastval = 1;
 		if (forked)
-		    _exit(lastval);
+		    _realexit();
 		return;
 	    }
 
@@ -3300,7 +3305,7 @@ execcmd_exec(Estate state, Execcmd_params eparams,
 		    if (oautocont >= 0)
 			opts[AUTOCONTINUE] = oautocont;
 		    if (forked)
-			_exit(lastval);
+			_realexit();
 		    return;
 		}
 		break;
@@ -3311,7 +3316,7 @@ execcmd_exec(Estate state, Execcmd_params eparams,
 		/* autoload the builtin if necessary */
 		if (!(hn = resolvebuiltin(cmdarg, hn))) {
 		    if (forked)
-			_exit(lastval);
+			_realexit();
 		    return;
 		}
 		break;
@@ -3329,7 +3334,7 @@ execcmd_exec(Estate state, Execcmd_params eparams,
 	if (oautocont >= 0)
 	    opts[AUTOCONTINUE] = oautocont;
 	if (forked)
-	    _exit(lastval);
+	    _realexit();
 	return;
     }
 
@@ -3408,7 +3413,7 @@ execcmd_exec(Estate state, Execcmd_params eparams,
 		if (oautocont >= 0)
 		    opts[AUTOCONTINUE] = oautocont;
 		if (forked)
-		    _exit(lastval);
+		    _realexit();
 		return;
 	    }
 	}
@@ -3438,7 +3443,7 @@ execcmd_exec(Estate state, Execcmd_params eparams,
 	if (oautocont >= 0)
 	    opts[AUTOCONTINUE] = oautocont;
 	if (forked)
-	    _exit(lastval);
+	    _realexit();
 	return;
     }
 
@@ -4114,13 +4119,13 @@ execcmd_exec(Estate state, Execcmd_params eparams,
 
 	    if (do_exec) {
 		if (subsh)
-		    _exit(lastval);
+		    _realexit();
 
 		/* If we are exec'ing a command, and we are not in a subshell, *
 		 * then check if we should save the history file.              */
 		if (isset(RCS) && interact && !nohistsave)
 		    savehistfile(NULL, 1, HFILE_USE_OPTIONS);
-		exit(lastval);
+		realexit();
 	    }
 	    if (restorelist)
 		restore_params(restorelist, removelist);
@@ -4211,7 +4216,7 @@ execcmd_exec(Estate state, Execcmd_params eparams,
 	closem(FDT_UNUSED, 1);
 	if (thisjob != -1)
 	    waitjobs();
-	_exit(lastval);
+	_realexit();
     }
     fixfds(save);
 
@@ -4627,7 +4632,7 @@ getoutput(char *cmd, int qt)
     execode(prog, 0, 1, "cmdsubst");
     cmdpop();
     close(1);
-    _exit(lastval);
+    _realexit();
     zerr("exit returned in child!!");
     kill(getpid(), SIGKILL);
     return NULL;
@@ -4800,7 +4805,8 @@ getoutputfile(char *cmd, char **eptr)
     }
 
     if ((cmdoutpid = pid = zfork(NULL)) == -1) {
-	/* fork or open error */
+	/* fork error */
+	close(fd);
 	child_unblock();
 	return nam;
     } else if (pid) {
@@ -4821,7 +4827,7 @@ getoutputfile(char *cmd, char **eptr)
     execode(prog, 0, 1, "equalsubst");
     cmdpop();
     close(1);
-    _exit(lastval);
+    _realexit();
     zerr("exit returned in child!!");
     kill(getpid(), SIGKILL);
     return NULL;
@@ -4934,7 +4940,7 @@ getproc(char *cmd, char **eptr)
     execode(prog, 0, 1, out ? "outsubst" : "insubst");
     cmdpop();
     zclose(out);
-    _exit(lastval);
+    _realexit();
     return NULL;
 #endif   /* HAVE_FIFOS and PATH_DEV_FD not defined */
 }
@@ -4982,7 +4988,7 @@ getpipe(char *cmd, int nullexec)
     cmdpush(CS_CMDSUBST);
     execode(prog, 0, 1, out ? "outsubst" : "insubst");
     cmdpop();
-    _exit(lastval);
+    _realexit();
     return 0;
 }
 
@@ -5923,7 +5929,7 @@ doshfunc(Shfunc shfunc, LinkList doshargs, int noreturnval)
 	     * exit command was handled.
 	     */
 	    stopmsg = 1;
-	    zexit(exit_pending >> 1, 0);
+	    zexit(exit_val, 0);
 	}
     }
 

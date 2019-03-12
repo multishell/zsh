@@ -1,4 +1,4 @@
-.TH "ZSHOPTIONS" "1" "September 14, 2018" "zsh 5\&.6\&.2"
+.TH "ZSHOPTIONS" "1" "January 24, 2019" "zsh 5\&.7"
 .SH "NAME"
 zshoptions \- zsh options
 .\" Yodl file: Zsh/options.yo
@@ -470,7 +470,9 @@ is interpreted as if there were a space after the \fB!\fP\&.  This option is
 set by default if zsh is invoked as \fBsh\fP or \fBksh\fP\&.
 .TP
 \fBUNSET\fP (\fB+u\fP, ksh: \fB+u\fP) <K> <S> <Z>
-Treat unset parameters as if they were empty when substituting\&.
+Treat unset parameters as if they were empty when substituting, and as if
+they were zero when reading their values in arithmetic expansion and
+arithmetic commands\&.
 Otherwise they are treated as an error\&.
 .TP
 \fBWARN_CREATE_GLOBAL\fP
