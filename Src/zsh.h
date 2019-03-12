@@ -456,6 +456,18 @@ enum {
 #define FDT_PROC_SUBST		7
 #endif
 
+/*
+ * Mask to get the basic FDT type.
+ */
+#define FDT_TYPE_MASK		15
+
+/*
+ * Bit flag that fd is saved for later restoration.
+ * Currently this is only use with FDT_INTERNAL.  We use this fact so as
+ * not to have to mask checks against other types.
+ */
+#define FDT_SAVED_MASK		16
+
 /* Flags for input stack */
 #define INP_FREE      (1<<0)	/* current buffer can be free'd            */
 #define INP_ALIAS     (1<<1)	/* expanding alias or history              */
@@ -2108,6 +2120,17 @@ enum source_return {
     SOURCE_NOT_FOUND = 1,
     /* Internal error sourcing file */
     SOURCE_ERROR = 2
+};
+
+enum noerrexit_bits {
+    /* Suppress ERR_EXIT and traps: global */
+    NOERREXIT_EXIT = 1,
+    /* Suppress ERR_RETURN: per function call */
+    NOERREXIT_RETURN = 2,
+    /* NOERREXIT only needed on way down */
+    NOERREXIT_UNTIL_EXEC = 4,
+    /* Force exit on SIGINT */
+    NOERREXIT_SIGNAL = 8
 };
 
 /***********************************/

@@ -1,4 +1,4 @@
-.TH "ZSHOPTIONS" "1" "August 8, 2017" "zsh 5\&.4\&.1"
+.TH "ZSHOPTIONS" "1" "August 27, 2017" "zsh 5\&.4\&.2"
 .SH "NAME"
 zshoptions \- zsh options
 .\" Yodl file: Zsh/options.yo
@@ -1062,6 +1062,17 @@ as it is by default, and the option \fBERR_EXIT\fP is found to have been set
 on exit, then the command for which the \fBDEBUG\fP trap is being executed is
 skipped\&.  The option is restored after the trap exits\&.
 .PP
+Non\-zero status in a command list containing \fB&&\fP or \fB||\fP is ignored
+for commands not at the end of the list\&.  Hence
+.PP
+.RS
+.nf
+\fBfalse && true\fP
+.fi
+.RE
+.PP
+does not trigger exit\&.
+.PP
 Exiting due to \fBERR_EXIT\fP has certain interactions with asynchronous
 jobs noted in
 the section JOBS in \fIzshmisc\fP(1)\&.
@@ -1069,10 +1080,31 @@ the section JOBS in \fIzshmisc\fP(1)\&.
 .TP
 \fBERR_RETURN\fP
 If a command has a non\-zero exit status, return immediately from the
-enclosing function\&.  The logic is identical to that for \fBERR_EXIT\fP,
+enclosing function\&.  The logic is similar to that for \fBERR_EXIT\fP,
 except that an implicit \fBreturn\fP statement is executed instead of an
 \fBexit\fP\&.  This will trigger an exit at the outermost level of a
 non\-interactive script\&.
+.RS
+.PP
+Normally this option inherits the behaviour of \fBERR_EXIT\fP that
+code followed by `\fB&&\fP\&' `\fB||\fP' does not trigger a return\&.  Hence
+in the following:
+.PP
+.RS
+.nf
+\fBsummit || true\fP
+.fi
+.RE
+.PP
+no return is forced as the combined effect always has a zero return
+status\&.
+.PP
+Note\&. however, that if \fBsummit\fP in the above example is itself a
+function, code inside it is considered separately: it may force a return
+from \fBsummit\fP (assuming the option remains set within \fBsummit\fP), but
+not from the enclosing context\&.  This behaviour is different from
+\fBERR_EXIT\fP which is unaffected by function scope\&.
+.RE
 .TP
 \fBEVAL_LINENO\fP <Z>
 If set, line numbers of expressions evaluated using the builtin \fBeval\fP

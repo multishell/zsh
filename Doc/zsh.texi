@@ -27,8 +27,8 @@
 @end iftex
 @titlepage
 @title The Z Shell Manual
-@subtitle Version 5.4.1
-@subtitle Updated August 8, 2017
+@subtitle Version 5.4.2
+@subtitle Updated August 27, 2017
 @author Original documentation by Paul Falstad
 @page
 This is a texinfo version of the documentation for the Z Shell, originally by 
@@ -63,7 +63,7 @@ POSIX shells, but its default mode is not POSIX compatible, either.
 
 @noindent
 @cindex version
-Version 5.4.1, last updated August 8, 2017.
+Version 5.4.2, last updated August 27, 2017.
 @end ifinfo
 
 @menu
@@ -11116,6 +11116,18 @@ on exit, then the command for which the @t{DEBUG} trap is being executed is
 skipped.  The option is restored after the trap exits.
 
 @noindent
+Non-zero status in a command list containing @t{&&} or @t{||} is ignored
+for commands not at the end of the list.  Hence
+
+@noindent
+@example
+false && true
+@end example
+
+@noindent
+does not trigger exit.
+
+@noindent
 Exiting due to @t{ERR_EXIT} has certain interactions with asynchronous
 jobs noted in
 @ref{Jobs & Signals}.
@@ -11128,10 +11140,31 @@ jobs noted in
 @cindex return from function, on error
 @item @t{ERR_RETURN}
 If a command has a non-zero exit status, return immediately from the
-enclosing function.  The logic is identical to that for @t{ERR_EXIT},
+enclosing function.  The logic is similar to that for @t{ERR_EXIT},
 except that an implicit @t{return} statement is executed instead of an
 @t{exit}.  This will trigger an exit at the outermost level of a
 non-interactive script.
+
+@noindent
+Normally this option inherits the behaviour of @t{ERR_EXIT} that
+code followed by `@t{&&}' `@t{||}' does not trigger a return.  Hence
+in the following:
+
+@noindent
+@example
+summit || true
+@end example
+
+@noindent
+no return is forced as the combined effect always has a zero return
+status.
+
+@noindent
+Note. however, that if @t{summit} in the above example is itself a
+function, code inside it is considered separately: it may force a return
+from @t{summit} (assuming the option remains set within @t{summit}), but
+not from the enclosing context.  This behaviour is different from
+@t{ERR_EXIT} which is unaffected by function scope.
 
 @pindex EVAL_LINENO
 @pindex NO_EVAL_LINENO
@@ -34150,7 +34183,7 @@ distribution in your home directory, you would use the commands:
 @noindent
 @example
 mkdir ~/zsh_help
-perl ~/zsh-5.4.1/Util/helpfiles ~/zsh_help
+perl ~/zsh-5.4.2/Util/helpfiles ~/zsh_help
 @end example
 
 @noindent
@@ -34311,7 +34344,7 @@ Run @t{zkbd} either as an autoloaded function, or as a shell script:
 
 @noindent
 @example
-zsh -f ~/zsh-5.4.1/Functions/Misc/zkbd
+zsh -f ~/zsh-5.4.2/Functions/Misc/zkbd
 @end example
 
 @noindent
@@ -34376,7 +34409,7 @@ command and redirect the output into a file:
 
 @noindent
 @example
-. ~/zsh-5.4.1/Util/reporter > zsh.report
+. ~/zsh-5.4.2/Util/reporter > zsh.report
 @end example
 
 @noindent
