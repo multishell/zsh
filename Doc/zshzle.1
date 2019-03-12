@@ -1,4 +1,4 @@
-.TH "ZSHZLE" "1" "August 30, 2015" "zsh 5\&.1"
+.TH "ZSHZLE" "1" "September 11, 2015" "zsh 5\&.1\&.1"
 .SH "NAME"
 zshzle \- zsh command line editor
 .\" Yodl file: Zsh/zle.yo
@@ -23,7 +23,8 @@ line editor\&. See
 The parameter \fBzle_highlight\fP is also used by the line editor; see
 \fICharacter Highlighting\fP below\&.  Highlighting
 of special characters and the region between the cursor and the
-mark (as set with \fBset\-mark\-command\fP in Emacs mode) is enabled
+mark (as set with \fBset\-mark\-command\fP in Emacs mode, or by \fBvisual\-mode\fP
+in Vi mode) is enabled
 by default; consult this reference for more information\&.  Irascible
 conservatives will wish to know that all highlighting may be disabled by
 the following setting:
@@ -36,7 +37,7 @@ the following setting:
 .PP
 In many places, references are made to the \fBnumeric argument\fP\&.  This can
 by default be entered in emacs mode by holding the alt key and typing
-a number, or pressing escape before each number, and in vi command mode
+a number, or pressing escape before each digit, and in vi command mode
 by typing the number before entering a command\&.  Generally the numeric
 argument causes the next command entered to be repeated the specified
 number of times, unless otherwise noted below\&. See also
@@ -1037,6 +1038,10 @@ any predisplay string should be highlighted in bold\&.
 .PP
 Note that the effect of \fBregion_highlight\fP is not saved and disappears
 as soon as the line is accepted\&.
+.PP
+The final highlighting on the command line depends on both \fBregion_highlight\fP
+and \fBzle_highlight\fP; see
+the section CHARACTER HIGHLIGHTING below for details\&.
 .RE
 .TP
 \fBUNDO_CHANGE_NO\fP (integer)
@@ -1084,6 +1089,22 @@ executed; the second argument that followed \fBzle \-C\fP when the widget was
 defined\&.  This is the name of a builtin completion widget\&.  For widgets
 defined with \fBzle \-N\fP this is set to the empty string\&.  Read\-only\&.
 .TP
+.PD 0
+\fBYANK_ACTIVE\fP (integer)
+.TP
+.PD 0
+\fBYANK_START\fP (integer)
+.TP
+.PD
+\fBYANK_END\fP (integer)
+These three parameters indicate whether text has just been yanked (pasted)
+into the buffer\&.  \fBYANK_START\fP and \fBYANK_END\fP are in the same unit sas
+\fBCURSOR\fP, and are only valid when \fBYANK_ACTIVE\fP is non\-zero\&.
+.RS
+.PP
+All three are read\-only\&.
+.RE
+.TP
 \fBZLE_STATE\fP (scalar)
 Contains a set of space\-separated words that describe the current \fBzle\fP
 state\&.
@@ -1104,7 +1125,7 @@ by doing:
 .PP
 .RS
 .nf
-\fBif [[ $ZLE_STATE == *insert*globalhistory* ]]; then \&.\&.\&.; fi\fP
+\fBif [[ $ZLE_STATE == *globalhistory*insert* ]]; then \&.\&.\&.; fi\fP
 .fi
 .RE
 .RE
@@ -2495,6 +2516,12 @@ for different completions\&.
 .TP
 \fBpaste\fP
 Following a command to paste text, the characters that were inserted\&.
+.PP
+When \fBregion_highlight\fP is set, the contexts that describe a region \-\-
+\fBisearch\fP, \fBregion\fP, \fBsuffix\fP, and \fBpaste\fP \-\-
+are applied first, then \fBregion_highlight\fP is applied, then the remaining
+\fBzle_highlight\fP contexts are applied\&.  If a particular character is
+affected by multiple specifications, the last specification wins\&.
 .PP
 \fBzle_highlight\fP may contain additional fields for controlling how
 terminal sequences to change colours are output\&.  Each of the following is

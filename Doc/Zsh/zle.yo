@@ -34,7 +34,8 @@ The parameter tt(zle_highlight) is also used by the line editor; see
 ifzman(em(Character Highlighting) below)\
 ifnzman(noderef(Character Highlighting)).  Highlighting
 of special characters and the region between the cursor and the
-mark (as set with tt(set-mark-command) in Emacs mode) is enabled
+mark (as set with tt(set-mark-command) in Emacs mode, or by tt(visual-mode)
+in Vi mode) is enabled
 by default; consult this reference for more information.  Irascible
 conservatives will wish to know that all highlighting may be disabled by
 the following setting:
@@ -43,7 +44,7 @@ example(zle_highlight=(none))
 
 In many places, references are made to the tt(numeric argument).  This can
 by default be entered in emacs mode by holding the alt key and typing
-a number, or pressing escape before each number, and in vi command mode
+a number, or pressing escape before each digit, and in vi command mode
 by typing the number before entering a command.  Generally the numeric
 argument causes the next command entered to be repeated the specified
 number of times, unless otherwise noted below. See also
@@ -954,6 +955,11 @@ any predisplay string should be highlighted in bold.
 
 Note that the effect of tt(region_highlight) is not saved and disappears
 as soon as the line is accepted.
+
+The final highlighting on the command line depends on both tt(region_highlight)
+and tt(zle_highlight); see
+ifzman(the section CHARACTER HIGHLIGHTING below)\
+ifnzman(noderef(Character Highlighting)) for details.
 )
 vindex(UNDO_CHANGE_NO)
 item(tt(UNDO_CHANGE_NO) (integer))(
@@ -999,6 +1005,18 @@ executed; the second argument that followed tt(zle -C) when the widget was
 defined.  This is the name of a builtin completion widget.  For widgets
 defined with tt(zle -N) this is set to the empty string.  Read-only.
 )
+vindex(YANK_ACTIVE)
+vindex(YANK_START)
+vindex(YANK_END)
+xitem(tt(YANK_ACTIVE) (integer))
+xitem(tt(YANK_START) (integer))
+item(tt(YANK_END) (integer))(
+These three parameters indicate whether text has just been yanked (pasted)
+into the buffer.  tt(YANK_START) and tt(YANK_END) are in the same unit sas
+tt(CURSOR), and are only valid when tt(YANK_ACTIVE) is non-zero.
+
+All three are read-only.
+)
 vindex(ZLE_STATE)
 item(tt(ZLE_STATE) (scalar))(
 Contains a set of space-separated words that describe the current tt(zle)
@@ -1017,7 +1035,7 @@ The substrings are sorted in alphabetical order so that if you want to
 test for two specific substrings in a future-proof way, you can do match
 by doing:
 
-example(if [[ $ZLE_STATE == *insert*globalhistory* ]]; then ...; fi)
+example(if [[ $ZLE_STATE == *globalhistory*insert* ]]; then ...; fi)
 )
 enditem()
 
@@ -2519,6 +2537,12 @@ item(tt(paste))(
 Following a command to paste text, the characters that were inserted.
 )
 enditem()
+
+When tt(region_highlight) is set, the contexts that describe a region DASH()-
+tt(isearch), tt(region), tt(suffix), and tt(paste) DASH()-
+are applied first, then tt(region_highlight) is applied, then the remaining
+tt(zle_highlight) contexts are applied.  If a particular character is
+affected by multiple specifications, the last specification wins.
 
 tt(zle_highlight) may contain additional fields for controlling how
 terminal sequences to change colours are output.  Each of the following is

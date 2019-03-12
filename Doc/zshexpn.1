@@ -1,4 +1,4 @@
-.TH "ZSHEXPN" "1" "August 30, 2015" "zsh 5\&.1"
+.TH "ZSHEXPN" "1" "September 11, 2015" "zsh 5\&.1\&.1"
 .SH "NAME"
 zshexpn \- zsh expansion and substitution
 .\" Yodl file: Zsh/expn.yo
@@ -2042,6 +2042,20 @@ The character is used as an input field separator, i\&.e\&. is contained in the
 The character is an IFS white space character; see the documentation
 for \fBIFS\fP in
 the \fIzshparam\fP(1) manual page\&.
+.TP
+\fB[:INCOMPLETE:]\fP
+Matches a byte that starts an incomplete multibyte character\&.
+Note that there may be a sequence of more than one bytes that
+taken together form the prefix of a multibyte character\&.  To
+test for a potentially incomplete byte sequence, use the pattern
+`\fB[[:INCOMPLETE:]]*\fP\&'\&.  This will never match a sequence starting
+with a valid multibyte character\&.
+.TP
+\fB[:INVALID:]\fP
+Matches a byte that does not start a valid multibyte character\&.
+Note this may be a continuation byte of an incomplete multibyte
+character as any part of a multibyte string consisting of invalid and
+incomplete multibyte characters is treated as single bytes\&.
 .TP
 \fB[:WORD:]\fP
 The character is treated as part of a word; this test is sensitive

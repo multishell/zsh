@@ -1,3 +1,154 @@
+2015-09-11  Peter Stephenson  <p.w.stephenson@ntlworld.com>
+
+	* unposted: Config/version.mk: 5.1.1
+
+	*  Sebastian Gniazdowski: 36489: Src/Modules/curses.c: fix bug
+	with hash table for colours.
+
+	* 36483: Functions/Zle/bracketed-paste-magic: use
+	[[:INCOMPLETE:]] to get rest of multibyte character.
+
+2015-09-11  Peter Stephenson  <p.stephenson@samsung.com>
+
+	* unposted: NEWS, README: update for minor new features that
+	have just appeared.
+
+2015-09-10  Daniel Shahaf  <d.s@daniel.shahaf.name>
+
+	* 36445: Doc/Zsh/zle.yo Src/Zle/zle_params.c: Expose yankb,
+	yanke, ZLE_YANK to widgets.
+
+2015-09-10  Peter Stephenson  <p.w.stephenson@ntlworld.com>
+
+	* 36478: Src/pattern.c, Src/zsh.h, Src/Zle/comp.h,
+	Doc/Zsh/expn.yo, Test/D07multibyte.ztst: add [[:INCOMPLETE:]] and
+	[[:INVALID:]] pattern tests.
+
+2015-09-10  Barton E. Schaefer  <schaefer@zsh.org>
+
+	* 36470: Src/Zle/zle_main.c: Auxiliary to 36468, return an empty
+	buffer from zleread() if a widget exits
+
+2015-09-10  Peter Stephenson  <p.stephenson@samsung.com>
+
+	* 36468: Src/hist.c: Infinite loop if we tried to exit from a
+	Zle widget but the lexer thought the current lexical expression
+	needed finishing.
+
+	* 36460: Test/E01options.ztst: Discard benign error on failure
+	to write to pipe with no one reading.
+
+2015-09-08  Oliver Kiddle  <opk@zsh.org>
+
+	36422: Src/compat.c: add missing unmeta()
+
+2015-09-07  Daniel Shahaf  <d.s@daniel.shahaf.name>
+
+	* 36437: Doc/Zsh/zle.yo Src/Zle/zle.h: Document interaction of
+	$region_highlight and $zle_highlight.
+
+	* unposted: Doc/Zsh/zle.yo: ZLE_STATE: fix obvious documentation
+	typo.
+
+2015-09-07  James Clarke  <jrtc27@jrtc27.com>
+
+	* 36441: Completion/Unix/Command/_git: _git: Fixed typo in
+	--author-date-order description
+
+2015-09-06  Peter Stephenson  <p.w.stephenson@ntlworld.com>
+
+	* unposted: Config/versiom.mk, Etc/FAQ.yo, NEWS, README: make
+	5.1-test-1 with updates for 5.1.1.
+
+2015-09-05  Daniel Shahaf  <d.s@daniel.shahaf.name>
+
+	* unposted: Doc/Zsh/params.yo Doc/Zsh/zle.yo: Minor documentation
+	tweaks.
+
+	* 36410: Doc/Zsh/contrib.yo
+	Functions/VCS_Info/Backends/VCS_INFO_get_data_git: vcs_info git:
+	Present merge heads as patches
+
+2015-09-04  Peter Stephenson  <p.stephenson@samsung.com>
+
+	* 36421: Src/pattern.c: can't-get-the-staff fix for idiocy in
+	36415.
+
+2015-09-04  Jun-ichi Takimoto <takimoto-j@kba.biglobe.ne.jp>
+
+	* 36417: Doc/Zsh/manual.yo: fix/update top level texinfo menu
+
+2015-09-04  Peter Stephenson  <p.stephenson@samsung.com>
+
+	* 36415: Src/pattern.c, Test/D07multibyte.ztst: remap bytes from
+	invalid multibyte characters to 0xDC00 + index which is invalid
+	in Unicode.  Strictly this only works if whcar_t is
+	ISO-10646-compliant, however it ought to be at least as good as
+	the current fudge in any case.
+
+2015-09-03  Peter Stephenson  <p.stephenson@samsung.com>
+
+	* 36416: Src/Zle/zle_refresh.c, Src/Zle/zle_utils.c: If
+	keyboard interrupt during getzlequery(), don't propagate further,
+	just redraw the line.  Also handle logical error that we
+	attempted to redraw the line partially if an error or interrupt
+	was propagated.
+
+2015-09-03  Daniel Shahaf  <d.s@daniel.shahaf.name>
+
+	* 36403: Src/hashtable.c Test/A02alias.ztst: type -w +=
+	suffix alias
+
+2015-09-02  Barton E. Schaefer  <schaefer@zsh.org>
+
+	* unposted: Test/A05execution.ztst: test for 36393
+
+	* 36393: Src/signals.c: process queued signals during dotrap()
+
+2015-09-02  Peter Stephenson  <p.w.stephenson@ntlworld.com>
+
+	* 36378: Src/exec.c: skip directories when looking for autoload
+	files.
+
+2015-09-02  Peter Stephenson  <p.stephenson@samsung.com>
+
+	* 36399: Src/text.c, Test/A04redirect.ztst: shell code with
+	multiple here documents wasn't shown properly.
+
+2015-09-01  Mikael Magnusson  <mikachu@gmail.com>
+
+	* 36380: Src/utils.c: Avoid gcc case syntax
+
+	* 36347: Src/params.c, Test/A06assign.ztst: Fix appending empty
+	array to associations
+
+2015-09-01  Barton E. Schaefer  <schaefer@zsh.org>
+
+	* 36376: Src/utils.c: handle signals during read1char() so it is
+	possible to interrupt correct/correctall prompts
+
+2015-09-01  Peter Stephenson  <p.stephenson@samsung.com>
+
+	* 36365: Src/Zle/zle_tricky.c: magic-space removed the rest of
+	the line if the lexer found something complicated.
+
+	* unposted: Config/version.mk: update version to 5.1-dev-0 to
+	avoid clash with 5.1 release.
+
+2015-09-01  Daniel Shahaf  <d.s@daniel.shahaf.name>
+
+	* 36353: Completion/Unix/Command/_git: _git: Unbreak after
+	previous.
+
+2015-08-30  Mateusz Karbowy  <mateusz.karbowy@gmail.com>
+
+	* 36328 + 36340: Completion/Unix/Command/_git: _git-cherry-pick:
+	Complete other branches only
+
+2015-08-30  Axel Beckert  <abe@deuxchevaux.org>
+
+	* 36338: Functions/Zle/*-magic: s/5.0.9/5.1/ in source comments
+
 2015-08-30  Peter Stephenson  <p.w.stephenson@ntlworld.com>
 
 	* unposted: Config/version.mk: Release version 5.1

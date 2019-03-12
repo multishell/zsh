@@ -2538,11 +2538,16 @@ static int
 read1char(int echo)
 {
     char c;
+    int q = queue_signal_level();
 
+    dont_queue_signals();
     while (read(SHTTY, &c, 1) != 1) {
-	if (errno != EINTR || errflag || retflag || breaks || contflag)
+	if (errno != EINTR || errflag || retflag || breaks || contflag) {
+	    restore_queue_signals(q);
 	    return -1;
+	}
     }
+    restore_queue_signals(q);
     if (echo)
 	write_loop(SHTTY, &c, 1);
     return STOUC(c);
@@ -3083,7 +3088,8 @@ morefmt:
 	    case '#':
 	    case '_':
 	    case '-':
-	    case '0' ... '9':
+	    case '0': case '1': case '2': case '3': case '4':
+	    case '5': case '6': case '7': case '8': case '9':
 		goto morefmt;
 strftimehandling:
 	    default:

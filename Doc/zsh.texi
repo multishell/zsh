@@ -28,8 +28,8 @@
 @end iftex
 @titlepage
 @title The Z Shell Manual
-@subtitle Version 5.1
-@subtitle Updated August 30, 2015
+@subtitle Version 5.1.1
+@subtitle Updated September 11, 2015
 @author Original documentation by Paul Falstad
 @page
 This is a texinfo version of the documentation for the Z Shell, originally by 
@@ -64,7 +64,7 @@ POSIX shells, but its default mode is not POSIX compatible, either.
 
 @noindent
 @cindex version
-Version 5.1, last updated August 30, 2015.
+Version 5.1.1, last updated September 11, 2015.
 @end ifinfo
 
 @menu
@@ -122,9 +122,6 @@ Introduction
 * See Also::
 
 @noindent
-Roadmap
-
-@noindent
 Invocation
 
 @noindent
@@ -180,12 +177,10 @@ Options
 Zsh Line Editor
 
 @noindent
-* Movement::
-* History Control::
-* Modifying Text::
-* Arguments::
-* Completion::
-* Miscellaneous::
+* Keymaps::
+* Zle Builtins::
+* Zle Widgets::
+* Character Highlighting::
 
 @noindent
 Completion Widgets
@@ -260,6 +255,16 @@ Zsh Modules
 @c (avoiding a yodl bug)
 
 @noindent
+Calendar Function System
+
+@noindent
+* Calendar File and Date Formats::
+* Calendar System User Functions::
+* Calendar Styles::
+* Calendar Utility Functions::
+* Calendar Bugs::
+
+@noindent
 TCP Function System
 
 @noindent
@@ -281,8 +286,14 @@ User Contributions
 
 @noindent
 * Utilities::
+* Recent Directories::
+* Version Control Information::
 * Prompt Themes::
 * ZLE Functions::
+* Exception Handling::
+* MIME Functions::
+* Mathematical Functions::
+* User Configuration Functions::
 * Other Functions::
 
 @noindent
@@ -6250,6 +6261,20 @@ The character is used as an input field separator, i.e. is contained in the
 The character is an IFS white space character; see the documentation
 for @t{IFS} in
 @ref{Parameters Used By The Shell}.
+
+@item @t{[:INCOMPLETE:]}
+Matches a byte that starts an incomplete multibyte character.
+Note that there may be a sequence of more than one bytes that
+taken together form the prefix of a multibyte character.  To
+test for a potentially incomplete byte sequence, use the pattern
+`@t{[[:INCOMPLETE:]]*}'.  This will never match a sequence starting
+with a valid multibyte character.
+
+@item @t{[:INVALID:]}
+Matches a byte that does not start a valid multibyte character.
+Note this may be a continuation byte of an incomplete multibyte
+character as any part of a multibyte string consisting of invalid and
+incomplete multibyte characters is treated as single bytes.
 
 @item @t{[:WORD:]}
 The character is treated as part of a word; this test is sensitive
@@ -15000,7 +15025,8 @@ line editor. See
 The parameter @t{zle_highlight} is also used by the line editor; see
 @ref{Character Highlighting}.  Highlighting
 of special characters and the region between the cursor and the
-mark (as set with @t{set-mark-command} in Emacs mode) is enabled
+mark (as set with @t{set-mark-command} in Emacs mode, or by @t{visual-mode}
+in Vi mode) is enabled
 by default; consult this reference for more information.  Irascible
 conservatives will wish to know that all highlighting may be disabled by
 the following setting:
@@ -15013,7 +15039,7 @@ zle_highlight=(none)
 @noindent
 In many places, references are made to the @t{numeric argument}.  This can
 by default be entered in emacs mode by holding the alt key and typing
-a number, or pressing escape before each number, and in vi command mode
+a number, or pressing escape before each digit, and in vi command mode
 by typing the number before entering a command.  Generally the numeric
 argument causes the next command entered to be repeated the specified
 number of times, unless otherwise noted below. See also
@@ -16058,6 +16084,11 @@ any predisplay string should be highlighted in bold.
 Note that the effect of @t{region_highlight} is not saved and disappears
 as soon as the line is accepted.
 
+@noindent
+The final highlighting on the command line depends on both @t{region_highlight}
+and @t{zle_highlight}; see
+@ref{Character Highlighting} for details.
+
 @vindex UNDO_CHANGE_NO
 @item @t{UNDO_CHANGE_NO} (integer)
 A number representing the state of the undo history.  The only use
@@ -16106,6 +16137,19 @@ executed; the second argument that followed @t{zle -C} when the widget was
 defined.  This is the name of a builtin completion widget.  For widgets
 defined with @t{zle -N} this is set to the empty string.  Read-only.
 
+@vindex YANK_ACTIVE
+@vindex YANK_START
+@vindex YANK_END
+@item @t{YANK_ACTIVE} (integer)
+@itemx @t{YANK_START} (integer)
+@itemx @t{YANK_END} (integer)
+These three parameters indicate whether text has just been yanked (pasted)
+into the buffer.  @t{YANK_START} and @t{YANK_END} are in the same unit sas
+@t{CURSOR}, and are only valid when @t{YANK_ACTIVE} is non-zero.
+
+@noindent
+All three are read-only.
+
 @vindex ZLE_STATE
 @item @t{ZLE_STATE} (scalar)
 Contains a set of space-separated words that describe the current @t{zle}
@@ -16128,7 +16172,7 @@ by doing:
 
 @noindent
 @example
-if [[ $ZLE_STATE == *insert*globalhistory* ]]; then ...; fi
+if [[ $ZLE_STATE == *globalhistory*insert* ]]; then ...; fi
 @end example
 
 @end table
@@ -17737,6 +17781,13 @@ for different completions.
 Following a command to paste text, the characters that were inserted.
 
 @end table
+
+@noindent
+When @t{region_highlight} is set, the contexts that describe a region ---
+@t{isearch}, @t{region}, @t{suffix}, and @t{paste} ---
+are applied first, then @t{region_highlight} is applied, then the remaining
+@t{zle_highlight} contexts are applied.  If a particular character is
+affected by multiple specifications, the last specification wins.
 
 @noindent
 @t{zle_highlight} may contain additional fields for controlling how
@@ -33040,7 +33091,7 @@ distribution in your home directory, you would use the commands:
 @noindent
 @example
 mkdir ~/zsh_help
-perl ~/zsh-5.1/Util/helpfiles ~/zsh_help
+perl ~/zsh-5.1.1/Util/helpfiles ~/zsh_help
 @end example
 
 @noindent
@@ -33201,7 +33252,7 @@ Run @t{zkbd} either as an autoloaded function, or as a shell script:
 
 @noindent
 @example
-zsh -f ~/zsh-5.1/Functions/Misc/zkbd
+zsh -f ~/zsh-5.1.1/Functions/Misc/zkbd
 @end example
 
 @noindent
@@ -33266,7 +33317,7 @@ command and redirect the output into a file:
 
 @noindent
 @example
-. ~/zsh-5.1/Util/reporter > zsh.report
+. ~/zsh-5.1.1/Util/reporter > zsh.report
 @end example
 
 @noindent
@@ -34658,7 +34709,7 @@ When setting @t{ret} to non-zero, the string in
 @t{backend_misc} array as @t{$@{backend_misc[bookmarks]@}}.
 
 @item @t{gen-applied-string}
-Called in the @t{git} (with @t{stgit} or during rebase), and @t{hg}
+Called in the @t{git} (with @t{stgit} or during rebase or merge), and @t{hg}
 (with @t{mq}) backends and in @t{quilt} support when the @t{applied-string}
 is generated; the @t{use-quilt} zstyle must be true for @t{quilt} (the @t{mq}
 and @t{stgit} backends are active by default).
