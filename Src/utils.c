@@ -1770,7 +1770,7 @@ zjoin(char **arr, int delim, int heap)
     for (s = arr; *s; s++)
 	len += strlen(*s) + 1;
     if (!len)
-	return "";
+	return heap? "" : ztrdup("");
     ptr = ret = (heap ? (char *) hcalloc(len) : (char *) zcalloc(len));
     for (s = arr; *s; s++) {
 	strucpy(&ptr, *s);
@@ -2027,7 +2027,7 @@ sepjoin(char **s, char *sep, int heap)
     char sepbuf[3];
 
     if (!*s)
-	return "";
+	return heap ? "" : ztrdup("");
     if (!sep) {
 	sep = sepbuf;
 	sepbuf[0] = *ifs;
@@ -3670,7 +3670,10 @@ privasserted(void)
 	    cap_flag_value_t val;
 	    cap_value_t n;
 	    for(n = 0; !cap_get_flag(caps, n, CAP_EFFECTIVE, &val); n++)
-		if(val) return 1;
+		if(val) {
+		    cap_free(caps);
+		    return 1;
+		}
 	    cap_free(caps);
 	}
     }

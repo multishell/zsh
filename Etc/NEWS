@@ -1,7 +1,18 @@
 -------------------------------------
 CHANGES FROM PREVIOUS VERSIONS OF ZSH
 -------------------------------------
-				     
+
+Changes since 4.0.1
+-------------------
+
+The vast majority of changes since 4.0.1 are bug fixes.
+
+A few additional completion handlers have been added.
+
+As noted in the README file, the way of quoting a `/' in the source text of
+substitutions of the form ${foo/source/rep} and ${foo/source//rep} has
+changed.
+
 New features in zsh version 4.0.1
 ---------------------------------
 

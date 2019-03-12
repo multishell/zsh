@@ -1,4 +1,4 @@
-.TH "ZSHEXPN" "1" "August 14, 2002" "zsh 4\&.0\&.6"
+.TH "ZSHEXPN" "1" "June 18, 2003" "zsh 4\&.0\&.7"
 .SH "NAME"
 zshexpn \- zsh expansion and substitution
 .\" Yodl file: Zsh/expn.yo
@@ -480,8 +480,8 @@ The \fIpattern\fP may begin with a `\fB#\fP', in which case the
 \fIpattern\fP must match at the start of the string, or `\fB%\fP', in
 which case it must match at the end of the string\&.  The \fIrepl\fP may
 be an empty string, in which case the final `\fB/\fP' may also be omitted\&.
-To quote the final `\fB/\fP' in other cases it should be preceded by two
-backslashes (i\&.e\&., a quoted backslash); this is not necessary if the
+To quote the final `\fB/\fP' in other cases it should be preceded by a
+single backslash; this is not necessary if the
 `\fB/\fP' occurs inside a substituted parameter\&.  Note also that the `\fB#\fP'
 and `\fB%\fP' are not active if they occur inside a substituted parameter,
 even at the start\&.

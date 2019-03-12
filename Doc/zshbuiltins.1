@@ -1,4 +1,4 @@
-.TH "ZSHBUILTINS" "1" "August 14, 2002" "zsh 4\&.0\&.6"
+.TH "ZSHBUILTINS" "1" "June 18, 2003" "zsh 4\&.0\&.7"
 .SH "NAME"
 zshbuiltins \- zsh built\-in commands
 .\" Yodl file: Zsh/builtins.yo
@@ -414,7 +414,7 @@ entries\&.
 Bring each specified \fIjob\fP in turn to the foreground\&.
 If no \fIjob\fP is specified, resume the current job\&.
 .TP
-\fBfloat\fP [ {\fB+\fP|\fB\-\fP}\fBEFghlrtux\fP ] [ \fIname\fP[\fB=\fP\fIvalue\fP] \&.\&.\&. ]
+\fBfloat\fP [ {\fB+\fP|\fB\-\fP}\fBEFHghlrtux\fP ] [ \fIname\fP[\fB=\fP\fIvalue\fP] \&.\&.\&. ]
 Equivalent to \fBtypeset \-E\fP, except that options irrelevant to floating
 point numbers are not permitted\&.
 .TP
@@ -513,7 +513,7 @@ the form of a call to hash\&.
 \fBhistory\fP
 Same as \fBfc \-l\fP\&.
 .TP
-\fBinteger\fP [ {\fB+\fP|\fB\-\fP}\fBghilrtux\fP ] [ \fIname\fP[\fB=\fP\fIvalue\fP] \&.\&.\&. ]
+\fBinteger\fP [ {\fB+\fP|\fB\-\fP}\fBHghilrtux\fP ] [ \fIname\fP[\fB=\fP\fIvalue\fP] \&.\&.\&. ]
 Equivalent to \fBtypeset \-i\fP, except that options irrelevant to
 integers are not permitted\&.
 .TP
@@ -656,7 +656,7 @@ minutes and seconds
 .PD
 .RE
 .TP
-\fBlocal\fP [ {\fB+\fP|\fB\-\fP}\fBAEFLRUZahilrtux\fP [\fIn\fP]] [ \fIname\fP[\fB=\fP\fIvalue\fP] ] \&.\&.\&.
+\fBlocal\fP [ {\fB+\fP|\fB\-\fP}\fBAEFHLRUZahilrtux\fP [\fIn\fP]] [ \fIname\fP[\fB=\fP\fIvalue\fP] ] \&.\&.\&.
 Same as \fBtypeset\fP, except that the options \fB\-g\fP, and
 \fB\-f\fP are not permitted\&.  In this case the \fB\-x\fP option does not force
 the use of \fB\-g\fP, i\&.e\&. exported variables will be local to functions\&.
@@ -1068,7 +1068,7 @@ terminal is frozen or not\&.
 Equivalent to \fBwhence \-v\fP\&.
 .TP
 .PD 0
-\fBtypeset\fP [ {\fB+\fP|\fB\-\fP}\fBAEFLRUZafghilrtuxm\fP [\fIn\fP]] [ \fIname\fP[\fB=\fP\fIvalue\fP] \&.\&.\&. ]
+\fBtypeset\fP [ {\fB+\fP|\fB\-\fP}\fBAEFHLRUZafghilrtuxm\fP [\fIn\fP]] [ \fIname\fP[\fB=\fP\fIvalue\fP] \&.\&.\&. ]
 .TP
 .PD
 \fBtypeset\fP \-T [ {\fB+|\fB\-\fP\fP}\fBLRUZrux\fP ] \fISCALAR\fP[\fB=\fP\fIvalue\fP] \fIarray\fP
@@ -1342,7 +1342,7 @@ the hard resource limit for each \fIresource\fP is removed\&.
 The resources of the shell process are only changed if the \fB\-s\fP
 flag is given\&.
 .TP
-\fBunset\fP [ \fB\-fm\fP ] \fIname\fP \&.\&.\&.
+\fBunset\fP [ \fB\-fmv\fP ] \fIname\fP \&.\&.\&.
 Each named parameter is unset\&.
 Local parameters remain local even if unset; they appear unset within scope,
 but the previous value will still reappear when the scope ends\&.
@@ -1356,6 +1356,9 @@ If the \fB\-m\fP flag is specified the arguments are taken as patterns (should
 be quoted) and all parameters with matching names are unset\&.  Note that this
 cannot be used when unsetting associative array elements, as the subscript
 will be treated as part of the pattern\&.
+.PP
+The \fB\-v\fP flag specifies that \fIname\fP refers to parameters\&. This is the
+default behaviour\&.
 .PP
 \fBunset \-f\fP is equivalent to \fBunfunction\fP\&.
 .RE

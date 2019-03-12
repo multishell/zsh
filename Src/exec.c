@@ -848,8 +848,15 @@ execlist(Estate state, int dont_change_job, int exiting)
 			 * for this sublist.                                   */
 			donetrap = 1;
 			goto sublist_done;
-		    } else if (WC_SUBLIST_TYPE(code) == WC_SUBLIST_END)
+		    } else if (WC_SUBLIST_TYPE(code) == WC_SUBLIST_END) {
 			donetrap = 1;
+			/*
+			 * Treat this in the same way as if we reached
+			 * the end of the sublist normally.
+			 */
+			state->pc = next;
+			goto sublist_done;
+		    }
 		}
 		cmdpush(CS_CMDAND);
 		break;
@@ -874,8 +881,15 @@ execlist(Estate state, int dont_change_job, int exiting)
 			 * for this sublist.                                   */
 			donetrap = 1;
 			goto sublist_done;
-		    } else if (WC_SUBLIST_TYPE(code) == WC_SUBLIST_END)
+		    } else if (WC_SUBLIST_TYPE(code) == WC_SUBLIST_END) {
 			donetrap = 1;
+			/*
+			 * Treat this in the same way as if we reached
+			 * the end of the sublist normally.
+			 */
+			state->pc = next;
+			goto sublist_done;
+		    }
 		}
 		cmdpush(CS_CMDOR);
 		break;
@@ -3040,7 +3054,7 @@ static int
 execarith(Estate state, int do_exec)
 {
     char *e;
-    zlong val = 0;
+    mnumber val = zero_mnumber;
     int htok = 0;
 
     if (isset(XTRACE)) {
@@ -3054,7 +3068,7 @@ execarith(Estate state, int do_exec)
     if (isset(XTRACE))
 	fprintf(xtrerr, " %s", e);
 
-    val = mathevali(e);
+    val = matheval(e);
 
     cmdpop();
 
@@ -3063,7 +3077,8 @@ execarith(Estate state, int do_exec)
 	fflush(xtrerr);
     }
     errflag = 0;
-    return !val;
+    /* should test for fabs(val.u.d) < epsilon? */
+    return (val.type == MN_INTEGER) ? val.u.l == 0 : val.u.d == 0.0;
 }
 
 /* perform time ... command */

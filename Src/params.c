@@ -2111,8 +2111,21 @@ unsetparam_pm(Param pm, int altflag, int exp)
     /* remove it under its alternate name if necessary */
     if (pm->ename && !altflag) {
 	altpm = (Param) paramtab->getnode(paramtab, pm->ename);
-	if (altpm)
+	/* tied parameters are at the same local level as each other */
+	oldpm = NULL;
+	while (altpm && altpm->level > pm->level) {
+	    /* param under alternate name hidden by a local */
+	    oldpm = altpm;
+	    altpm = altpm->old;
+	}
+	if (altpm) {
+	    if (oldpm && !altpm->level) {
+		oldpm->old = NULL;
+		/* fudge things so removenode isn't called */
+		altpm->level = 1;
+	    }
 	    unsetparam_pm(altpm, 1, exp);
+	}
     }
 
     /*
@@ -3200,6 +3213,10 @@ char *
 convfloat(double dval, int digits, int flags, FILE *fout)
 {
     char fmt[] = "%.*e";
+    char *ret;
+#ifdef USE_LOCALE
+    char *prev_locale;
+#endif 
 
     /*
      * The difficulty with the buffer size is that a %f conversion
@@ -3234,14 +3251,22 @@ convfloat(double dval, int digits, int flags, FILE *fout)
 	    digits--;
 	}
     }
+#ifdef USE_LOCALE
+    prev_locale = dupstring(setlocale(LC_NUMERIC, NULL));
+    setlocale(LC_NUMERIC, "POSIX");
+#endif
     if (fout) {
 	fprintf(fout, fmt, digits, dval);
-	return NULL;
+	ret = NULL;
     } else {
 	VARARR(char, buf, 512 + digits);
 	sprintf(buf, fmt, digits, dval);
-	return dupstring(buf);
+	ret = dupstring(buf);
     }
+#ifdef USE_LOCALE
+    if (prev_locale) setlocale(LC_NUMERIC, prev_locale);
+#endif
+    return ret;
 }
 
 /* Start a parameter scope */

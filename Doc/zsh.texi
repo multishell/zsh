@@ -30,8 +30,8 @@
 @end iftex
 @titlepage
 @title The Z Shell Manual
-@subtitle Version 4.0.5
-@subtitle Updated August 9, 2002
+@subtitle Version 4.0.6
+@subtitle Updated August 14, 2002
 @author Original documentation by Paul Falstad
 @page
 This is a texinfo version of the documentation for the Z Shell, originally by 
@@ -61,7 +61,7 @@ This Info file documents Zsh, a freely available UNIX command interpreter
 (ksh), although it is not completely compatible.
 
 @noindent
-Version 4.0.5, last updated August 9, 2002.
+Version 4.0.6, last updated August 14, 2002.
 @end ifinfo
 
 @noindent
@@ -3241,8 +3241,8 @@ The @var{pattern} may begin with a `@t{#}', in which case the
 @var{pattern} must match at the start of the string, or `@t{%}', in
 which case it must match at the end of the string.  The @var{repl} may
 be an empty string, in which case the final `@t{/}' may also be omitted.
-To quote the final `@t{/}' in other cases it should be preceded by two
-backslashes (i.e., a quoted backslash); this is not necessary if the
+To quote the final `@t{/}' in other cases it should be preceded by a
+single backslash; this is not necessary if the
 `@t{/}' occurs inside a substituted parameter.  Note also that the `@t{#}'
 and `@t{%}' are not active if they occur inside a substituted parameter,
 even at the start.
@@ -7909,7 +7909,7 @@ Bring each specified @var{job} in turn to the foreground.
 If no @var{job} is specified, resume the current job.
 
 @findex float
-@item @t{float} [ @{@t{+}|@t{-}@}@t{EFghlrtux} ] [ @var{name}[@t{=}@var{value}] ... ]
+@item @t{float} [ @{@t{+}|@t{-}@}@t{EFHghlrtux} ] [ @var{name}[@t{=}@var{value}] ... ]
 Equivalent to @t{typeset -E}, except that options irrelevant to floating
 point numbers are not permitted.
 
@@ -8025,7 +8025,7 @@ the form of a call to hash.
 Same as @t{fc -l}.
 
 @findex integer
-@item @t{integer} [ @{@t{+}|@t{-}@}@t{ghilrtux} ] [ @var{name}[@t{=}@var{value}] ... ]
+@item @t{integer} [ @{@t{+}|@t{-}@}@t{Hghilrtux} ] [ @var{name}[@t{=}@var{value}] ... ]
 Equivalent to @t{typeset -i}, except that options irrelevant to
 integers are not permitted.
 
@@ -8151,7 +8151,7 @@ minutes and seconds
 @end table
 
 @findex local
-@item @t{local} [ @{@t{+}|@t{-}@}@t{AEFLRUZahilrtux} [@var{n}]] [ @var{name}[@t{=}@var{value}] ] ...
+@item @t{local} [ @{@t{+}|@t{-}@}@t{AEFHLRUZahilrtux} [@var{n}]] [ @var{name}[@t{=}@var{value}] ] ...
 Same as @t{typeset}, except that the options @t{-g}, and
 @t{-f} are not permitted.  In this case the @t{-x} option does not force
 the use of @t{-g}, i.e. exported variables will be local to functions.
@@ -8599,7 +8599,7 @@ Equivalent to @t{whence -v}.
 @findex typeset
 @cindex parameters, setting
 @cindex parameters, declaring
-@item @t{typeset} [ @{@t{+}|@t{-}@}@t{AEFLRUZafghilrtuxm} [@var{n}]] [ @var{name}[@t{=}@var{value}] ... ]
+@item @t{typeset} [ @{@t{+}|@t{-}@}@t{AEFHLRUZafghilrtuxm} [@var{n}]] [ @var{name}[@t{=}@var{value}] ... ]
 @itemx @t{typeset} -T [ @{@t{+|@t{-}}@}@t{LRUZrux} ] @var{SCALAR}[@t{=}@var{value}] @var{array}
 Set or display attributes and values for shell parameters.
 
@@ -8882,7 +8882,7 @@ flag is given.
 
 @findex unset
 @cindex parameters, unsetting
-@item @t{unset} [ @t{-fm} ] @var{name} ...
+@item @t{unset} [ @t{-fmv} ] @var{name} ...
 Each named parameter is unset.
 Local parameters remain local even if unset; they appear unset within scope,
 but the previous value will still reappear when the scope ends.
@@ -8897,6 +8897,10 @@ If the @t{-m} flag is specified the arguments are taken as patterns (should
 be quoted) and all parameters with matching names are unset.  Note that this
 cannot be used when unsetting associative array elements, as the subscript
 will be treated as part of the pattern.
+
+@noindent
+The @t{-v} flag specifies that @var{name} refers to parameters. This is the
+default behaviour.
 
 @noindent
 @t{unset -f} is equivalent to @t{unfunction}.
@@ -15131,6 +15135,14 @@ Note that this completer is only useful if the
 be moved to the end of the current word before the completion code is
 called and hence there will be no suffix.
 
+@findex bashcompinit
+@item @t{bashcompinit}
+This function provides compatibility with bash's programmable completion
+system. When run it will define the functions, @t{compgen} and
+@t{complete} which correspond to the bash builtins with the same names. It
+will then be possible to use completion specifications and functions
+written for bash.
+
 @end table
 
 @noindent
@@ -20879,7 +20891,7 @@ distribution in your home directory, you would use the commands:
 mkdir ~/zsh_help
 cd ~/zsh_help
 man zshall | colcrt - | \ 
-perl ~/zsh-4.0.5/Util/helpfiles
+perl ~/zsh-4.0.6/Util/helpfiles
 @end example
 
 @noindent
@@ -21035,7 +21047,7 @@ Run @t{zkbd} either as an autoloaded function, or as a shell script:
 
 @noindent
 @example
-zsh -f ~/zsh-4.0.5/Functions/Misc/zkbd
+zsh -f ~/zsh-4.0.6/Functions/Misc/zkbd
 @end example
 
 @noindent
@@ -21100,7 +21112,7 @@ command and redirect the output into a file:
 
 @noindent
 @example
-. ~/zsh-4.0.5/Util/reporter > zsh.report
+. ~/zsh-4.0.6/Util/reporter > zsh.report
 @end example
 
 @noindent
@@ -21814,8 +21826,8 @@ not exist; it is created on write, if necessary.
 
 @findex zcp
 @findex zln
-@item @t{zcp} [ @t{-finqQvw} ] @var{srcpat} @var{dest}
-@itemx @t{zln} [ @t{-finqQsvw} ] @var{srcpat} @var{dest}
+@item @t{zcp} [ @t{-finqQvwW} ] @var{srcpat} @var{dest}
+@itemx @t{zln} [ @t{-finqQsvwW} ] @var{srcpat} @var{dest}
 Same as @t{zmv -C} and @t{zmv -L}, respectively.  These functions do not
 appear in the zsh distribution, but can be created by linking @t{zmv} to
 the names @t{zcp} and @t{zln} in some directory in your @t{fpath}.
@@ -21825,7 +21837,7 @@ See `Keyboard Definition'
 (@ref{Utilities}).
 
 @findex zmv
-@item @t{zmv} [ @t{-finqQsvw} ] [ -C | -L | -M | -p @var{program} ] [ -o @var{optstring} ] @var{srcpat} @var{dest} 
+@item @t{zmv} [ @t{-finqQsvwW} ] [ -C | -L | -M | -p @var{program} ] [ -o @var{optstring} ] @var{srcpat} @var{dest} 
 Move (usually, rename) files matching the pattern @var{srcpat} to
 corresponding files having names of the form given by @var{dest}, where
 @var{srcpat} contains parentheses surrounding patterns which will be
@@ -21875,6 +21887,9 @@ Verbose: print each command as it's being executed.
 @item @t{-w}
 Pick out wildcard parts of the pattern, as described above,
 and implicitly add parentheses for referring to them.
+@item @t{-W}
+Just like @t{-w}, with the addition of turning wildcards in
+the replacement pattern into sequential $@{1@} .. $@{N@} references.
 @item @t{-C}
 @itemx @t{-L}
 @itemx @t{-M}

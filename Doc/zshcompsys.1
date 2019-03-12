@@ -1,4 +1,4 @@
-.TH "ZSHCOMPSYS" "1" "August 14, 2002" "zsh 4\&.0\&.6"
+.TH "ZSHCOMPSYS" "1" "June 18, 2003" "zsh 4\&.0\&.7"
 .SH "NAME"
 zshcompsys \- zsh completion system
 .\" Yodl file: Zsh/compsys.yo
@@ -2655,7 +2655,13 @@ Note that this completer is only useful if the
 be moved to the end of the current word before the completion code is
 called and hence there will be no suffix\&.
 .RE
-.RE
+.TP
+\fBbashcompinit\fP
+This function provides compatibility with bash's programmable completion
+system\&. When run it will define the functions, \fBcompgen\fP and
+\fBcomplete\fP which correspond to the bash builtins with the same names\&. It
+will then be possible to use completion specifications and functions
+written for bash\&.
 .PP
 .SH "BINDABLE COMMANDS"
 .PP

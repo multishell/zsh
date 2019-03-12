@@ -23,9 +23,11 @@ sopt="-${(@j::M)${(@)tmp1#-}#?}"
 (( $tmp1[(I)-[/g]*] )) && haspats=yes
 (( $tmp1[(I)-g*] )) && gopt=yes
 if (( $tmp1[(I)-/] )); then
-  pats=( '*(-/)' ${=${(M)tmp1:#-g*}#-g} )
+  pats="${(@)${(@M)tmp1:#-g*}#-g}"
+  pats=( '*(-/)' ${${(z):-x $pats}[2,-1]} )
 else
-  pats=( "${(@)=${(@M)tmp1:#-g*}#-g}" )
+  pats="${(@)${(@M)tmp1:#-g*}#-g}"
+  pats=( ${${(z):-x $pats}[2,-1]} )
 fi
 pats=( "${(@)pats:# #}" )
 
@@ -202,7 +204,8 @@ if [[ "$pre" = [^][*?#^\|\<\>]#(\`[^\`]#\`|\$)*/* && "$compstate[quote]" != \' ]
   eval 'realpath=${(e)~linepath}' 2>/dev/null
   [[ -z "$realpath" || "$realpath" = "$linepath" ]] && return 1
   pre="${pre#${linepath}}"
-  i="${#linepath//[^\\/]}"
+  i='[^/]'
+  i="${#linepath//$i}"
   orig="${orig[1,(in:i:)/][1,-2]}"
   donepath=
   prepaths=( '' )
@@ -332,7 +335,7 @@ for prepath in "$prepaths[@]"; do
     else
       compfiles -p$cfopt tmp1 accex "$skipped" "$_matcher $matcher[2]" '' fake "$pats[@]"
     fi
-    tmp1=( $~tmp1 )
+    tmp1=( $~tmp1 ) 2> /dev/null
 
     if [[ -n "$PREFIX$SUFFIX" ]]; then
       # See which of them match what's on the line.

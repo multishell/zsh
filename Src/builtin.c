@@ -116,7 +116,7 @@ static struct builtin builtins[] =
     BUILTIN("unalias", 0, bin_unhash, 1, -1, 0, "m", "a"),
     BUILTIN("unfunction", 0, bin_unhash, 1, -1, 0, "m", "f"),
     BUILTIN("unhash", 0, bin_unhash, 1, -1, 0, "adfm", NULL),
-    BUILTIN("unset", BINF_PSPECIAL, bin_unset, 1, -1, 0, "fm", NULL),
+    BUILTIN("unset", BINF_PSPECIAL, bin_unset, 1, -1, 0, "fmv", NULL),
     BUILTIN("unsetopt", 0, bin_setopt, 0, -1, BIN_UNSETOPT, NULL, NULL),
     BUILTIN("wait", 0, bin_fg, 0, -1, BIN_WAIT, NULL, NULL),
     BUILTIN("whence", 0, bin_whence, 0, -1, 0, "acmpvfsw", NULL),
@@ -1825,7 +1825,7 @@ typeset_single(char *cname, char *pname, Param pm, int func,
 		    "%s: array elements must be scalar", pname, 0);
 	    return NULL;
 	}
-    } else if (isident(pname)) {
+    } else if (isident(pname) && !idigit(*pname)) {
 	/*
 	 * Create a new node for a parameter with the flags in `on' minus the
 	 * readonly flag
@@ -1834,7 +1834,10 @@ typeset_single(char *cname, char *pname, Param pm, int func,
 	DPUTS(!pm, "BUG: parameter not created");
 	pm->ct = auxlen;
     } else {
-	zerr("not an identifier: %s", pname, 0);
+	if (isident(pname))
+	    zerrnam(cname, "not valid in this context: %s", pname, 0);
+	else
+	    zerrnam(cname, "not an identifier: %s", pname, 0);
 	return NULL;
     }
 
@@ -2001,6 +2004,11 @@ bin_typeset(char *name, char **argv, char *ops, int func)
 	if (!strcmp(asg0.name, asg->name)) {
 	    unqueue_signals();
 	    zerrnam(name, "can't tie a variable to itself", NULL, 0);
+	    return 1;
+	}
+	if (strchr(asg0.name, '[') || strchr(asg->name, '[')) {
+	    unqueue_signals();
+	    zerrnam(name, "can't tie array elements", NULL, 0);
 	    return 1;
 	}
 	/*
@@ -2887,6 +2895,10 @@ bin_print(char *name, char **args, char *ops, int func)
 	Patprog pprog;
 	char **t, **p;
 
+	if (!*args) {
+	    zwarnnam(name, "no pattern specified", NULL, 0);
+	    return 1;
+	}
 	tokenize(*args);
 	if (!(pprog = patcompile(*args, PAT_STATIC, NULL))) {
 	    untokenize(*args);
@@ -4089,13 +4101,14 @@ bin_ttyctl(char *name, char **argv, char *ops, int func)
 int
 bin_let(char *name, char **argv, char *ops, int func)
 {
-    zlong val = 0;
+    mnumber val = zero_mnumber;
 
     while (*argv)
-	val = mathevali(*argv++);
+	val = matheval(*argv++);
     /* Errors in math evaluation in let are non-fatal. */
     errflag = 0;
-    return !val;
+    /* should test for fabs(val.u.d) < epsilon? */
+    return (val.type == MN_INTEGER) ? val.u.l == 0 : val.u.d == 0.0;
 }
 
 /* umask command.  umask may be specified as octal digits, or in the  *

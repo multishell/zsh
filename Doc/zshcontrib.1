@@ -1,4 +1,4 @@
-.TH "ZSHCONTRIB" "1" "August 14, 2002" "zsh 4\&.0\&.6"
+.TH "ZSHCONTRIB" "1" "June 18, 2003" "zsh 4\&.0\&.7"
 .SH "NAME"
 zshcontrib \- user contributions to zsh
 .\" Yodl file: Zsh/contrib.yo
@@ -44,7 +44,7 @@ distribution in your home directory, you would use the commands:
 \fBmkdir ~/zsh_help
 cd ~/zsh_help
 man zshall | colcrt \- | \e 
-perl ~/zsh\-4\&.0\&.6/Util/helpfiles\fP
+perl ~/zsh\-4\&.0\&.7/Util/helpfiles\fP
 .fi
 .RE
 .PP
@@ -179,7 +179,7 @@ Run \fBzkbd\fP either as an autoloaded function, or as a shell script:
 .PP
 .RS
 .nf
-\fBzsh \-f ~/zsh\-4\&.0\&.6/Functions/Misc/zkbd\fP
+\fBzsh \-f ~/zsh\-4\&.0\&.7/Functions/Misc/zkbd\fP
 .fi
 .RE
 .PP
@@ -235,7 +235,7 @@ command and redirect the output into a file:
 .PP
 .RS
 .nf
-\fB\&. ~/zsh\-4\&.0\&.6/Util/reporter > zsh\&.report\fP
+\fB\&. ~/zsh\-4\&.0\&.7/Util/reporter > zsh\&.report\fP
 .fi
 .RE
 .PP
@@ -943,10 +943,10 @@ not exist; it is created on write, if necessary\&.
 .RE
 .TP
 .PD 0
-\fBzcp\fP [ \fB\-finqQvw\fP ] \fIsrcpat\fP \fIdest\fP
+\fBzcp\fP [ \fB\-finqQvwW\fP ] \fIsrcpat\fP \fIdest\fP
 .TP
 .PD
-\fBzln\fP [ \fB\-finqQsvw\fP ] \fIsrcpat\fP \fIdest\fP
+\fBzln\fP [ \fB\-finqQsvwW\fP ] \fIsrcpat\fP \fIdest\fP
 Same as \fBzmv \-C\fP and \fBzmv \-L\fP, respectively\&.  These functions do not
 appear in the zsh distribution, but can be created by linking \fBzmv\fP to
 the names \fBzcp\fP and \fBzln\fP in some directory in your \fBfpath\fP\&.
@@ -955,7 +955,7 @@ the names \fBzcp\fP and \fBzln\fP in some directory in your \fBfpath\fP\&.
 See `Keyboard Definition'
 above\&.
 .TP
-\fBzmv\fP [ \fB\-finqQsvw\fP ] [ \-C | \-L | \-M | \-p \fIprogram\fP ] [ \-o \fIoptstring\fP ] \fIsrcpat\fP \fIdest\fP 
+\fBzmv\fP [ \fB\-finqQsvwW\fP ] [ \-C | \-L | \-M | \-p \fIprogram\fP ] [ \-o \fIoptstring\fP ] \fIsrcpat\fP \fIdest\fP 
 Move (usually, rename) files matching the pattern \fIsrcpat\fP to
 corresponding files having names of the form given by \fIdest\fP, where
 \fIsrcpat\fP contains parentheses surrounding patterns which will be
@@ -1011,6 +1011,10 @@ Verbose: print each command as it's being executed\&.
 \fB\-w\fP
 Pick out wildcard parts of the pattern, as described above,
 and implicitly add parentheses for referring to them\&.
+.TP
+\fB\-W\fP
+Just like \fB\-w\fP, with the addition of turning wildcards in
+the replacement pattern into sequential ${1} \&.\&. ${N} references\&.
 .TP
 \fB\-C\fP
 .TP
