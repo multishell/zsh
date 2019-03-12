@@ -27,6 +27,17 @@ TAGS
 
 Config/defs.mk
 
+CVS
+.#*
+
+Doc/help
+Doc/help.txt
+Doc/help/[_a-zA-Z0-9]*
+
+Doc/intro.a4.pdf
+Doc/intro.a4.ps
+Doc/intro.us.pdf
+Doc/intro.us.ps
 Doc/version.yo
 Doc/zsh*.1
 Doc/zsh.texi
