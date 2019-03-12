@@ -28,6 +28,7 @@
  */
 
 #undef trashzle
+#undef zle_resetprompt
 #undef zleread
 #undef spaceinline
 #undef zrefresh

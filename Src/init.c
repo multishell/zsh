@@ -1060,7 +1060,8 @@ source(char *s)
     loops = oloops;                  /* the # of nested loops we are in      */
     dosetopt(SHINSTDIN, oldshst, 1); /* SHINSTDIN option                     */
     errflag = 0;
-    retflag = 0;
+    if (!exit_pending)
+	retflag = 0;
     scriptname = old_scriptname;
     free(cmdstack);
     cmdstack = ocs;
@@ -1125,6 +1126,8 @@ noop_function_int(UNUSED(int nothing))
 /**/
 mod_export ZleVoidFn trashzleptr = noop_function;
 /**/
+mod_export ZleVoidFn zle_resetpromptptr = noop_function;
+/**/
 mod_export ZleVoidFn refreshptr = noop_function;
 /**/
 mod_export ZleVoidIntFn spaceinlineptr = noop_function_int;
@@ -1136,6 +1139,7 @@ mod_export ZleVoidIntFn zlesetkeymapptr = noop_function_int;
 #else /* !LINKED_XMOD_zshQszle */
 
 mod_export ZleVoidFn trashzleptr = noop_function;
+mod_export ZleVoidFn zle_resetpromptptr = noop_function;
 mod_export ZleVoidFn refreshptr = noop_function;
 mod_export ZleVoidIntFn spaceinlineptr = noop_function_int;
 # ifdef UNLINKED_XMOD_zshQszle

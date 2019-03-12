@@ -1,4 +1,4 @@
-.TH "ZSHCONTRIB" "1" "April 6, 2005" "zsh 4\&.2\&.5"
+.TH "ZSHCONTRIB" "1" "November 28, 2005" "zsh 4\&.2\&.6"
 .SH "NAME"
 zshcontrib \- user contributions to zsh
 .\" Yodl file: Zsh/contrib.yo
@@ -44,7 +44,7 @@ distribution in your home directory, you would use the commands:
 \fBmkdir ~/zsh_help
 cd ~/zsh_help
 man zshall | colcrt \- | \e 
-perl ~/zsh\-4\&.2\&.5/Util/helpfiles\fP
+perl ~/zsh\-4\&.2\&.6/Util/helpfiles\fP
 .fi
 .RE
 .PP
@@ -179,7 +179,7 @@ Run \fBzkbd\fP either as an autoloaded function, or as a shell script:
 .PP
 .RS
 .nf
-\fBzsh \-f ~/zsh\-4\&.2\&.5/Functions/Misc/zkbd\fP
+\fBzsh \-f ~/zsh\-4\&.2\&.6/Functions/Misc/zkbd\fP
 .fi
 .RE
 .PP
@@ -235,7 +235,7 @@ command and redirect the output into a file:
 .PP
 .RS
 .nf
-\fB\&. ~/zsh\-4\&.2\&.5/Util/reporter > zsh\&.report\fP
+\fB\&. ~/zsh\-4\&.2\&.6/Util/reporter > zsh\&.report\fP
 .fi
 .RE
 .PP
@@ -1599,7 +1599,9 @@ An extra facility is provided for changing the default output base\&.  Use,
 for example, `\fB[#16]\fP' to display hexadecimal output preceded by an
 indication of the base, or `\fB[##16]\fP' just to display the raw number in
 the given base\&.  Bases themselves are always specified in decimal\&.
-`\fB[#]\fP' restores the normal output format\&.
+`\fB[#]\fP' restores the normal output format\&.  Note that setting an output
+base suppresses floating point output; use `\fB[#]\fP' to return to normal
+operation\&.
 .PP
 The output base can be initialised by passing the option `\fB\-#\fP\fIbase\fP',
 for example `\fBzcalc \-#16\fP' (the `\fB#\fP' may have to be quoted, depending
@@ -1610,6 +1612,28 @@ undergoes standard prompt expansion\&.  The index of the current entry is
 stored locally in the first element of the array \fBpsvar\fP, which can be
 referred to in \fBZCALCPROMPT\fP as `\fB%1v\fP'\&.  The default prompt is
 `\fB%1v> \fP'\&.
+.PP
+The output precision may be specified within zcalc by special commands
+familiar from many calculators:
+.PD 0
+.TP
+.PD
+\fBnorm\fP
+The default output format\&.  It corresponds to the printf \fB%g\fP
+specification\&.  Typically this shows six decimal digits\&.
+.TP
+\fBsci\fP \fIdigits\fP
+Scientific notation, corresponding to the printf \fB%g\fP output format with
+the precision given by \fIdigits\fP\&.  This produces either fixed point or
+exponential notation depending on the value output\&.
+.TP
+\fBfix\fP \fIdigits\fP
+Fixed point notation, corresponding to the printf \fB%f\fP output format with
+the precision given by \fIdigits\fP\&.
+.TP
+\fBeng\fP \fIdigits\fP
+Exponential notation, corresponding to the printf \fB%E\fP output format with
+the precision given by \fIdigits\fP\&.
 .PP
 See the comments in the function for a few extra tips\&.
 .RE

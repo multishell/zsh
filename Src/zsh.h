@@ -28,6 +28,7 @@
  */
 
 #define trashzle()      trashzleptr()
+#define zle_resetprompt()      zle_resetpromptptr()
 #define zleread(X,Y,H,C)  zlereadptr(X,Y,H,C)
 #define spaceinline(X)  spaceinlineptr(X)
 #define zrefresh()      refreshptr()

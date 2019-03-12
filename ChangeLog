@@ -1,3 +1,220 @@
+2005-12-05  Peter Stephenson  <pws@csr.com>
+
+	* unposted: Etc/FAQ.yo: release 4.2.6.
+
+2005-12-03  Clint Adams  <clint@zsh.org>
+
+	* unposted: Completion/Unix/Command/_surfraw:
+	surfraw completion from HEAD.
+
+2005-12-03  Peter Stephenson  <p.w.stephenson@ntlworld.com>
+
+	* 22049: Src/init.c: "exit" within sourced file within shell
+	function caused return from sourced file but execution of function
+	continued.
+
+2005-11-25  Clint Adams  <clint@zsh.org>
+
+	* unposted: Completion/Debian/Command/_dchroot,
+	Completion/Debian/Command/_dlocate,
+	Completion/Debian/Command/_dpkg-cross,
+	Completion/Debian/Command/_madison,
+	Completion/Debian/Command/_piuparts,
+	Completion/Debian/Command/_toolchain-source,
+	Completion/Unix/Command/_bzr, Completion/Unix/Command/_cplay,
+	Completion/Unix/Command/_date, Completion/Unix/Command/_quilt,
+	Completion/X/Command/_urxvt: import various completion functions
+	from main branch.
+
+	* unposted: Completion/Debian/Command/_dput,
+	Completion/Unix/Command/_baz, Completion/Unix/Command/_gpg,
+	Completion/Unix/Command/_iconv, Completion/Unix/Command/_man,
+	Completion/Unix/Command/_ssh, Completion/Unix/Command/_xmlsoft,
+	Completion/X/Command/_gv: patch latest versions from main branch.
+
+        * 20847: Completion/compaudit: stop adding gratuitous
+        elements to fpath when MARK_DIRS is set.
+
+2005-11-25  Peter Stephenson  <pws@csr.com>
+
+	* 22031: Nikolai Weibull: Completion/Unix/Command/_git: new
+	completion function.
+
+2005-11-10  Peter Stephenson  <pws@csr.com>
+
+	* unposted: Completion/Unix/Command/_subversion: patch latest
+	version from main branch.
+
+2005-10-31  Wayne Davison  <wayned@users.sourceforge.net>
+
+	* 21960: R. Ramkumar: Functions/Misc/zcalc:
+	put zcalc history file in ZDOTDIR, if set.
+
+2005-09-09  Peter Stephenson  <pws@csr.com>
+
+	* 21872: Src/jobs.c: job table wasn't cleared properly in
+	subshells, possibly causing shell to hang; more efficient
+	search for free job entry; don't record current job for
+	use in saved job table.
+
+	* 21719: Src/builtin.c, Src/params.c: Add some mod_exports.
+
+2005-09-06  Peter Stephenson  <pws@csr.com>
+
+	* 21701: Src/params.c, Test/D06subscript.ztst: negative offsets
+	that indexed before the start of a scalar weren't handled properly.
+
+2005-08-22  Peter Stephenson  <pws@csr.com>
+
+	* 21678: Src/params.c, Test/D04parameter.ztst: unsetting
+	tied parameters was fraught with crashes.
+
+2005-08-09  Peter Stephenson  <pws@csr.com>
+
+	* 21577: Dan Bullok: Src/Zle/zle_main.c, Src/init.c,
+	Src/utils.c: improved 21567 which reexpands the prompt and
+	refreshes but doesn't trash the line editor.
+
+2005-08-08  Peter Stephenson  <pws@csr.com>
+
+	* 21567: Dan Bullok: Src/utils.c: trash zle when updating window
+	size since otherwise multiline prompts get screwed up.
+
+2005-08-04  Wayne Davison  <wayned@users.sourceforge.net>
+
+	* unposted: Completion/Unix/Command/_rsync: brought over the
+	version from the trunk, which has improvements in completing
+	hostnames, users, and remote files.
+
+2005-08-04  Peter Stephenson  <pws@csr.com>
+
+	* unposted: Completion/Unix/Command/_subversion: changes from
+	current head revision.
+
+2005-07-29  Wayne Davison  <wayned@users.sourceforge.net>
+
+	* 21548: Completion/Unix/Command/_rsync:  Made file completion
+	work after --include-from= and --exclude-from=.
+
+2005-07-06  Peter Stephenson  <pws@csr.com>
+
+	* 21402: Src/Zle/compmatch.c: Fix crash completing the set
+	of files AIWebKitMessageViewController.m,
+	AIWebKitMessageViewPlugin.m, AIWebkitMessageViewStyle.m
+	with case-insensitive matching.
+
+2005-06-27  Peter Stephenson  <pws@csr.com>
+
+	* 21387: Doc/Zsh/contrib.yo: document the precision features
+	in zcalc.
+
+2005-05-30  Oliver Kiddle  <opk@zsh.org>
+
+	* 21266: Completion/Unix/Command/_mh: improve completion of sequences
+
+2005-05-23  Peter Stephenson  <pws@csr.com>
+
+	* 21270: Src/system.h: don't use poll() on Apple.
+
+2005-05-11  Oliver Kiddle  <opk@zsh.org>
+
+	* Joerg Sonnenberger: 21252: configure.ac, Src/Modules/zpty.c,
+	Completion/BSD/Command/_chflags, Completion/Unix/Command/_apm,
+	Completion/Unix/Command/_cvs, Completion/Unix/Command/_ifconfig,
+	Completion/Unix/Command/_mount, Completion/Unix/Command/_mt,
+	Completion/Unix/Command/_sysctl, Completion/Unix/Type/_file_systems,
+	Completion/Unix/Type/_net_interfaces: Dragonfly BSD support
+
+2005-05-10  Oliver Kiddle  <opk@zsh.org>
+
+	* Haakon Riiser: 21188: Completion/X/Command/_acroread: handle
+	acroread 7.x
+
+2005-05-06  Bart Schaefer  <schaefer@zsh.org>
+
+	* 21229: Doc/Makefile.in: fix fake build run when yodl isn't found
+
+2005-04-30  Bart Schaefer  <schaefer@zsh.org>
+
+	* 21215: Test/C03traps.ztst: clean up TRAPEXIT file left behind by
+	autoloaded trap test.
+
+2005-04-27  Peter Stephenson  <pws@csr.com>
+
+	* 21197: Src/exec.c, Src/signals.c: LOCAL_TRAPS didn't restore
+	a trap when modified inside another trap.
+
+2005-04-27  Wayne Davison  <wayned@users.sourceforge.net>
+
+	* unposted: Completion/Unix/Command/_rsync:  Made some
+	options repeatable (--include, --exclude, --filter, -f)
+	and added the one new option that will be in 2.6.5.
+
+2005-04-26  Peter Stephenson  <pws@csr.com>
+
+	* 21195 (c.f. 21194 from Bart): Src/pattern.c,
+	Test/D04parameter.ztst: 21170 broke handling of zero-length
+	quoted test strings.
+
+2005-04-25  Peter Stephenson  <pws@csr.com>
+
+	* 21184: Test/B04read.ztst: test for foregoing fix.
+
+	* users/8752: Src/builtin.c: stripping IFS characters after
+	reading a line in the read builtin wasn't sensitive to metafied
+	characters.
+
+2005-04-24  Peter Stephenson  <pws@pwstephenson.fsnet.co.uk>
+
+	* 21170: Src/glob.c, Src/pattern.c, Src/complist.c: optimise
+	length calculations which were causing inefficieny in
+	${...//.../...} on large string.
+
+2005-04-19  Clint Adams  <clint@zsh.org>
+
+	* 21156: Completion/Debian/Command/_dpkg: tweaks to
+	dpkg-reconfigure completion.
+
+2005-04-17  Clint Adams  <clint@zsh.org>
+
+	* 21153: Completion/Debian/Command/_module-assistant: incorporate
+	most of the features of Stephen Rueger's _module-assistant, posted
+	as 21152.
+
+	* 21151: Completion/Debian/Command/_module-assistant: completion
+	for module-assistant.
+
+	* 21150: Completion/Unix/Command/_baz,
+	Completion/Unix/Command/_tla: handle parsing of subcommand help
+	output a bit more sanely.
+
+2005-04-16  Clint Adams  <clint@zsh.org>
+
+	* 21147: Completion/Unix/Command/_baz,
+	Completion/Unix/Command/_tla, Completion/Unix/Type/_arch_archives,
+	Completion/Unix/Type/_arch_namespace: factor out some common code
+	from _tla and _baz, and fix some breakage from 21075.
+
+2005-04-12  Clint Adams  <clint@zsh.org>
+
+	* 21135: Completion/Unix/Command/_screen: complete attached
+	sessions after screen -x.
+
+2005-04-11  Clint Adams  <clint@zsh.org>
+
+	* 21132: Completion/Unix/Type/_pdf, Completion/X/Command/_xpdf:
+	complete xpdf options, and also complete .pdf.bz2 files when
+	completing compressed PDF files.
+
+2005-04-10  Clint Adams  <clint@zsh.org>
+
+	* unposted: config.guess, config.sub: update to 2005-03-24 and
+	2005-02-10, respectively.
+
+2005-04-06  Peter Stephenson  <pws@csr.com>
+
+	* unposted: Config/version.mk: release 4.2.5.
+
 2005-04-05  Wayne Davison  <wayned@users.sourceforge.net>
 
 	* unposted: Completion/Unix/Command/_rsync:  Made --address

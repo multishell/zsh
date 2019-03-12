@@ -1055,6 +1055,7 @@ adjustwinsize(int from)
 #endif /* TIOCGWINSZ */
 	    resetneeded = 1;
 	zrefresh();
+	zle_resetprompt();
     }
 }
 

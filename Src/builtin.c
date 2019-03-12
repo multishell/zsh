@@ -4041,7 +4041,7 @@ bin_getopts(UNUSED(char *name), char **argv, UNUSED(Options ops), UNUSED(int fun
 
 /* Flag that we should exit the shell as soon as all functions return. */
 /**/
-int
+mod_export int
 exit_pending;
 
 /* break, bye, continue, exit, logout, return -- most of these take   *
@@ -4745,8 +4745,17 @@ bin_read(char *name, char **args, Options ops, UNUSED(int func))
 	}
 	signal_setmask(s);
     }
-    while (bptr > buf && iwsep(bptr[-1]))
-	bptr--;
+    while (bptr > buf) {
+	if (bptr > buf + 1 && bptr[-2] == Meta) {
+	    if (iwsep(bptr[-1] ^ 32))
+		bptr -= 2;
+	    else
+		break;
+	} else if (iwsep(bptr[-1]))
+	    bptr--;
+	else
+	    break;
+    }
     *bptr = '\0';
     if (resettty && SHTTY != -1)
 	settyinfo(&saveti);
