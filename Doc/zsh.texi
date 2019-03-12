@@ -30,8 +30,8 @@
 @end iftex
 @titlepage
 @title The Z Shell Manual
-@subtitle Version 4.0.6
-@subtitle Updated August 14, 2002
+@subtitle Version 4.0.7
+@subtitle Updated June 18, 2003
 @author Original documentation by Paul Falstad
 @page
 This is a texinfo version of the documentation for the Z Shell, originally by 
@@ -61,7 +61,7 @@ This Info file documents Zsh, a freely available UNIX command interpreter
 (ksh), although it is not completely compatible.
 
 @noindent
-Version 4.0.6, last updated August 14, 2002.
+Version 4.0.7, last updated June 18, 2003.
 @end ifinfo
 
 @noindent
@@ -19004,9 +19004,9 @@ The @t{zsh/terminfo} module makes available one builtin command:
 @table @asis
 @findex echoti
 @cindex terminfo value, printing
-@item @t{echoti} @var{cap}
+@item @t{echoti} @var{cap} [ @var{arg} ]
 Output the terminfo value corresponding to the capability
-@var{cap}.
+@var{cap}, instantiated with @var{arg} if applicable.
 
 @end table
 
@@ -20891,7 +20891,7 @@ distribution in your home directory, you would use the commands:
 mkdir ~/zsh_help
 cd ~/zsh_help
 man zshall | colcrt - | \ 
-perl ~/zsh-4.0.6/Util/helpfiles
+perl ~/zsh-4.0.7/Util/helpfiles
 @end example
 
 @noindent
@@ -21047,7 +21047,7 @@ Run @t{zkbd} either as an autoloaded function, or as a shell script:
 
 @noindent
 @example
-zsh -f ~/zsh-4.0.6/Functions/Misc/zkbd
+zsh -f ~/zsh-4.0.7/Functions/Misc/zkbd
 @end example
 
 @noindent
@@ -21112,7 +21112,7 @@ command and redirect the output into a file:
 
 @noindent
 @example
-. ~/zsh-4.0.6/Util/reporter > zsh.report
+. ~/zsh-4.0.7/Util/reporter > zsh.report
 @end example
 
 @noindent

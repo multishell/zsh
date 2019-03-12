@@ -371,7 +371,7 @@ inungetc(int c)
 	     * can't back up where we want to.  Instead, we just push it
 	     * onto the input stack as an extra character.
 	     */
-	    char *cback = (char *)zcalloc(2);
+	    char *cback = (char *)zshcalloc(2);
 	    cback[0] = (char) c;
 	    inpush(cback, INP_FREE|INP_CONT, NULL);
 	}
@@ -539,4 +539,18 @@ inpop(void)
 
 	inpoptop();
     } while (remcont);
+}
+
+/*
+ * Expunge any aliases from the input stack; they shouldn't appear
+ * in the history and need to be flushed explicitly when we encounter
+ * an error.
+ */
+
+/**/
+void
+inpopalias(void)
+{
+    while (inbufflags & INP_ALIAS)
+	inpoptop();
 }

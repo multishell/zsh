@@ -1,3 +1,401 @@
+2003-12-19  Peter Stephenson  <pws@csr.com>
+
+	* unposted: Config/version.mk, README: zsh-4.0.9.
+
+2003-12-18  Peter Stephenson  <pws@csr.com>
+
+	* 19315: Src/lex.c, Src/math.c, Src/params.c, Src/Zle/compcore.c,
+	Src/Zle/zle_main.c: missing mod_export definitions.
+
+	* unposted: Config/version.mk, Completion/Unix/Command/.distfiles:
+	zsh-4.0.8.
+
+	* Oliver: 19308: Src/utils.c, Test/C01arith.ztst:
+	fix crash with lonely ## in arithmetic.
+
+2003-12-17  Clint Adams  <clint@zsh.org>
+
+	* Stephen Rüger: 19255: Completion/Debian/Command/_apt: update
+	to work with APT 0.5.14
+	* Oliver: 18626: Src/Modules/terminfo.c: Try to do a better job
+	of arg support for echoti, fixing compile problem on 64-bit Solaris
+
+2003-12-16  Oliver Kiddle  <opk@zsh.org>
+
+        * 19299: Completion/Unix/Command/_mount: try to handle
+        completion of devices better
+
+2003-12-05  Oliver Kiddle  <opk@zsh.org>
+
+	* 19276: Completion/Base/Completer/_prefix: fix fallback used to
+	get completer list if the style lookup failed
+
+2003-12-04  Oliver Kiddle  <opk@zsh.org>
+
+	* Baptiste Daroussin: 19272: Completion/Unix/Command/_chown,
+	Completion/Unix/Command/_links, Completion/X/Command/_mplayer:
+	use colon separator on Linux for chown, complete links graphics
+	drivers and more file types for mplayer
+
+	* unposted: Completion/Unix/Command/_subversion: small addition to
+	output from `svn help diff' broke substitution for getting options
+
+2003-12-03  Peter Stephenson  <pws@csr.com>
+
+	* 19269: Src/pattern.c, Misc/globtests, Test/D02glob.ztst:
+	8-bit characters didn't work in character classes where
+	chars were signed.
+
+2003-11-28  Doug Kearns  <djkea2@mugca.its.monash.edu.au>
+
+	* unposted: Completion/Unix/Command/_elinks: update for version 0.4.3
+
+2003-11-21  Oliver Kiddle  <opk@zsh.org>
+
+	* 19265: Completion/X/Command/_mozilla: update for newer version
+
+	* unposted: Completion/Unix/Command/_screen: tidy up descriptions
+
+2003-11-19  Clint Adams  <clint@zsh.org>
+
+	* 19258: Doc/Zsh/mod_terminfo.yo, Src/Modules/terminfo.c:
+	arg support for echoti.
+
+2003-11-14  Clint Adams  <clint@zsh.org>
+
+	* unposted: config.guess, config.sub:
+	upgrade to GNU's October 7 versions.
+
+2003-11-14  Oliver Kiddle  <opk@zsh.org>
+
+	* 19244: Completion/Linux/Command/_mondo,
+	Completion/Mandrake/Command/_urpmi, Completion/Unix/Command/_grep,
+	Completion/Unix/Command/_mh, Completion/Unix/Command/_mount,
+	Completion/Unix/Command/_rsync, Completion/Unix/Command/_subversion,
+	Completion/Unix/Command/_w3m, Completion/Zsh/Command/_alias,
+	Completion/Zsh/Command/_precommand:
+	various completion function fixes and updates
+
+2003-11-03  Peter Stephenson  <pws@csr.com>
+
+	* 19218: Src/exec.c, Src/Zle/zle_main.c: extend 19216 to
+	fix similar probably when calling zle widgets.
+
+	* 19216: Src/exec.c: save and restore $pipestatus on functions
+	when noreturnval flag is set.  Remove unnecessary debugging output.
+
+2003-10-28  Peter Stephenson  <pws@csr.com>
+
+	* 19209: Src/builtin.c, Src/exec.c, Src/hashtable.c, Src/hist.c,
+	Src/init.c, Src/input.c, Src/jobs.c, Src/mem.c, Src/module.c,
+	Src/params.c, Src/parse.c, Src/pattern.c, Src/prompt.c,
+	Src/utils.c, Src/Builtins/sched.c, Src/Modules/parameter.c,
+	Src/Modules/stat.c, Src/Modules/zftp.c, Src/Zle/compcore.c,
+	Src/Zle/compctl.c, Src/Zle/complete.c, Src/Zle/computil.c,
+	Src/Zle/zle_keymap.c, Src/Zle/zle_main.c, Src/Zle/zle_refresh.c,
+	Src/Zle/zle_thingy.c: Rename zcalloc to zshcalloc since
+	zcalloc is used in zlib; apparently this underlies some
+	of the system databases on e.g. Debian.
+
+2003-10-27  Peter Stephenson  <pws@csr.com>
+
+	* zsh-users/6727: from Lloyd Zusman: Completion/Unix/Command/_w3m,
+	Completion/Unix/Command/_w3mhistory,
+	Completion/Unix/Command/.distfiles: improved w3m support inspired
+	by _lynx.
+
+2003-10-24  Clint Adams  <clint@zsh.org>
+
+        * 19201: Completion/Unix/Command/_screen: patch from
+        Yasuhiro Hayase to complete normal commands after screen.
+
+2003-10-09  Oliver Kiddle  <opk@zsh.org>
+
+	* unposted: Completion/Unix/Command/_nmap: update for nmap 3.48
+
+2003-10-07  Bart Schaefer  <schaefer@zsh.org>
+
+	* users/6663: Completion/compaudit: follow symlinks when checking
+	permissions on directories in the fpath; also in case of symlinks,
+	find parent with ${^fpath:h} rather than ${^fpath}/..
+
+2003-10-06  Peter Stephenson  <pws@pwstephenson.fsnet.co.uk>
+
+	* 19168: Src/prompt.c, Src/utils.c, Src/Modules/datetime.c:
+	various problems with size of buffers and pointer usage
+	in ztrftime().
+
+	* 19167: Src/glob.c, Test/E01options.ztst: NULL at start
+	of BRACE_CCL range didn't work.
+
+2003-09-22  Peter Stephenson  <pws@csr.com>
+
+	* 19105: Src/init.c, Src/jobs.c: Set shout to stderr if we
+	are interactive but have no terminal.  Prevents crash in
+	history and potentially elsewhere.
+
+2003-09-21  Oliver Kiddle  <opk@zsh.org>
+
+	* users/6606: Completion/Base/Utility/_sep_parts: handle any
+	matching control options passed down
+
+2003-09-10  Wayne Davison  <wayned@users.sourceforge.net>
+
+	* users/6529 + unposted: StartupFiles/zshenv: updated the comments
+	to no longer suggest that setting the PATH here (without proper
+	precautions) is a safe thing to do.
+
+2003-09-03  Oliver Kiddle  <opk@zsh.org>
+
+	* 19019: Completion/Zsh/Command/_alias,
+	Completion/Zsh/Command/_unhash: only complete aliases of the
+	appropriate type for the alias builtin
+
+2003-08-30  Peter Stephenson  <pws@pwstephenson.fsnet.co.uk>
+
+	* c.f. somewhat terse reference in zsh-users/6493:
+	use tinfo library for curses if not found elsewhere.
+
+2003-08-28  Oliver Kiddle  <opk@zsh.org>
+
+	* Completion/Unix/Command/_gcc, Completion/Unix/Command/_mh,
+	Completion/Unix/Type/_services, Completion/Unix/Command/_zdump:
+	merge back various small changes from 4.1
+
+2003-08-21  Oliver Kiddle  <opk@zsh.org>
+
+	* 18956: Completion/Unix/Command/_a2ps: update for a2ps 4.13
+
+2003-08-20  Oliver Kiddle  <opk@zsh.org>
+
+	* 18949: Completion/Unix/Command/_du,
+	Completion/Unix/Type/_directories: new completion for du
+
+	* 18947: Completion/Unix/Command/_chown: also complete options using
+	_arguments
+
+2003-08-19  Adam Spiers  <adam@spiers.net>
+
+	* unposted: Completion/Unix/Command/_irssi: fix quoting bug.
+
+2003-08-16  Doug Kearns  <djkea2@mugca.its.monash.edu.au>
+
+	* 18944: Completion/Unix/Command/_ruby: update ruby completion for
+	version 1.8.0 and add descriptions for -T matches
+
+2003-08-11  Peter Stephenson  <pws@csr.com>
+
+	* 18941: Src/hist.c, Src/input.c: Alias text could end up in
+	history after a parsing error during alias expansion.
+
+2003-08-05  Peter Stephenson  <pws@csr.com>
+
+	* 18926: Src/Zle/complist.c: fix (without knowing how) insertion
+	of file names requiring metafication into the command line on
+	a successful menu selection.
+
+2003-08-06  Oliver Kiddle  <opk@zsh.org>
+
+	* unposted: Completion/Unix/Command/_texinfo: remove usage of 4.1
+	specific feature
+
+2003-08-05  Oliver Kiddle  <opk@zsh.org>
+
+	* 18928: Completion/Unix/Command/_cdrecord: new cdrecord completion
+
+	* 18927: Completion/Unix/Command/_cvs: fix recent mistake with quoting
+
+2003-08-01  Peter Stephenson  <pws@csr.com>
+
+	* 18920: Src/utils.c, Completion/Core/Base/_main_complete: update
+	18916 to use space to join if unset, as per POSIX; set IFS locally
+	in completion just in case.
+
+2003-08-01  Oliver Kiddle  <opk@zsh.org>
+
+	* 18922: Src/glob.c: fix minor bug with f glob qualifier
+
+2003-08-01  Peter Stephenson  <pws@csr.com>
+
+	* 18916: Src/utils.c: Unsetting IFS could cause segmentation
+	fault (any time IFS was used to join an array).
+
+2003-07-31  Oliver Kiddle  <opk@zsh.org>
+
+	* 18914: Completion/Base/Utility/_nothing,
+	Completion/Cygwin/Command/_cygpath,
+	Completion/Cygwin/Command/_cygrunsrv,
+	Completion/Cygwin/Command/_getclip,
+	Completion/Cygwin/Command/_getfacl,
+	Completion/Cygwin/Command/_mkshortcut,
+	Completion/Cygwin/Command/_pscp, Completion/Cygwin/Command/_putclip,
+	Completion/Debian/Command/_auto-apt, Completion/Debian/Command/_bug,
+	Completion/Debian/Command/_debchange,
+	Completion/Debian/Command/_debfoster,
+	Completion/Debian/Command/_debsign, Completion/Debian/Command/_dpkg,
+	Completion/Debian/Command/_dpkg_source,
+	Completion/Debian/Command/_dput, Completion/Debian/Command/_dupload,
+	Completion/Debian/Command/_update-alternatives,
+	Completion/Linux/Command/_iptables,
+	Completion/Linux/Command/_pkgtool, Completion/Redhat/Command/_rpm,
+	Completion/Unix/Command/_apm, Completion/Unix/Command/_arping,
+	Completion/Unix/Command/_cvs, Completion/Unix/Command/_fakeroot,
+	Completion/Unix/Command/_fsh, Completion/Unix/Command/_global,
+	Completion/Unix/Type/_global_tags, Completion/Unix/Command/_vorbis,
+	Completion/Unix/Command/_imagemagick, Completion/Unix/Command/_irssi,
+	Completion/Unix/Command/_mysql_utils, Completion/Unix/Command/_pbm,
+	Completion/Unix/Command/_rar, Completion/Unix/Command/_rsync,
+	Completion/Unix/Command/_slrn, Completion/Unix/Command/_user_admin,
+	Completion/X/Command/_acroread, Completion/X/Type/_x_color:
+	tidy up a number of completion functions (includes fixes, updates,
+	improvements and simple aesthetic changes)
+
+2003-07-24  Oliver Kiddle  <opk@zsh.org>
+
+	* 18901: baptiste daroussin (and Nikolai Weibull, 18894):
+	Completion/Unix/Command/_vorbis: new completions for ogg vorbis
+
+	* 18893: baptiste daroussin: Completion/Linux/Command/_pkgtool,
+	Completion/Unix/Command/_rar: improved _pkgtool and new
+	completions for rar/unrar
+
+	* 18900: Completion/Linux/Command/_iptables,
+	Completion/Unix/Command/_nmap: new iptables and nmap completions
+
+2003-07-23  Oliver Kiddle  <opk@zsh.org>
+
+	* 18890: Completion/Unix/Command/_sablotron: new sabcmd completion
+
+	* 18877: Etc/completion-style-guide: add a few more points
+
+2003-07-22  Peter Stephenson  <pws@csr.com>
+
+	* 18880: Src/Modules/parameter.c: Don't return unset variables
+	in whole array value for $parameters.
+
+2003-07-21  Doug Kearns  <djkea2@mugca.its.monash.edu.au>
+
+	* 18872: Completion/Unix/Command/_java: update javac completion for
+	SDK 1.4.x and rename serialvar to serialver
+
+2003-07-20  Clint Adams  <clint@zsh.org>
+
+	* 18874: Completion/Unix/Command/_subversion: PATH can mean
+	files too.
+
+2003-07-17  Oliver Kiddle  <opk@zsh.org>
+
+	* 18866: Etc/completion-style-guide: document conventions used
+	in completion functions
+
+	* unposted: Completion/Unix/Command/_aap: adjust return code
+	in the same way as was done for old completions in 18631
+
+2003-07-17  Peter Stephenson  <pws@csr.com>
+
+	* 18864: Src/lex.c: unnecessary spaces with empty substitutions
+	when using ${(Q)...} flag.
+
+2003-07-17  Doug Kearns  <djkea2@mugca.its.monash.edu.au>
+
+	* 18863: Completion/Unix/Command/_aap: new completion for aap
+
+2003-07-16  Doug Kearns  <djkea2@mugca.its.monash.edu.au>
+
+	* unposted: Completion/Debian/Command/_bug,
+	Completion/Debian/Command/_debsign, Completion/Linux/Command/_pkgtool,
+	Completion/Unix/Command/_cvs, Completion/Unix/Command/_ecasound,
+	Completion/Unix/Command/_mysql_utils, Completion/Unix/Command/_screen:
+	remove initial capitalisation from option descriptions
+
+2003-07-09  Oliver Kiddle  <opk@zsh.org>
+
+	* 18841: Completion/Base/Completer/_prefix: work around problem
+	where the unambiguous part is empty making the word be removed
+
+2003-07-09  Peter Stephenson  <pws@csr.com>
+
+	* 18839, modified c.f. 18840: Completion/Unix/Command/_nice,
+	Completion/Zsh/Command/_precommand: Completion for nice.
+
+2003-07-07  Oliver Kiddle  <opk@zsh.org>
+
+	* 18822: Completion/Base/Completer/_expand
+	fix accept-exact style not not bail out when it shouldn't
+
+2003-07-07  Clint Adams  <clint@zsh.org>
+
+	* 18831: Completion/Unix/Command/_subversion: completion for
+	svn and svnadmin.
+	* 18832: Completion/Debian/Command/_debsign: completion for
+	debsign, by Matt Zimmerman.
+
+2003-07-04  Oliver Kiddle  <opk@zsh.org>
+
+	* 18811: Completion/Unix/Type/_files: needed to quote % in
+	substitution as users/6154 caused it to be interpreted as an anchor
+
+2003-07-04  Peter Stephenson  <pws@csr.com>
+
+	* 18807: baptiste daroussin <daroussi@ece.fr>:
+	Completion/Linux/Command/.distfiles,
+	Completion/Linux/Command/_pkgtool: Completion for Slackware
+	package management tool.
+
+2003-07-03  Peter Stephenson  <pws@csr.com>
+
+	* 18796: Completion/Unix/Command/_cvs: quoting of characters
+	when completing existing CVS-managed files (in particular
+	spaces) was flakey.  The same problem probably exists for
+	completing modified files, but the code is indecipherable.
+
+	* 18769: Src/exec.c: parse error in autoloading file causes
+	return value zero and empty function definition.  Presumed
+	to be error introduced with wordcode.
+
+2003-07-02  Oliver Kiddle  <opk@zsh.org>
+
+	* 18520, 13691 (Mario Lang), 13701 (Sven):
+	Completion/Unix/Command/_ecasound: completion for ecasound
+
+	* 18520, 15822/15838 (Bruno Bonfils): Completion/Unix/Command/_gpg:
+	new completion for gpg
+
+	* 18520 based on 16380, 16541 (Bruno Bonfils) and users/6013
+	(GoTaR <gotar@poczta.onet.pl>): Completion/X/Command/_mplayer:
+	new completion for mplayer
+
+	* 18446: Completion/Linux/Command/_modutils: handle modinfo and
+	improvements to option handling
+
+2003-06-25  Oliver Kiddle  <opk@zsh.org>
+
+	* 18634: Tomi Vainio: Src/system.h: work around problem with
+	latest Sun k2 compiler mistaking an array as variable length
+
+	* 18631: Completion/AIX/Command/_smit,
+	Completion/Linux/Command/_modutils, Completion/Linux/Command/_uml,
+	Completion/Unix/Command/_ant, Completion/Unix/Command/_arp,
+	Completion/Unix/Command/_bzip2, Completion/Unix/Command/_compress,
+	Completion/Unix/Command/_elinks, Completion/Unix/Command/_finger,
+	Completion/Unix/Command/_gpg, Completion/Unix/Command/_gzip,
+	Completion/Unix/Command/_java, Completion/Unix/Command/_links,
+	Completion/Unix/Command/_look, Completion/Unix/Command/_lynx,
+	Completion/Unix/Command/_lzop, Completion/Unix/Command/_mt,
+	Completion/Unix/Command/_prcs, Completion/Unix/Command/_sccs,
+	Completion/Unix/Command/_telnet, Completion/Unix/Command/_w3m,
+	Completion/Unix/Command/_zip, Completion/Zsh/Command/_compdef,
+	Completion/Zsh/Command/_hash, Completion/Zsh/Command/_which:
+	returning too early breaks prefix-needed style set to false
+
+2003-06-25  Clint Adams  <clint@zsh.org>
+
+        * 18628: Completion/Debian/Command/_bug: update completion of
+        reportbug and querybts to modern usage.
+
+        * 18627: Completion/Unix/Command/_imagemagick: -resize and
+        -shave options to mogrify.
+
 2003-06-18  Peter Stephenson  <pws@csr.com>
 
 	* unposted: README, Etc/NEWS, Config/version.mk: version 4.0.7.
@@ -21,6 +419,11 @@
 2003-06-03  Peter Stephenson  <pws@csr.com>
 
 	* 18600: Src/pattern.c: bug matching against [[:xdigit:]].
+
+2003-05-19  Peter Stephenson  <pws@csr.com>
+
+	* 18548: Src/Zle/zle_main.c: memory leak when vared'ing arrays
+	spotted by valgrind (18543).
 
 2003-05-14  Peter Stephenson  <pws@csr.com>
 
@@ -53,7 +456,7 @@
 	Completion/Unix/Command/_ssh: get hostname from IPREFIX instead
 	of words[CURRENT] to avoid quote characters
 
-	* Michał Politowski: users/6080: Completion/Unix/Command/_ssh:
+	* MichaÅ Politowski: users/6080: Completion/Unix/Command/_ssh:
 	remove one level of quoting on files before using with remote ls
 
 2003-05-07  Peter Stephenson  <pws@csr.com>
@@ -61,6 +464,11 @@
 	* 18508: Src/subst.c, Test/D04parameter.ztst: quoting of the `/'
 	separating source and replacment text in ${foo//bar/stuff} was
 	buggy.
+
+2003-04-25  Oliver Kiddle  <opk@zsh.org>
+
+	* Haakon Riiser: 18473: Completion/X/Command/_acroread,
+	Completion/Unix/Type/_pdf: new completion for Acrobat Reader 5.0.x
 
 2003-04-24  Oliver Kiddle  <opk@zsh.org>
 
@@ -83,11 +491,21 @@
 	* 18462: Completion/Unix/Command/_sh: complete files in addition
 	to commands
 
+2003-04-22  Felix Rosencrantz <f_rosencrantz@yahoo.com>
+
+	* 18459: Completion/Unix/Command/_screen: fix up suggestions from
+	Oliver.
+
 2003-04-22  Oliver Kiddle  <opk@zsh.org>
 
 	* unposted: Completion/Unix/Command/_imagemagick: correct return codes
 	
 	* 18458: Completion/Unix/Command/_renice: new completion for renice
+
+2003-04-19  Felix Rosencrantz <f_rosencrantz@yahoo.com>
+
+	* 18455: Completion/Unix/Command/_screen,
+	Completion/Unix/Command/.distfiles: Completion function for screen.
 
 2003-04-18  Oliver Kiddle  <opk@zsh.org>
 
@@ -102,15 +520,54 @@
 
 	* 18443: Completion/X/Command/_dcop: new completion for dcop
 
+2003-04-08  Felix Rosencrantz <f_rosencrantz@yahoo.com>
+
+	* 18440: Src/Zle/complete.mdd: Add the cygwin completion functions
+	to the completion module.
+
+2003-04-07  Felix Rosencrantz <f_rosencrantz@yahoo.com>
+
+	* 18439: Completion/Cygwin/.distfiles,
+	Completion/Cygwin/Command/_cygcheck,
+	Completion/Cygwin/Command/_cygpath,
+	Completion/Cygwin/Command/_cygrunsrv,
+	Completion/Cygwin/Command/_cygserver,
+	Completion/Cygwin/Command/_cygstart, Completion/Cygwin/Command/_dumper,
+	Completion/Cygwin/Command/_getclip, Completion/Cygwin/Command/_getfacl,
+	Completion/Cygwin/Command/_mkshortcut, Completion/Cygwin/Command/_mkzsh,
+	Completion/Cygwin/Command/_pscp, Completion/Cygwin/Command/_putclip:
+	cygwin completion functions.
+
+2003-04-04  Peter Stephenson  <pws@csr.com>
+
+	* 18435: Src/builtin.c, Src/params.c: spotted by Oliver: unsetting
+	a readonly variable returned status 0.
+
 2003-03-28  Wayne Davison  <wayned@users.sourceforge.net>
 
 	* 18402: Src/builtin.c: Prevent "print -m" from crashing (it now
 	complains about a missing pattern).
 
+2003-03-26  Oliver Kiddle  <opk@zsh.org>
+
+	* 18390: Completion/Unix/Command/_prcs,
+	Completion/Unix/Command/_xmlsoft: tidy up _prcs and update
+	_xmlsoft for latest version of xsltproc
+
 2003-03-25  Wayne Davison  <wayned@users.sourceforge.net>
 
 	* 18383: Src/utils.c: Fixed zjoin() when it returns an empty
 	string that should be allocated.
+
+2003-03-20  Doug Kearns  <djkea2@mugca.its.monash.edu.au>
+
+	* 18369: Completion/Unix/Command/_tidy: update HTML Tidy completion
+	for the Tidy Classic -> TidyLib codebase transition
+
+2003-03-15  Doug Kearns  <djkea2@mugca.its.monash.edu.au>
+
+	* unposted: Completion/X/Command/_xrdb: remove _xrdb as superior
+	completion for xrdb is provided by _x_utils
 
 2003-03-14  Doug Kearns  <djkea2@mugca.its.monash.edu.au>
 
@@ -126,6 +583,13 @@
 
 	* 18346: Completion/Unix/Type/_pids, Completion/Unix/Type/_users:
 	complete for more commands using existing completions
+
+2003-03-12  Doug Kearns  <djkea2@mugca.its.monash.edu.au>
+
+	* unposted: Completion/Debian/Command/_debfoster,
+	Completion/Linux/Command/_valgrind, Completion/Unix/Command/_cvs,
+	Completion/Unix/Command/_global: remove initial capitalisation from
+	descriptions
 
 2003-03-11  Oliver Kiddle  <opk@zsh.org>
 
@@ -359,7 +823,7 @@
 
 	* unposted: Completion/Unix/Command/_lynx: minor bug fix (missing -g)
 
-	* Thomas K�hler: 17610: Completion/Unix/Command/_ssh: also pass
+	* Thomas Köhler: 17610: Completion/Unix/Command/_ssh: also pass
 	through -F option
 
 	* 17607: Completion/Unix/Command/_ssh: pass through options such as
@@ -374,6 +838,15 @@
 
 	* 17571: Src/Modules/terminfo.c: backport of terminfo segfault
         fix from 4.1.
+
+2002-08-20  Sven Wischnowsky  <wischnow@zsh.org>
+
+	* 17569: Src/Zle/zle_tricky.c: fix typo in comment
+
+	* 17567: Src/Zle/zle_main.c, Src/Zle/zle_thingy.c,
+	Src/Zle/zle_tricky.c: fix default completion module loading,
+	use compctl if it hasn't been loaded already and no completion
+	widgets have been defined
 
 2002-08-19  Oliver Kiddle  <opk@zsh.org>
 
@@ -414,7 +887,7 @@
 	* unposted: Config/version.mk: version 4.0.6.
 
 	* 17542 (Thomas Stromberg <thomas@stromberg.org>):
-	Completion/Unix/Command/_mount: most systems don't have /etc/mnt.
+	Completion/Unix/Command/_mount: most systems don't have /etc/mtab
 
 2002-08-12  Peter Stephenson  <pws@csr.com>
 
@@ -769,6 +1242,12 @@
         * unposted: Etc/BUGS, Etc/TODO: update relevant
 	issues.
 
+2002-03-07  Bart Schaefer  <schaefer@zsh.org>
+
+	* 16737 (tweaked): Src/parse.c: fix parsing of binary infix
+	operators of builtin `test' when there are more than three
+	arguments.
+
 2002-03-07  Clint Adams  <clint@zsh.org>
 
         * 16778: Completion/Unix/Command/.distfiles,
@@ -1024,7 +1503,7 @@
 	Functions/Zle/bash-down-case-word,
 	Functions/Zle/bash-up-case-word,
 	Functions/Zle/bash-transpose-words,
-	Functions/Zle/bash-forward-word, Functions/Zle/bash-bacward-word,
+	Functions/Zle/bash-forward-word, Functions/Zle/bash-backward-word,
 	Functions/Zle/bash-kill-word,
 	Functions/Zle/bash-backward-kill-word:
 	Zle widgets with bash-style word delimiting.
@@ -1472,7 +1951,7 @@
 
 2001-07-18  Sven Wischnowsky  <wischnow@zsh.org>
 
-	* 15402 (Akinora Musha): Completion/Unix/Command/_cvs: add
+	* 15402 (Akinori Musha): Completion/Unix/Command/_cvs: add
 	support for -R option on BSDs
 
 2001-07-17  Oliver Kiddle  <opk@zsh.org>

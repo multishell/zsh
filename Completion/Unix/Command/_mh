@@ -1,14 +1,10 @@
-#compdef folder folders comp inc mark refile repl scan show next prev rmm pick whom mhn mhpath mhlist mhstore mhshow mhparam mhmail
+#compdef burst dist flist flists folder folders forw comp inc mark refile repl scan show next prev packf rmf rmm pick whom mhn mhpath mhlist mhstore mhshow mhparam
 
 # Completion for all possible MH commands.
-
-local mymhdir=${$(mhpath + 2>/dev/null):-~/Mail}
+local mymhdir=${$(_call_program mhpath mhpath + 2>/dev/null):-~/Mail}
 local mhlib=/usr/lib/mh
 
 local prev="$words[CURRENT-1]" expl
-
-# To be on the safe side, check this exists and if not, get it anyway.
-[[ -d $mymhdir ]] || mymhdir=$(mhpath +)
 
 if compset -P 1 -; then
   # get list of options, which MH commands can generate themselves
@@ -77,7 +73,7 @@ else
       compadd "$expl[@]" $(mark $foldnam 2>/dev/null | awk -F: '{ print $1 }') &&
         ret=0
       compadd "$expl[@]" reply next cur prev first last all unseen && ret=0
-      _files "$expl[@]" -W folddir -g '<->' && ret=0
+      _path_files "$expl[@]" -W folddir -g '<->' && ret=0
     done
     (( ret )) || return 0
   done

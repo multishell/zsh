@@ -1,6 +1,6 @@
 #compdef compdef
 
-local state line expl list disp curcontext="$curcontext"
+local state line expl list disp curcontext="$curcontext" ret=1
 typeset -A opt_args
 
 _arguments -C -s -A "-*" -S \
@@ -17,7 +17,7 @@ _arguments -C -s -A "-*" -S \
  - k \
   '-k[define widget and key binding]:completion function:->cfun:style:->style:*:key' \
  - K \
-  '-K[define multiple widgets based on function]:*::: :->multi' && return 0
+  '-K[define multiple widgets based on function]:*::: :->multi' && ret=0
 
 if [[ $state = multi ]]; then
   case $(( CURRENT % 3 )) in
@@ -30,16 +30,16 @@ fi
 
 case $state in
   ccom)
-    _wanted commands expl 'completed command' compadd -k _comps
+    _wanted commands expl 'completed command' compadd -k _comps && ret=0
   ;;
   cfun)
     list=( ${^fpath:/.}/_(|*[^~])(:t) )
     if zstyle -T ":completion:${curcontext}:functions" prefix-hidden; then
       disp=( ${list[@]#_} )
       _wanted functions expl 'completion function' \
-          compadd -d disp -a list
+          compadd -d disp -a list && ret=0
     else
-      _wanted functions expl 'completion function' compadd -a list
+      _wanted functions expl 'completion function' compadd -a list && ret=0
     fi
   ;;
   style)
@@ -47,6 +47,8 @@ case $state in
         compadd -M 'r:|-=* r:|=*' \
             complete-word delete-char-or-list expand-or-complete \
             expand-or-complete-prefix list-choices menu-complete \
-            menu-expand-or-complete reverse-menu-complete
+            menu-expand-or-complete reverse-menu-complete && ret=0
   ;;
 esac
+
+return ret

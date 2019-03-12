@@ -3112,7 +3112,7 @@ fi
 if test "${with_curses_terminfo+set}" = set; then
   withval="$with_curses_terminfo"
   if test x$withval = xyes; then
-  termcap_curses_order="curses ncurses termcap"
+  termcap_curses_order="tinfo curses ncurses termcap"
   
 echo $ac_n "checking for library containing tigetstr""... $ac_c" 1>&6
 echo "configure:3119: checking for library containing tigetstr" >&5
@@ -3176,13 +3176,13 @@ else :
   
 fi
 else
-  termcap_curses_order="termcap curses ncurses"
+  termcap_curses_order="tinfo termcap curses ncurses"
 fi
 else
   case "$host_os" in
   hpux10.*|hpux11.*|solaris*)
       termcap_curses_order="curses ncurses termcap" ;;
-  *)             termcap_curses_order="termcap curses ncurses" ;;
+  *)             termcap_curses_order="tinfo termcap curses ncurses" ;;
 esac
 fi
 

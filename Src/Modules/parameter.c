@@ -181,6 +181,8 @@ scanpmparameters(HashTable ht, ScanFunc func, int flags)
 
     for (i = 0; i < realparamtab->hsize; i++)
 	for (hn = realparamtab->nodes[i]; hn; hn = hn->next) {
+	    if (((Param)hn)->flags & PM_UNSET)
+		continue;
 	    pm.nam = hn->nam;
 	    if (func != scancountparams &&
 		((flags & (SCANPM_WANTVALS|SCANPM_MATCHVAL)) ||
@@ -200,7 +202,7 @@ setpmcommand(Param pm, char *value)
 	zwarn("restricted: %s", value, 0);
 	zsfree(value);
     } else {
-	Cmdnam cn = zcalloc(sizeof(*cn));
+	Cmdnam cn = zshcalloc(sizeof(*cn));
 
 	cn->flags = HASHED;
 	cn->u.cmd = value;
@@ -231,7 +233,7 @@ setpmcommands(Param pm, HashTable ht)
 
     for (i = 0; i < ht->hsize; i++)
 	for (hn = ht->nodes[i]; hn; hn = hn->next) {
-	    Cmdnam cn = zcalloc(sizeof(*cn));
+	    Cmdnam cn = zshcalloc(sizeof(*cn));
 	    struct value v;
 
 	    v.isarr = v.inv = v.start = 0;
@@ -1417,7 +1419,7 @@ setpmnameddir(Param pm, char *value)
     if (!value)
 	zwarn("invalid value: ''", NULL, 0);
     else {
-	Nameddir nd = (Nameddir) zcalloc(sizeof(*nd));
+	Nameddir nd = (Nameddir) zshcalloc(sizeof(*nd));
 
 	nd->flags = 0;
 	nd->dir = value;
@@ -1466,7 +1468,7 @@ setpmnameddirs(Param pm, HashTable ht)
 	    if (!(val = getstrvalue(&v)))
 		zwarn("invalid value: ''", NULL, 0);
 	    else {
-		Nameddir nd = (Nameddir) zcalloc(sizeof(*nd));
+		Nameddir nd = (Nameddir) zshcalloc(sizeof(*nd));
 
 		nd->flags = 0;
 		nd->dir = ztrdup(val);

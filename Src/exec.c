@@ -688,7 +688,7 @@ hashcmd(char *arg0, char **pp)
     if (!*pp)
 	return NULL;
 
-    cn = (Cmdnam) zcalloc(sizeof *cn);
+    cn = (Cmdnam) zshcalloc(sizeof *cn);
     cn->flags = 0;
     cn->u.name = pp;
     cmdnamtab->addnode(cmdnamtab, ztrdup(arg0), cn);
@@ -3272,7 +3272,7 @@ loadautofn(Shfunc shf, int fksh, int autol)
 	return NULL;
     }
     if (!prog)
-	prog = &dummy_eprog;
+	return NULL;
     if (ksh == 2 || (ksh == 1 && isset(KSHAUTOLOAD))) {
 	if (autol) {
 	    prog->flags |= EF_RUN;
@@ -3310,17 +3310,23 @@ loadautofn(Shfunc shf, int fksh, int autol)
     return shf;
 }
 
-/* execute a shell function */
+/*
+ * execute a shell function
+ *
+ * If noreturnval is nonzero, then reset the current return
+ * value (lastval) to its value before the shell function
+ * was executed.  However, in any case return the status value
+ * from the function (i.e. if noreturnval is not set, this
+ * will be the same as lastval).
+ */
 
 /**/
-mod_export void
+mod_export int
 doshfunc(char *name, Eprog prog, LinkList doshargs, int flags, int noreturnval)
-/* If noreturnval is nonzero, then reset the current return *
- * value (lastval) to its value before the shell function   *
- * was executed.                                            */
 {
     char **tab, **x, *oargv0;
-    int oldzoptind, oldlastval, oldoptcind;
+    int oldzoptind, oldlastval, oldoptcind, oldnumpipestats, ret;
+    int *oldpipestats = NULL;
     char saveopts[OPT_SIZE], *oldscriptname = scriptname, *fname = dupstring(name);
     int obreaks;
     struct funcstack fstack;
@@ -3335,6 +3341,16 @@ doshfunc(char *name, Eprog prog, LinkList doshargs, int flags, int noreturnval)
     if (trapreturn < 0)
 	trapreturn--;
     oldlastval = lastval;
+    oldnumpipestats = numpipestats;
+    if (noreturnval) {
+	/*
+	 * Easiest to use the heap here since we're bracketed
+	 * immediately by a pushheap/popheap pair.
+	 */
+	size_t bytes = sizeof(int)*numpipestats;
+	oldpipestats = (int *)zhalloc(bytes);
+	memcpy(oldpipestats, pipestats, bytes);
+    }
 
     starttrapscope();
 
@@ -3358,7 +3374,7 @@ doshfunc(char *name, Eprog prog, LinkList doshargs, int flags, int noreturnval)
 	LinkNode node;
 
 	node = doshargs->first;
-	pparams = x = (char **) zcalloc(((sizeof *x) *
+	pparams = x = (char **) zshcalloc(((sizeof *x) *
 					 (1 + countlinknodes(doshargs))));
 	if (isset(FUNCTIONARGZERO)) {
 	    oargv0 = argzero;
@@ -3368,7 +3384,7 @@ doshfunc(char *name, Eprog prog, LinkList doshargs, int flags, int noreturnval)
 	for (; node; node = node->next, x++)
 	    *x = ztrdup((char *) node->dat);
     } else {
-	pparams = (char **) zcalloc(sizeof *pparams);
+	pparams = (char **) zshcalloc(sizeof *pparams);
 	if (isset(FUNCTIONARGZERO)) {
 	    oargv0 = argzero;
 	    argzero = ztrdup(argzero);
@@ -3440,9 +3456,15 @@ doshfunc(char *name, Eprog prog, LinkList doshargs, int flags, int noreturnval)
 
     if (trapreturn < -1)
 	trapreturn++;
-    if (noreturnval)
+    ret = lastval;
+    if (noreturnval) {
 	lastval = oldlastval;
+	numpipestats = oldnumpipestats;
+	memcpy(pipestats, oldpipestats, sizeof(int)*numpipestats);
+    }
     popheap();
+
+    return ret;
 }
 
 /* This finally executes a shell function and any function wrappers     *

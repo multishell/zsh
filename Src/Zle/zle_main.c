@@ -64,7 +64,7 @@ int mark;
 /* last character pressed */
 
 /**/
-int c;
+mod_export int c;		/* YUK! */
 
 /* the bindings for the previous and for this key */
 
@@ -99,9 +99,9 @@ mod_export Widget compwidget;
 /* the status line, and its length */
 
 /**/
-char *statusline;
+mod_export char *statusline;
 /**/
-int statusll;
+mod_export int statusll;
 
 /* The current history line and cursor position for the top line *
  * on the buffer stack.                                          */
@@ -684,7 +684,7 @@ execzlefunc(Thingy func, char **args)
 	    zsfree(msg);
 	    ret = 1;
 	} else {
-	    int osc = sfcontext, osi = movefd(0), olv = lastval;
+	    int osc = sfcontext, osi = movefd(0);
 	    LinkList largs = NULL;
 
 	    if (*args) {
@@ -696,9 +696,7 @@ execzlefunc(Thingy func, char **args)
 	    startparamscope();
 	    makezleparams(0);
 	    sfcontext = SFC_WIDGET;
-	    doshfunc(w->u.fnnam, prog, largs, 0, 0);
-	    ret = lastval;
-	    lastval = olv;
+	    ret = doshfunc(w->u.fnnam, prog, largs, 0, 1);
 	    sfcontext = osc;
 	    endparamscope();
 	    lastcmd = 0;
@@ -951,9 +949,10 @@ bin_vared(char *name, char **args, char *ops, int func)
 
 	/*
 	 * Use spacesplit with fourth argument 1: identify quoted separators,
-	 * unquote but don't split.
+	 * and unquote.  This duplicates the string, so we still need to free.
 	 */
 	a = spacesplit(t, 1, 0, 1);
+	zsfree(t);
 	if (PM_TYPE(pm->flags) == PM_ARRAY)
 	    setaparam(args[0], a);
 	else
@@ -1140,8 +1139,9 @@ setup_(Module m)
     varedarg = NULL;
 
     incompfunc = incompctlfunc = hascompmod = 0;
+    hascompwidgets = 0;
 
-    clwords = (char **) zcalloc((clwsize = 16) * sizeof(char *));
+    clwords = (char **) zshcalloc((clwsize = 16) * sizeof(char *));
 
     return 0;
 }

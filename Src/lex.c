@@ -44,7 +44,7 @@ mod_export char *tokstr;
 /**/
 mod_export int tok;
 /**/
-int tokfd;
+mod_export int tokfd;
 
 /* lexical analyzer error flag */
  
@@ -1508,7 +1508,7 @@ parse_subst_string(char *s)
 {
     int c, l = strlen(s), err, olen;
 
-    if (! *s)
+    if (! *s || !strcmp(s, nulstring))
 	return 0;
     lexsave();
     untokenize(s);

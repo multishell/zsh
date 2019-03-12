@@ -51,6 +51,12 @@ static char terminfo_nam[] = "terminfo";
 #  include <term.h>
 # endif
 
+/* If ERR isn't defined, we probably have bigger problems,
+ * but try this anyway. */
+# ifndef ERR
+#  define ERR (-1)
+# endif
+
 static Param terminfo_pm;
 
 /* echoti: output a terminfo capability */
@@ -59,8 +65,10 @@ static Param terminfo_pm;
 static int
 bin_echoti(char *name, char **argv, char *ops, int func)
 {
-    char *s, *t;
-    int num;
+    char *s, *t, **u;
+    int arg, num, strarg = 0;
+    long pars[] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
+    char *strcap[] = { "pfkey", "pfloc", "pfx", "pln", "pfxl", NULL };
 
     s = *argv++;
     /* This depends on the termcap stuff in init.c */
@@ -92,8 +100,31 @@ bin_echoti(char *name, char **argv, char *ops, int func)
 	zwarnnam(name, "no such terminfo capability: %s", s, 0);
 	return 1;
     }
+    /* check that the number of arguments provided is not too high */
+    if (arrlen(argv) > 9) {
+        zwarnnam(name, "too many arguments", NULL, 0);
+        return 1;
+    }
 
-    tputs(t, 1, putchar);
+    /* check if we have a capability taking non-integers for parameters */
+    for (u = strcap; *u && !strarg; u++)
+      strarg = !strcmp(s, *u);
+
+    /* get the arguments */
+    for (arg=0; argv[arg]; arg++) {
+	if (strarg && arg > 0)
+            pars[arg] = (long) argv[arg];
+	else
+            pars[arg] = atoi(argv[arg]);
+    }
+
+    /* output string, through the proper termcap functions */
+    if (!arg)
+        putp(t);
+    else {
+        putp(tparm(t, pars[0], pars[1], pars[2], pars[3], pars[4],
+	              pars[5], pars[6], pars[7], pars[8]));
+    }
     return 0;
 }
 
@@ -351,7 +382,10 @@ boot_(Module m)
 {
 #ifdef HAVE_TIGETSTR
 # ifdef HAVE_SETUPTERM
-    setupterm((char *)0, 1, (int *)0);
+    int errret;
+
+    if (setupterm((char *)0, 1, &errret) == ERR)
+	return 1;
 # endif
 
     if (!createtihash())

@@ -318,7 +318,7 @@ scancopyparams(HashNode hn, int flags)
 {
     /* Going into a real parameter, so always use permanent storage */
     Param pm = (Param)hn;
-    Param tpm = (Param) zcalloc(sizeof *tpm);
+    Param tpm = (Param) zshcalloc(sizeof *tpm);
     tpm->nam = ztrdup(pm->nam);
     copyparam(tpm, pm, 0);
     addhashnode(outtable, tpm->nam, tpm);
@@ -687,7 +687,7 @@ createparam(char *name, int flags)
 	    pm->ct = 0;
 	    oldpm = pm->old;
 	} else {
-	    pm = (Param) zcalloc(sizeof *pm);
+	    pm = (Param) zshcalloc(sizeof *pm);
 	    if ((pm->old = oldpm)) {
 		/*
 		 * needed to avoid freeing oldpm, but we do take it
@@ -763,7 +763,7 @@ copyparam(Param tpm, Param pm, int toplevel)
 /* Return 1 if the string s is a valid identifier, else return 0. */
 
 /**/
-int
+mod_export int
 isident(char *s)
 {
     char *ss;
@@ -1753,7 +1753,7 @@ setarrvalue(Value v, char **val)
 	if (v->end <= n)
 	    ll += n - v->end + 1;
 
-	p = new = (char **) zcalloc(sizeof(char *) * (ll + 1));
+	p = new = (char **) zshcalloc(sizeof(char *) * (ll + 1));
 
 	for (i = 0; i < v->start; i++)
 	    *p++ = i < n ? ztrdup(*q++) : ztrdup("");
@@ -2089,18 +2089,18 @@ unsetparam(char *s)
 /* Unset a parameter */
 
 /**/
-mod_export void
+mod_export int
 unsetparam_pm(Param pm, int altflag, int exp)
 {
     Param oldpm, altpm;
 
     if ((pm->flags & PM_READONLY) && pm->level <= locallevel) {
 	zerr("read-only variable: %s", pm->nam, 0);
-	return;
+	return 1;
     }
     if ((pm->flags & PM_RESTRICTED) && isset(RESTRICTED)) {
 	zerr("%s: restricted", pm->nam, 0);
-	return;
+	return 1;
     }
     pm->unsetfn(pm, exp);
     if ((pm->flags & PM_EXPORTED) && pm->env) {
@@ -2142,7 +2142,7 @@ unsetparam_pm(Param pm, int altflag, int exp)
      */
     if ((pm->level && locallevel >= pm->level) ||
 	(pm->flags & (PM_SPECIAL|PM_REMOVABLE)) == PM_SPECIAL)
-	return;
+	return 0;
 
     /* remove parameter node from table */
     paramtab->removenode(paramtab, pm->nam);
@@ -2167,6 +2167,8 @@ unsetparam_pm(Param pm, int altflag, int exp)
     }
 
     paramtab->freenode((HashNode) pm); /* free parameter node */
+
+    return 0;
 }
 
 /* Standard function to unset a parameter.  This is mostly delegated to *

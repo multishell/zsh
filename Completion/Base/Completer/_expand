@@ -41,7 +41,7 @@ zstyle -t ":completion:${curcontext}:" accept-exact ||
   [[ $? -eq 2 && ! -o recexact ]] ||
   { [[ "$word" = \~(|[-+]) ||
        ( "$word" = \~[-+][1-9]## && $word[3,-1] -le $#dirstack ) ||
-       ( "$word" = \~* && ${#userdirs[(I)${word[2,-1]}*]}+${#nameddirs[(I)${word[2,-1]}*]} -ne 1 ) ||
+       ( "$word" = \~* && ${#userdirs[(I)${word[2,-1]}*]}+${#nameddirs[(I)${word[2,-1]}*]} -gt 1 ) ||
        ( "$word" = *\$[a-zA-Z0-9_]## && 
          ${#parameters[(I)${word##*\$}*]} -ne 1 ) ]] && return 1 }
 

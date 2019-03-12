@@ -292,8 +292,9 @@ update_job(Job jn)
 	}
     }
 
-    if (shout && !ttyfrozen && !jn->stty_in_env && !zleactive &&
-	job == thisjob && !somestopped && !(jn->stat & STAT_NOSTTY))
+    if (shout && shout != stderr && !ttyfrozen && !jn->stty_in_env &&
+	!zleactive && job == thisjob && !somestopped &&
+	!(jn->stat & STAT_NOSTTY)) 
 	gettyinfo(&shttyinfo);
 
     if (isset(MONITOR)) {
@@ -815,7 +816,7 @@ addproc(pid_t pid, char *text)
     Process pn;
     struct timezone dummy_tz;
 
-    pn = (Process) zcalloc(sizeof *pn);
+    pn = (Process) zshcalloc(sizeof *pn);
     pn->pid = pid;
     if (text)
 	strcpy(pn->text, text);
