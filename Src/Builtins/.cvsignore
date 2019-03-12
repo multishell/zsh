@@ -13,3 +13,5 @@ so_locations
 *.mdhs
 *.mdh.tmp
 rlimits.h
+*.swp
+*.dll

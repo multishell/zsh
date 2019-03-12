@@ -1,4 +1,4 @@
-#compdef rmdir df dircmp dirs
+#compdef rmdir df dircmp -P -value-,*path,-default-
 
 local expl
 

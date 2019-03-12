@@ -163,8 +163,6 @@ loop(int toplevel, int justonce)
 	    if (stopmsg)	/* unset 'you have stopped jobs' flag */
 		stopmsg--;
 	    execode(prog, 0, 0);
-	    if (toplevel)
-		freeeprogs();
 	    tok = toksav;
 	    if (toplevel)
 		noexitct = 0;
@@ -356,7 +354,6 @@ printhelp(void)
 mod_export void
 init_io(void)
 {
-    long ttpgrp;
     static char outbuf[BUFSIZ], errbuf[BUFSIZ];
 
 #ifdef RSH_BUG_WORKAROUND
@@ -465,21 +462,13 @@ init_io(void)
 	opts[USEZLE] = 0;
 
 #ifdef JOB_CONTROL
-    /* If interactive, make the shell the foreground process */
+    /* If interactive, make sure the shell is in the foreground and is the
+     * process group leader.
+     */
+    mypid = (zlong)getpid();
     if (opts[MONITOR] && interact && (SHTTY != -1)) {
-	if ((mypgrp = GETPGRP()) > 0) {
-	    while ((ttpgrp = gettygrp()) != -1 && ttpgrp != mypgrp) {
-		sleep(1);	/* give parent time to change pgrp */
-		mypgrp = GETPGRP();
-		if (mypgrp == mypid)
-		    attachtty(mypgrp);
-		if (mypgrp == gettygrp())
-		    break;
-		killpg(mypgrp, SIGTTIN);
-		mypgrp = GETPGRP();
-	    }
-	} else
-	    opts[MONITOR] = 0;
+	origpgrp = GETPGRP();
+        acquire_pgrp(); /* might also clear opts[MONITOR] */
     } else
 	opts[MONITOR] = 0;
 #else
@@ -492,6 +481,9 @@ mod_export void
 init_shout(void)
 {
     static char shoutbuf[BUFSIZ];
+#if defined(JOB_CONTROL) && defined(TIOCSETD) && defined(NTTYDISC)
+    int ldisc;
+#endif
 
     if (SHTTY == -1)
     {
@@ -501,8 +493,7 @@ init_shout(void)
     }
 
 #if defined(JOB_CONTROL) && defined(TIOCSETD) && defined(NTTYDISC)
-    int ldisc = NTTYDISC;
-
+    ldisc = NTTYDISC;
     ioctl(SHTTY, TIOCSETD, (char *)&ldisc);
 #endif
 
@@ -627,14 +618,11 @@ setupvals(void)
 #endif
     struct timezone dummy_tz;
     char *ptr;
-#ifdef HAVE_GETRLIMIT
-    int i;
-#endif
+    int i, j;
 #if defined(SITEFPATH_DIR) || defined(FPATH_DIR)
     char **fpathptr;
 # if defined(FPATH_DIR) && defined(FPATH_SUBDIRS)
     char *fpath_subdirs[] = FPATH_SUBDIRS;
-    int j;
 # endif
 # ifdef SITEFPATH_DIR
     int fpathlen = 1;
@@ -642,6 +630,47 @@ setupvals(void)
     int fpathlen = 0;
 # endif
 #endif
+    int close_fds[10], tmppipe[2];
+
+    /*
+     * Workaround a problem with NIS (in one guise or another) which
+     * grabs file descriptors and keeps them for future reference.
+     * We don't want these to be in the range where the user can
+     * open fd's, i.e. 0 to 9 inclusive.  So we make sure all
+     * fd's in that range are in use.
+     */
+    memset(close_fds, 0, 10*sizeof(int));
+    if (pipe(tmppipe) == 0) {
+	/*
+	 * Strategy:  Make sure we have at least fd 0 open (hence
+	 * the pipe).  From then on, keep dup'ing until we are
+	 * up to 9.  If we go over the top, close immediately, else
+	 * mark for later closure.
+	 */
+	i = -1;			/* max fd we have checked */
+	while (i < 9) {
+	    /* j is current fd */
+	    if (i < tmppipe[0])
+		j = tmppipe[0];
+	    else if (i < tmppipe[1])
+		j = tmppipe[1];
+	    else {
+		j = dup(0);
+		if (j == -1)
+		    break;
+	    }
+	    if (j < 10)
+		close_fds[j] = 1;
+	    else
+		close(j);
+	    if (i < j)
+		i = j;
+	}
+	if (i < tmppipe[0])
+	    close(tmppipe[0]);
+	if (i < tmppipe[1])
+	    close(tmppipe[1]);
+    }
 
     addhookdefs(argzero, zshhooks, sizeof(zshhooks)/sizeof(*zshhooks));
 
@@ -779,12 +808,12 @@ setupvals(void)
     initlextabs();    /* initialize lexing tables    */
 
     createreswdtable();     /* create hash table for reserved words    */
-    createaliastable();     /* create hash table for aliases           */
+    createaliastables();    /* create hash tables for aliases           */
     createcmdnamtable();    /* create hash table for external commands */
     createshfunctable();    /* create hash table for shell functions   */
     createbuiltintable();   /* create hash table for builtin commands  */
     createnameddirtable();  /* create hash table for named directories */
-    createparamtable();     /* create paramater hash table             */
+    createparamtable();     /* create parameter hash table             */
 
     condtab = NULL;
     wrappers = NULL;
@@ -828,6 +857,11 @@ setupvals(void)
     }
 
     times(&shtms);
+
+    /* Close the file descriptors we opened to block off 0 to 9 */
+    for (i = 0; i < 10; i++)
+	if (close_fds[i])
+	    close(i);
 }
 
 /* Initialize signal handling */
@@ -836,6 +870,12 @@ setupvals(void)
 void
 init_signals(void)
 {
+    if (interact) {
+	int i;
+	signal_setmask(signal_mask(0));
+	for (i=0; i<NSIG; ++i)
+	    signal_default(i);
+    }
     sigchld_mask = signal_mask(SIGCHLD);
 
     intr();
@@ -844,7 +884,10 @@ init_signals(void)
     signal_ignore(SIGQUIT);
 #endif
 
-    install_handler(SIGHUP);
+    if (signal_ignore(SIGHUP) == SIG_IGN)
+	opts[HUP] = 0;
+    else
+	install_handler(SIGHUP);
     install_handler(SIGCHLD);
 #ifdef SIGWINCH
     install_handler(SIGWINCH);
@@ -854,28 +897,9 @@ init_signals(void)
 	signal_ignore(SIGTERM);
     }
     if (jobbing) {
-	long ttypgrp;
-
-	while ((ttypgrp = gettygrp()) != -1 && ttypgrp != mypgrp)
-	    kill(0, SIGTTIN);
-	if (ttypgrp == -1) {
-	    opts[MONITOR] = 0;
-	} else {
-	    signal_ignore(SIGTTOU);
-	    signal_ignore(SIGTSTP);
-	    signal_ignore(SIGTTIN);
-	    attachtty(mypgrp);
-	}
-    }
-    if (islogin) {
-	signal_setmask(signal_mask(0));
-    } else if (interact) {
-	sigset_t set;
-
-	sigemptyset(&set);
-	sigaddset(&set, SIGINT);
-	sigaddset(&set, SIGQUIT);
-	signal_unblock(set);
+	signal_ignore(SIGTTOU);
+	signal_ignore(SIGTSTP);
+	signal_ignore(SIGTTIN);
     }
 }
 
@@ -1104,6 +1128,8 @@ mod_export ZleVoidFn refreshptr = noop_function;
 mod_export ZleVoidIntFn spaceinlineptr = noop_function_int;
 /**/
 mod_export ZleReadFn zlereadptr = autoload_zleread;
+/**/
+mod_export ZleVoidIntFn zlesetkeymapptr = noop_function_int;
 
 #else /* !LINKED_XMOD_zshQszle */
 
@@ -1112,25 +1138,27 @@ mod_export ZleVoidFn refreshptr = noop_function;
 mod_export ZleVoidIntFn spaceinlineptr = noop_function_int;
 # ifdef UNLINKED_XMOD_zshQszle
 mod_export ZleReadFn zlereadptr = autoload_zleread;
+mod_export ZleVoidIntFn zlesetkeymapptr = autoload_zlesetkeymap;
 # else /* !UNLINKED_XMOD_zshQszle */
 mod_export ZleReadFn zlereadptr = fallback_zleread;
+mod_export ZleVoidIntFn zlesetkeymapptr = noop_function_int;
 # endif /* !UNLINKED_XMOD_zshQszle */
 
 #endif /* !LINKED_XMOD_zshQszle */
 
 /**/
 unsigned char *
-autoload_zleread(char *lp, char *rp, int ha)
+autoload_zleread(char *lp, char *rp, int ha, int con)
 {
     zlereadptr = fallback_zleread;
     if (load_module("zsh/zle"))
 	load_module("zsh/compctl");
-    return zleread(lp, rp, ha);
+    return zleread(lp, rp, ha, con);
 }
 
 /**/
 mod_export unsigned char *
-fallback_zleread(char *lp, char *rp, int ha)
+fallback_zleread(char *lp, char *rp, int ha, int con)
 {
     char *pptbuf;
     int pptlen;
@@ -1142,6 +1170,16 @@ fallback_zleread(char *lp, char *rp, int ha)
     return (unsigned char *)shingetline();
 }
 
+/**/
+static void
+autoload_zlesetkeymap(int mode)
+{
+    zlesetkeymapptr = noop_function_int;
+    load_module("zsh/zle");
+    (*zlesetkeymapptr)(mode);
+}
+
+
 /* compctl entry point pointers.  Similar to the ZLE ones. */
 
 /**/
@@ -1149,7 +1187,7 @@ mod_export CompctlReadFn compctlreadptr = fallback_compctlread;
 
 /**/
 mod_export int
-fallback_compctlread(char *name, char **args, char *ops, char *reply)
+fallback_compctlread(char *name, char **args, Options ops, char *reply)
 {
     zwarnnam(name, "option valid only in functions called from completion",
 	    NULL, 0);
@@ -1171,7 +1209,7 @@ zsh_main(int argc, char **argv)
     setlocale(LC_ALL, "");
 #endif
 
-    init_hackzero(argv, environ);
+    init_jobs(argv, environ);
 
     /*
      * Provisionally set up the type table to allow metafication.
@@ -1205,8 +1243,7 @@ zsh_main(int argc, char **argv)
 	  break;
     } while (zsh_name);
 
-    /* Not zopenmax() here: it may return a number too big for zshcalloc(). */
-    fdtable_size = 256; /* This grows as necessary, see utils.c:movefd(). */
+    fdtable_size = zopenmax();
     fdtable = zshcalloc(fdtable_size);
 
     createoptiontable();
@@ -1226,6 +1263,13 @@ zsh_main(int argc, char **argv)
     init_misc();
 
     for (;;) {
+	/*
+	 * See if we can free up some of jobtab.
+	 * We only do this at top level, because if we are
+	 * executing stuff we may refer to them by job pointer.
+	 */
+	maybeshrinkjobtab();
+
 	do
 	    loop(1,0);
 	while (tok != ENDINPUT && (tok != LEXERR || isset(SHINSTDIN)));

@@ -62,23 +62,23 @@ selfinsert(char **args)
 {
     char s[3], *p = s;
 
-    if(imeta(c)) {
+    if(imeta(lastchar)) {
 	*p++ = Meta;
-	c ^= 32;
+	lastchar ^= 32;
     }
-    *p++ = c;
+    *p++ = lastchar;
     *p = 0;
     doinsert(s);
     return 0;
 }
 
 /**/
-int
+mod_export int
 selfinsertunmeta(char **args)
 {
-    c &= 0x7f;
-    if (c == '\r')
-	c = '\n';
+    lastchar &= 0x7f;
+    if (lastchar == '\r')
+	lastchar = '\n';
     return selfinsert(args);
 }
 
@@ -331,28 +331,35 @@ copyregionaskill(char **args)
     return 0;
 }
 
+/*
+ * kct: index into kill ring, or -1 for original cutbuffer of yank.
+ * yankb, yanke: mark the start and end of last yank in editing buffer.
+ */
 static int kct, yankb, yanke;
+/* The original cutbuffer, either cutbuf or one of the vi buffers. */
+static Cutbuffer kctbuf;
 
 /**/
 int
 yank(char **args)
 {
-    Cutbuffer buf = &cutbuf;
     int n = zmult;
 
     if (n < 0)
 	return 1;
     if (zmod.flags & MOD_VIBUF)
-	buf = &vibuf[zmod.vibuf];
-    if (!buf->buf)
+	kctbuf = &vibuf[zmod.vibuf];
+    else
+	kctbuf = &cutbuf;
+    if (!kctbuf->buf)
 	return 1;
     mark = cs;
     yankb = cs;
     while (n--) {
-	kct = kringnum;
-	spaceinline(buf->len);
-	memcpy((char *)line + cs, buf->buf, buf->len);
-	cs += buf->len;
+	kct = -1;
+	spaceinline(kctbuf->len);
+	memcpy((char *)line + cs, kctbuf->buf, kctbuf->len);
+	cs += kctbuf->len;
 	yanke = cs;
     }
     return 0;
@@ -362,18 +369,58 @@ yank(char **args)
 int
 yankpop(char **args)
 {
-    int cc;
+    int cc, kctstart = kct;
+    Cutbuffer buf;
 
-    if (!(lastcmd & ZLE_YANK) || !kring[kct].buf)
+    if (!(lastcmd & ZLE_YANK) || !kring || !kctbuf) {
+	kctbuf = NULL;
 	return 1;
+    }
+    do {
+	/*
+	 * This is supposed to make the yankpop loop
+	 *   original buffer -> kill ring in order -> original buffer -> ...
+	 * where the original buffer is -1 and the remainder are
+	 * indices into the kill ring, remember that we need to start
+	 * that at kringnum rather than zero.
+	 */
+	if (kct == -1)
+	    kct = kringnum;
+	else {
+	    int kctnew = (kct + kringsize - 1) % kringsize;
+	    if (kctnew == kringnum)
+		kct = -1;
+	    else
+		kct = kctnew;
+	}
+	if (kct == -1)
+	    buf = kctbuf;	/* Use original cutbuffer */
+	else
+	    buf = kring+kct;	/* Use somewhere in the kill ring */
+	/* Careful to prevent infinite looping */
+	if (kct == kctstart)
+	    return 1;
+	/*
+	 * Skip unset buffers instead of stopping as we used to do.
+	 * Also skip zero-length buffers.
+	 * There are two reasons for this:
+	 * 1. We now map the array $killring directly into the
+	 *    killring, instead of via some extra size-checking logic.
+	 *    When $killring has been set, a buffer will always have
+	 *    at least a zero-length string in it.
+	 * 2. The old logic was inconsistent; when the kill ring
+	 *    was full, we could loop round and round it, otherwise
+	 *    we just stopped when we hit the first empty buffer.
+	 */
+    } while (!buf->buf || !*buf->buf);
+
     cs = yankb;
     foredel(yanke - yankb);
-    cc = kring[kct].len;
+    cc = buf->len;
     spaceinline(cc);
-    memcpy((char *)line + cs, kring[kct].buf, cc);
+    memcpy((char *)line + cs, buf->buf, cc);
     cs += cc;
     yanke = cs;
-    kct = (kct + KRINGCT - 1) % KRINGCT;
     return 0;
 }
 
@@ -442,11 +489,11 @@ quotedinsert(char **args)
     sob.sg_flags = (sob.sg_flags | RAW) & ~ECHO;
     ioctl(SHTTY, TIOCSETN, &sob);
 #endif
-    c = getkey(0);
+    lastchar = getkey(0);
 #ifndef HAS_TIO
     zsetterm();
 #endif
-    if (c < 0)
+    if (lastchar < 0)
 	return 1;
     else
 	return selfinsert(args);
@@ -459,7 +506,7 @@ digitargument(char **args)
     int sign = (zmult < 0) ? -1 : 1;
 
     /* allow metafied as well as ordinary digits */
-    if ((c & 0x7f) < '0' || (c & 0x7f) > '9')
+    if ((lastchar & 0x7f) < '0' || (lastchar & 0x7f) > '9')
 	return 1;
 
     if (!(zmod.flags & MOD_TMULT))
@@ -467,10 +514,10 @@ digitargument(char **args)
     if (zmod.flags & MOD_NEG) {
 	/* If we just had a negative argument, this is the digit, *
 	 * rather than the -1 assumed by negargument()            */
-	zmod.tmult = sign * (c & 0xf);
+	zmod.tmult = sign * (lastchar & 0xf);
 	zmod.flags &= ~MOD_NEG;
     } else
-	zmod.tmult = zmod.tmult * 10 + sign * (c & 0xf);
+	zmod.tmult = zmod.tmult * 10 + sign * (lastchar & 0xf);
     zmod.flags |= MOD_TMULT;
     prefixflag = 1;
     return 0;
@@ -669,7 +716,7 @@ executenamedcommand(char *prmt)
     int len, l = strlen(prmt), feep = 0, listed = 0, curlist = 0;
     int ols = (listshown && validlist), olll = lastlistlen;
     char *ptr;
-    char *okeymap = curkeymapname;
+    char *okeymap = ztrdup(curkeymapname);
 
     clearlist = 1;
     cmdbuf = zhalloc(l + NAMLEN + 2);
@@ -685,6 +732,7 @@ executenamedcommand(char *prmt)
 	if (!(cmd = getkeycmd()) || cmd == Th(z_sendbreak)) {
 	    statusline = NULL;
 	    selectkeymap(okeymap, 1);
+	    zsfree(okeymap);
 	    if ((listshown = ols)) {
 		showinglist = -2;
 		lastlistlen = olll;
@@ -716,16 +764,16 @@ executenamedcommand(char *prmt)
 	} else if(cmd == Th(z_viquotedinsert)) {
 	    *ptr = '^';
 	    zrefresh();
-	    c = getkey(0);
-	    if(c == EOF || !c || len == NAMLEN)
+	    lastchar = getkey(0);
+	    if(lastchar == EOF || !lastchar || len == NAMLEN)
 		feep = 1;
 	    else
-		*ptr++ = c, len++, curlist = 0;
+		*ptr++ = lastchar, len++, curlist = 0;
 	} else if(cmd == Th(z_quotedinsert)) {
-	    if((c = getkey(0)) == EOF || !c || len == NAMLEN)
+	    if((lastchar = getkey(0)) == EOF || !lastchar || len == NAMLEN)
 		feep = 1;
 	    else
-		*ptr++ = c, len++, curlist = 0;
+		*ptr++ = lastchar, len++, curlist = 0;
 	} else if(cmd == Th(z_backwarddeletechar) ||
 	    	cmd == Th(z_vibackwarddeletechar)) {
 	    if (len)
@@ -752,6 +800,7 @@ executenamedcommand(char *prmt)
 		    unrefthingy(r);
 		    statusline = NULL;
 		    selectkeymap(okeymap, 1);
+		    zsfree(okeymap);
 		    if ((listshown = ols)) {
 			showinglist = -2;
 			lastlistlen = olll;
@@ -762,15 +811,15 @@ executenamedcommand(char *prmt)
 		unrefthingy(r);
 	    }
 	    if(cmd == Th(z_selfinsertunmeta)) {
-		c &= 0x7f;
-		if(c == '\r')
-		    c = '\n';
+		lastchar &= 0x7f;
+		if(lastchar == '\r')
+		    lastchar = '\n';
 		cmd = Th(z_selfinsert);
 	    }
 	    if (cmd == Th(z_listchoices) || cmd == Th(z_deletecharorlist) ||
 		cmd == Th(z_expandorcomplete) || cmd == Th(z_completeword) ||
 		cmd == Th(z_expandorcompleteprefix) || cmd == Th(z_vicmdmode) ||
-		cmd == Th(z_acceptline) || c == ' ' || c == '\t') {
+		cmd == Th(z_acceptline) || lastchar == ' ' || lastchar == '\t') {
 		cmdambig = 100;
 
 		cmdll = newlinklist();
@@ -817,10 +866,11 @@ executenamedcommand(char *prmt)
 		    len = cmdambig;
 		}
 	    } else {
-		if (len == NAMLEN || icntrl(c) || cmd != Th(z_selfinsert))
+		if (len == NAMLEN || icntrl(lastchar) ||
+		    cmd != Th(z_selfinsert))
 		    feep = 1;
 		else
-		    *ptr++ = c, len++, curlist = 0;
+		    *ptr++ = lastchar, len++, curlist = 0;
 	    }
 	}
 	if (feep)

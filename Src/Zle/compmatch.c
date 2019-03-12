@@ -341,7 +341,7 @@ add_match_part(Cmatcher m, char *l, char *w, int wl,
 
     /* If the anchors are equal, we keep only one. */
 
-    if (!strncmp(l, w, wl))
+    if (l && !strncmp(l, w, wl))
 	l = NULL;
 
     /* Split the new part into parts and turn the last one into a
@@ -1129,7 +1129,7 @@ pattern_match(Cpattern p, char *s, unsigned char *in, unsigned char *out)
 Cline
 bld_parts(char *str, int len, int plen, Cline *lp)
 {
-    Cline ret = NULL, *q = &ret, n;
+    Cline ret = NULL, *q = &ret, n = NULL;
     Cmlist ms;
     Cmatcher mp;
     int t, op = plen;
@@ -1178,14 +1178,18 @@ bld_parts(char *str, int len, int plen, Cline *lp)
     }
     /* This is the cline struct for the remaining string at the end. */
 
-    *q = n = get_cline(NULL, 0, NULL, 0, NULL, 0, (plen <= 0 ? CLF_NEW : 0));
     if (p != str) {
 	int olen = str - p, llen = (op < 0 ? 0 : op);
+
+        *q = n = get_cline(NULL, 0, NULL, 0, NULL, 0, (plen <= 0 ? CLF_NEW : 0));
 
 	if (llen > olen)
 	    llen = olen;
 	n->prefix = get_cline(NULL, llen, p, olen, NULL, 0, 0);
     }
+    else if (!ret)
+        *q = n = get_cline(NULL, 0, NULL, 0, NULL, 0, (plen <= 0 ? CLF_NEW : 0));
+
     n->next = NULL;
 
     if (lp)
@@ -1580,10 +1584,24 @@ sub_match(Cmdata md, char *str, int len, int sfx)
 	if (check_cmdata(md, sfx))
 	    return ret;
 
+	/*
+	 * Look for a common prefix.  If we do include metafied
+	 * characters, at this stage we still need the overall length
+	 * including Meta's as separate characters.
+	 */
 	for (l = 0, p = str, q = md->str;
 	     l < len && l < md->len && p[ind] == q[ind];
-	     l++, p += add, q += add);
+	     l++, p += add, q += add) {}
 
+	/* Make sure we don't end in the middle of a Meta sequence. */
+	if (add == 1) {
+	    if (l && p[-1] == Meta)
+		l--;
+	} else {
+	    if (l && ((l < len && p[-1] == Meta)
+		   || (l < md->len && q[-1] == Meta)))
+		l--;
+	}
 	if (l) {
 	    /* There was a common prefix, use it. */
 	    md->len -= l; len -= l;

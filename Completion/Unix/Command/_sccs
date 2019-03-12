@@ -2,10 +2,17 @@
 
 (( $+functions[_sccs_files] )) ||
 _sccs_files() {
-  local dir=${PROJECTDIR:-~+}/${PREFIX##*/}/$finalpath
-
-  compset -P '*/'
-  _files -W $dir -g \*\(:s/s.//\) "$@"
+  local dir expl ret=1 pref=$PREFIX ipref=$IPREFIX
+  dir="${(M)PREFIX##*/}$finalpath"
+  [[ $~dir = (.|..|)/* ]] || dir="${PROJECTDIR:-~+}/$dir"
+  compset -P "*/"
+  _wanted file expl file compadd "$@" - $~dir/s.*(N.:t:s/s.//) && ret=0
+  PREFIX="$pref"
+  IPREFIX="$ipref"
+  _wanted sccs-files expl 'sccs file' _files -W ${PROJECTDIR:-~+} \
+      -g 's.*(-.)' && ret=0
+  
+  return ret
 }
 
 local curcontext="$curcontext" state line ret=1
@@ -13,14 +20,36 @@ typeset -A opt_args
 local subcmds ropt copt sfiles finalpath
 
 subcmds=(
-  admin cdc check clean comb create deledit delget delta diffs edit
-  enter fix get help info print prs ptr rmdel sact sccsdiff tell
-  unedit unget val what
+  'admin:modify the flags or checksum of an sccs history file'
+  'cdc:annotate the commentary of an sccs delta'
+  'check:check for files currently being edited'
+  'clean:remove files that can be retrieved from sccs history'
+  'comb:generate scripts to combine deltas'
+  'create:create (initialize) history files'
+  'deledit:check file in and straight out again'
+  'delget:check file in and maintain read-only copy'
+  'delta:check in changes'
+  'diffs:compare working copy with version in sccs history'
+  'edit:retrieve file for editing (check out)'
+  "enter:like create, but omits the final 'sccs get'"
+  'fix:revise a (leaf) delta'
+  'get:retrieve a version from the sccs history'
+  'help:get information on sccs commands and error messages'
+  {info,tell}':list files being edited'
+  'print:print history of specified files'
+  'prs:display delta table for an sccs file'
+  'prt:display the delta table, but omit the MR field'
+  'rmdel:remove specified delta from history file'
+  'sact:show editing activity status of an sccs file'
+  'sccsdiff:compare two versions from sccs history'
+  {unedit,unget}':undo check out'
+  'val:validate history file'
+  'what:display any ID keyword strings in a file'
 )
 
 ropt='-r+[specify sccs delta id]:sccs delta id'
 copt='-c+[specify date]:date-stamp'
-sfiles=':file:_sccs_files'
+sfiles=':file:_files -g "s.*(-.)"'
 
 if [[ $service = sccs ]]; then
   _arguments -C -A "-*" \
@@ -30,11 +59,12 @@ if [[ $service = sccs ]]; then
     '*::command:->subcmd' && ret=0
 
   if (( CURRENT == 1 )); then
-    _wanted commands expl 'sccs command' compadd -a subcmds && ret=0
+    _describe -t commands 'sccs command' subcmds && ret=0
   fi
   (( ret )) || return 0
 
   service="$words[1]"
+  sfiles=':file:_sccs_files'
   curcontext="${curcontext%:*}-$service:"
 fi
 finalpath="${opt_args[-p]:-SCCS}"
@@ -95,9 +125,10 @@ case $service in
   ;;
   fix) _arguments "$ropt" "$sfiles";;
   help)
-    _alternative \
-      "commands:sccs command:(${(j: :)subcmds})" \
-      'message-codes:sccs message code:' 
+    [[ $PREFIX$SUFFIX = [0-9]# ]] &&
+        _message -e message-codes "sccs message code"
+    subcmds+=( "stuck:help on help" )
+    _describe -t commands 'sccs command' subcmds
   ;;
   prs)
     _arguments "$sfiles" "$ropt" "$copt" \
@@ -121,6 +152,11 @@ case $service in
     ;;
   rmdel) _arguments "$ropt" "$sfiles";;
   sccsdiff) _diff_options diff "$ropt" "$sfiles";;
+  unedit|unget)
+    _arguments "$sfiles" "$ropt" \
+      '-s[silent]' \
+      '-n[retain the retrieved version]'
+    ;;
   val)
     _arguments "$sfiles" "$ropt" \
       '-s[silent]' \

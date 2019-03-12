@@ -14,7 +14,7 @@ typeset -A opt_args
 formats=jpg:jpeg:tiff:miff:ras:bmp:cgm:dcx:ps:eps:fig:fits:fpx:gif:mpeg:pbm:pgm:ppm:pcd:pcl:pdf:pcx:png:rad:rgb:rgba:rle:sgi:html:shtml:tga:ttf:uil:xwd:xbm:xpm:yuv
 
 if (( $# )); then
-  _files "$@" "$expl[@]" -g '*.(#i)(${~format//:/|})'
+  _files "$@" "$expl[@]" -g '*.(#i)(${~format//:/|})(-.)'
   return
 fi
 
@@ -517,7 +517,7 @@ case "$service" in
       '-retrieve[retrieve matching files]' \
       '-timeout:maximum timeout' \
       '-type:remote system type:(UNIX VMS other)' \
-      ':url: _urls' && return
+      ':URL: _urls' && return
   ;;
 
   identify)

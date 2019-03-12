@@ -1,5 +1,5 @@
 #
-# Example .zlogin file for zsh 4.0
+# Generic .zlogin file for zsh 2.7
 #
 # .zlogin is sourced in login shells.  It should
 # contain commands that should be executed only in

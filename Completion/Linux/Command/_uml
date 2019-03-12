@@ -5,7 +5,7 @@ typeset -A opt_args
 
 case $service in
   uml_moo)
-    _arguments '1:COW file:_files -g \*cow\*' '2:new backing file:_files'
+    _arguments '1:COW file:_files -g "*cow*(-.)"' '2:new backing file:_files'
     return
   ;;
   uml_switch)
@@ -69,31 +69,31 @@ while [[ -n $state ]]; do
         state=channel
 	continue
       elif compset -P con; then
-	_message 'console number'
+	_message -e consoles 'console number'
 	return
       elif compset -P ssl; then
-	_message 'serial line number'
+	_message -e serial 'serial line number'
 	return
       elif compset -P 'ubd[0-7](|r)(|s)='; then
         compset -P '*,'
         _files && return
       elif compset -P ubd; then
-        _message 'device number'
+        _message -e devices 'device number'
 	return
       elif compset -P 'eth[0-9]##='; then
         if compset -P 1 '*,'; then
-	  _message option
+	  _message -e options option
 	else
 	  _wanted transports expl transports compadd -S, \
 	    ethertap tuntap daemon mcast slip && return
         fi
 	return
       elif compset -P eth; then
-        _message number
+        _message -e ethernet number
 	return
       fi
       compadd -n -S '' con ssl ubd eth && ret=0
-      _values -C "option" \
+      _values -C -w "option" \
 	'mem[specify amount of "physical" memory to allocate]:memory' \
 	'iomem[configure file as named IO memory region]:arg:->iomem' \
 	'gdb[attach gdb to specified channel]:channel:->channel' \
@@ -124,7 +124,7 @@ while [[ -n $state ]]; do
       if compset -P '*,'; then
 	_files && ret=0
       else
-	_message name
+	_message -e name
       fi
     ;;
     channel)

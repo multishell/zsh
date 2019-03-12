@@ -62,7 +62,7 @@ The "$@" adds descriptions passed as parameters and the trailing `-'
 tells _wanted where to put options specifying the `directory' description.
 
 Where two matches have identical meaning, give them the same
-description. The zsh 4.1 completion system will group them together.
+description so that the completion system can group them together.
 Conventionally a brace exapansion of this form is used:
   '(--context,-C)'{--context=,-C-}'[specify lines of context]:lines'
 You won't need the exclusion list if the option can be specified
@@ -491,4 +491,4 @@ Misc. remarks
     with its exit status. After this call to `call_function' the
     completion function would contain the code for the default way to
     generate the matches.
-    See the `_rpm' and `_nslookup' files for examples.
+    See the `_email_addresses', `_rpm' and `_nslookup' files for examples.

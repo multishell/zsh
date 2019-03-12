@@ -1,6 +1,6 @@
 #compdef du
 
-if [[ $(_call_program version $words[1] --version 2>&1) = *Free\ Soft* ]]; then
+if _pick_variant gnu=Free\ Soft unix --version; then
   _arguments -s \
     '(-a --all -s --summarize)'{-a,--all}'[write counts for all files]' \
     '--apparent-size[print apparent sizes rather than disc usage]' \

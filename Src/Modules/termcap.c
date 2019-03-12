@@ -103,7 +103,7 @@ ztgetflag(char *s)
 
 /**/
 static int
-bin_echotc(char *name, char **argv, char *ops, int func)
+bin_echotc(char *name, char **argv, Options ops, int func)
 {
     char *s, buf[2048], *t, *u;
     int num, argct;
@@ -347,6 +347,8 @@ scantermcap(HashTable ht, ScanFunc func, int flags)
     u = buf;
 
     pm->flags = PM_READONLY | PM_SCALAR;
+    pm->sets.cfn = NULL;
+    pm->gets.cfn = strgetfn;
 
     for (capcode = (char **)boolcodes; *capcode; capcode++) {
 	if ((num = ztgetflag(*capcode)) != -1) {

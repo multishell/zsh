@@ -7,7 +7,6 @@ _bash_complete() {
   local -a COMP_WORDS COMPREPLY BASH_VERSINFO
   local COMP_LINE="$words"
   local -A savejobstates savejobtexts
-  set -- $=_bash_comps[$service]
 
   (( COMP_POINT = 1 + ${#${(j. .)words[1,CURRENT-1]}} + $#QIPREFIX + $#IPREFIX + $#PREFIX ))
   (( COMP_CWORD = CURRENT - 1))
@@ -60,77 +59,77 @@ compgen() {
       [abcdefgjkuv]) OPTARG="${shortopts[$name]}" ;&
       A)
         case $OPTARG in
-	  alias) results=( "${results[@]}" "${(k)aliases[@]}" ) ;;
-	  arrayvar) results=( "${results[@]}" "${(k@)parameters[(R)array*]}" ) ;;
-	  binding) results=( "${results[@]}" "${(k)widgets[@]}" ) ;;
-	  builtin) results=( "${results[@]}" "${(k)builtins[@]}" "${(k)dis_builtins[@]}" ) ;;
+	  alias) results+=( "${(k)aliases[@]}" ) ;;
+	  arrayvar) results+=( "${(k@)parameters[(R)array*]}" ) ;;
+	  binding) results+=( "${(k)widgets[@]}" ) ;;
+	  builtin) results+=( "${(k)builtins[@]}" "${(k)dis_builtins[@]}" ) ;;
 	  command)
-	    results=(
-	      "${results[@]}" "${(k)commands[@]}" "${(k)aliases[@]}"
-	      "${(k)builtins[@]}" "${(k)functions[@]}" "${(k)reswords[@]}"
+	    results+=(
+	      "${(k)commands[@]}" "${(k)aliases[@]}" "${(k)builtins[@]}"
+	      "${(k)functions[@]}" "${(k)reswords[@]}"
 	    )
 	  ;;
 	  directory)
 	    setopt bareglobqual
-	    results=( "${results[@]}" ${IPREFIX}${PREFIX}*${SUFFIX}${ISUFFIX}(N-/) )
+	    results+=( ${IPREFIX}${PREFIX}*${SUFFIX}${ISUFFIX}(N-/) )
 	    setopt nobareglobqual
 	  ;;
-	  disabled) results=( "${results[@]}" "${(k)dis_builtins[@]}" ) ;;
-	  enabled) results=( "${results[@]}" "${(k)builtins[@]}" ) ;;
-	  export) results=( "${results[@]}" "${(k)parameters[(R)*export*]}" ) ;;
+	  disabled) results+=( "${(k)dis_builtins[@]}" ) ;;
+	  enabled) results+=( "${(k)builtins[@]}" ) ;;
+	  export) results+=( "${(k)parameters[(R)*export*]}" ) ;;
 	  file)
 	    setopt bareglobqual
-	    results=( "${results[@]}" ${IPREFIX}${PREFIX}*${SUFFIX}${ISUFFIX}(N) )
+	    results+=( ${IPREFIX}${PREFIX}*${SUFFIX}${ISUFFIX}(N) )
 	    setopt nobareglobqual
 	  ;;
-	  function) results=( "${results[@]}" "${(k)functions[@]}" ) ;;
+	  function) results+=( "${(k)functions[@]}" ) ;;
 	  group)
 	    emulate zsh
 	    _groups -U -O res
 	    emulate sh
 	    setopt kshglob noshglob braceexpand
-	    results=( "${results[@]}" "${res[@]}" )
+	    results+=( "${res[@]}" )
 	  ;;
 	  hostname)
 	    emulate zsh
 	    _hosts -U -O res
 	    emulate sh
 	    setopt kshglob noshglob braceexpand
-	    results=( "${results[@]}" "${res[@]}" )
+	    results+=( "${res[@]}" )
 	  ;;
-	  job) results=( "${results[@]}" "${savejobtexts[@]%% *}" );;
-	  keyword) results=( "${results[@]}" "${(k)reswords[@]}" ) ;;
+	  job) results+=( "${savejobtexts[@]%% *}" );;
+	  keyword) results+=( "${(k)reswords[@]}" ) ;;
 	  running)
 	    jids=( "${(@k)savejobstates[(R)running*]}" )
 	    for job in "${jids[@]}"; do
-	      results=( "${results[@]}" ${savejobtexts[$job]%% *} )
+	      results+=( ${savejobtexts[$job]%% *} )
 	    done
 	  ;;
 	  stopped)
 	    jids=( "${(@k)savejobstates[(R)suspended*]}" )
 	    for job in "${jids[@]}"; do
-	      results=( "${results[@]}" ${savejobtexts[$job]%% *} )
+	      results+=( ${savejobtexts[$job]%% *} )
 	    done
 	  ;;
-	  setopt|shopt) results=( "${results[@]}" "${(k)options[@]}" ) ;;
-	  signal) results=( "${results[@]}" "SIG${^signals[@]}" ) ;;
-	  user) results=( "${results[@]}" "${(k)userdirs[@]}" ) ;;
-      	  variable) results=( "${results[@]}" "${(k)parameters[@]}" ) ;;
+	  setopt|shopt) results+=( "${(k)options[@]}" ) ;;
+	  signal) results+=( "SIG${^signals[@]}" ) ;;
+	  user) results+=( "${(k)userdirs[@]}" ) ;;
+      	  variable) results+=( "${(k)parameters[@]}" ) ;;
 	  helptopic) ;;
 	esac
       ;;
       F)
         COMPREPLY=()
 	$OPTARG "${words[0]}" "${words[CURRENT-1]}" "${words[CURRENT-2]}"
-	results=( "${results[@]}" "${COMPREPLY[@]}" )
+	results+=( "${COMPREPLY[@]}" )
       ;;
       G)
         setopt nullglob
-        results=( "${results[@]}" ${~OPTARG} )
+        results+=( ${~OPTARG} )
 	unsetopt nullglob
       ;;
-      W) eval "results=( "${results[@]}" $OPTARG )" ;;
-      C) results=( "${results[@]}" $(eval $OPTARG) ) ;;
+      W) eval "results+=( $OPTARG )" ;;
+      C) results+=( $(eval $OPTARG) ) ;;
       P) prefix="$OPTARG" ;;
       S) suffix="$OPTARG" ;;
       X)
@@ -158,22 +157,16 @@ complete() {
   zparseopts -D -a void o: A: G: W: C: F: P: S: X: a b c d e f g j k u v \
       p=print r=remove
   if [[ -n $print ]]; then
-    for cmd in ${(k)_bash_comps}; do
-      print "complete ${_bash_comps[$cmd]} $cmd"
-    done
+    printf 'complete %2$s %1$s\n' "${(@kv)_comps[(R)_bash*]#* }"
   elif [[ -n $remove ]]; then
     for cmd; do
-      unset "_bash_comps[$cmd]"
+      unset "_comps[$cmd]"
     done
   else
-    for cmd; do
-      _bash_comps[$cmd]="${args[1,-1-$#]}"
-    done
-    compdef _bash_complete "$@"
+    compdef _bash_complete\ ${(j. .)${(q)args[1,-1-$#]}} "$@"
   fi
 }
 
-typeset -gA _bash_comps
 unfunction bashcompinit
 autoload -U bashcompinit
 return 0

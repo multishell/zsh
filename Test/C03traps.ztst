@@ -45,6 +45,18 @@
 0:Nested `trap - EXIT' on `TRAPEXIT'
 >EXIT1
 
+# We can't test an EXIT trap for the shell as a whole, because
+# we're inside a function scope which we don't leave when the
+# subshell exits.  Not sure if that's the correct behaviour, but
+# it's sort of consistent.
+  ( fn1() { trap 'print Function 1 going' EXIT; exit; print Not reached; }
+    fn2() { trap 'print Function 2 going' EXIT; fn1; print Not reached; }
+    fn2
+  )
+0:EXIT traps on functions when exiting from function
+>Function 1 going
+>Function 2 going
+
   fn1() {
     trap
     trap 'print INT1' INT
@@ -184,3 +196,19 @@
   f
   functions TRAPWINCH
 1:Unsetting ordinary traps with localtraps.
+
+#
+# Returns from within traps are a perennial problem.
+# The following two apply to returns in and around standard
+# ksh-style traps.  The intention is that a return value from
+# within the function is preserved (i.e. statuses set by the trap
+# are ignored) unless the trap explicitly executes `return', which makes
+# it return from the enclosing function.
+#
+  fn() { trap 'true' EXIT; return 1; }
+  fn
+1: ksh-style EXIT traps preserve return value
+
+  inner() { trap 'return 3' EXIT; return 2: }
+  outer() { inner; return 1; }
+3: ksh-style EXIT traps can force return status of enclosing function

@@ -30,7 +30,7 @@ _perl_modules () {
       _perl_modules_caching_policy
   fi
 
-  local perl=${words[0]%doc} perl_modules
+  local perl=${words[1]%doc} perl_modules
   if whence $perl >/dev/null; then
     perl_modules=_${${perl//[^[:alnum:]]/_}#_}_modules
   elif (( ${+commands[perl]} )); then
@@ -56,7 +56,7 @@ _perl_modules () {
       else
         # If perl isn't there, one wonders why the user's trying to
         # complete Perl modules.  Maybe her $path is wrong?
-        _message "Didn't find perl on \$PATH; guessing @INC ..."
+        _message "didn't find perl on \$PATH; guessing @INC ..."
 
         inc=( /usr/lib/perl5{,/{site_perl/,}<5->.([0-9]##)}(N) 
               ${(s.:.)PERL5LIB} )

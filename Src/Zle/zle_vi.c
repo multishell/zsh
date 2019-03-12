@@ -78,7 +78,7 @@ startvichange(int im)
 	if (vichgbuf)
 	    free(vichgbuf);
 	vichgbuf = (char *)zalloc(vichgbufsz = 16);
-	vichgbuf[0] = c;
+	vichgbuf[0] = lastchar;
 	vichgbufptr = 1;
 	vichgrepeat = 0;
     }
@@ -102,10 +102,10 @@ vigetkey(void)
     char m[3], *str;
     Thingy cmd;
 
-    if((c = getkey(0)) == EOF)
+    if((lastchar = getkey(0)) == EOF)
 	return -1;
 
-    m[0] = c;
+    m[0] = lastchar;
     metafy(m, 1, META_NOALLOC);
     if(mn)
 	cmd = keybind(mn, m, &str);
@@ -115,20 +115,20 @@ vigetkey(void)
     if (!cmd || cmd == Th(z_sendbreak)) {
 	return -1;
     } else if (cmd == Th(z_quotedinsert)) {
-	if ((c = getkey(0)) == EOF)
+	if ((lastchar = getkey(0)) == EOF)
 	    return -1;
     } else if(cmd == Th(z_viquotedinsert)) {
 	char sav = line[cs];
 
 	line[cs] = '^';
 	zrefresh();
-	c = getkey(0);
+	lastchar = getkey(0);
 	line[cs] = sav;
-	if(c == EOF)
+	if(lastchar == EOF)
 	    return -1;
     } else if (cmd == Th(z_vicmdmode))
 	return -1;
-    return c;
+    return lastchar;
 }
 
 /**/
@@ -897,12 +897,12 @@ viquotedinsert(char **args)
     sob.sg_flags = (sob.sg_flags | RAW) & ~ECHO;
     ioctl(SHTTY, TIOCSETN, &sob);
 #endif
-    c = getkey(0);
+    lastchar = getkey(0);
 #ifndef HAS_TIO
     zsetterm();
 #endif
     foredel(1);
-    if(c < 0)
+    if(lastchar < 0)
 	return 1;
     else
 	return selfinsert(args);

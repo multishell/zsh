@@ -62,17 +62,17 @@ _regex_arguments _xwit_parse \
   \| "/-iconname$nul/" "$guard" \
      "/$word/" ':option-name:iconname:_x_name' \
   \| "/-bitmap$nul/" "$guard" \
-     "/$word/" ':option-bitmap:bitmap file:_files -g *.xbm' \
+     "/$word/" ':option-bitmap:bitmap file:_files -g *.xbm\(-.\)' \
   \| "/-mask$nul/" "$guard" \
-     "/$word/" ':option-mask:mask file:_files -g *.xbm' \
+     "/$word/" ':option-mask:mask file:_files -g *.xbm\(-.\)' \
   \| "/-iconmove$nul/" "$guard" \
      "/$word/" ':option-iconmove-x:x:' \
      "/$word/" ':option-iconmove-y:y:' \
   \| "/-id$nul/" "$guard" "/$word/" ':option-id:window id:_x_window' \
   \| "/-(no|)keyrepeat$nul/" "$guard" \
-      \( "/[0-9]##$nul/" ':option-keyrepeat-keycode:keycode:{[[ -prefix [0-9]# ]] && _message keycode}' \
+      \( "/[0-9]##$nul/" ':option-keyrepeat-keycode:keycode:{[[ -prefix [0-9]# ]] && _message -e keycodes keycode}' \
 	\( "/-$nul/" "/[0-9]##$nul/" \
-	   ':option-keyrepeat-last-keycode:last keycode:{[[ -prefix [0-9]# ]] && _message "last keycode"}' \| \) \) \# \
+	   ':option-keyrepeat-last-keycode:last keycode:{[[ -prefix [0-9]# ]] && _message -e keycodes "last keycode"}' \| \) \) \# \
   \| "/-names$nul/" "$guard" \
      "/$word/" ':option-names:window name:_x_window -n' \# \
   \| "/[]/" ':options:option:_xwit_compopts' \

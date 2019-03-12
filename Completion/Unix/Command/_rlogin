@@ -23,7 +23,7 @@ _rcp_remote_files () {
       (( ret )) || return 0
     done
   else
-    _message 'remote file'
+    _message -e remote-files 'remote file'
   fi
 }
 

@@ -24,16 +24,16 @@ if [[ -n "$state" ]]; then
   while _tags; do
     if _requested assignments; then
       if [[ -prefix *= ]]; then
-        _message value
+        _message -e value value
       else
-        _message 'parameter name'
+        _message -e parameter 'parameter name'
       fi
     fi
     if _requested files; then
       case $mode:${#words[1,CURRENT-1]:#(-*|*=*)}; in
         default:1|chain:<3->|batch-x:2|batch-s:1)
 	  _description files expl stylesheet
-	  _files "$expl[@]" -g \*.xsl && ret=0
+	  _files "$expl[@]" -g "*.xsl(-.)" && ret=0
 	;;
         default:2|chain:1|batch-x:1|batch-s:2)
 	  _description files expl 'input file'

@@ -154,13 +154,29 @@ getptycmd(char *name)
     return NULL;
 }
 
-/**** maybe we should use configure here */
-/**** and we certainly need more/better #if tests */
+#ifdef USE_DEV_PTMX
 
-#if defined(__SVR4) || defined(sinix) || defined(__CYGWIN__)
-
-#if !defined(__CYGWIN__)
+#ifdef HAVE_SYS_STROPTS_H
 #include <sys/stropts.h>
+#endif
+
+#if defined(I_FIND) && defined(I_PUSH)
+/*
+ * These tests are ad hoc.  Unfortunately if you get the wrong ioctl,
+ * STREAMS simply hangs up, so there's no obvious way of doing this
+ * more systematically.
+ *
+ * Apparently Solaris needs all three ioctls, but HP-UX doesn't need
+ * ttcompat.  The Solaris definition has been extended to all __SVR4
+ * as a guess; I have no idea if this is right.
+ */
+#ifdef __SVR4
+#define USE_STREAMS_IOCTLS
+#define USE_STREAMS_TTCOMPAT
+#endif
+#ifdef __hpux
+#define USE_STREAMS_IOCTLS
+#endif
 #endif
 
 static int
@@ -168,8 +184,9 @@ get_pty(int master, int *retfd)
 {
     static char *name;
     static int mfd, sfd;
-
+#ifdef USE_STREAMS_IOCTLS
     int ret;
+#endif
 
     if (master) {
 	if ((mfd = open("/dev/ptmx", O_RDWR|O_NOCTTY)) < 0)
@@ -192,7 +209,7 @@ get_pty(int master, int *retfd)
 	close(mfd);
 	return 1;
     }
-#if !defined(__CYGWIN__)
+#ifdef USE_STREAMS_IOCTLS
     if ((ret = ioctl(sfd, I_FIND, "ptem")) != 1)
        if (ret == -1 || ioctl(sfd, I_PUSH, "ptem") == -1) {
 	   close(mfd);
@@ -205,20 +222,22 @@ get_pty(int master, int *retfd)
 	   close(sfd);
 	   return 1;
        }
+#ifdef USE_STREAMS_TTCOMPAT
     if ((ret = ioctl(sfd, I_FIND, "ttcompat")) != 1)
        if (ret == -1 || ioctl(sfd, I_PUSH, "ttcompat") == -1) {
 	   close(mfd);
 	   close(sfd);
 	   return 1;
        }
-#endif /* !defined(__CYGWIN__) */
+#endif
+#endif
 
     *retfd = sfd;
 
     return 0;
 }
 
-#else /* ! (defined(__SVR4) || defined(sinix) || defined(__CYGWIN__)) */
+#else /* No /dev/ptmx or no pt functions */
 
 static int
 get_pty(int master, int *retfd)
@@ -267,7 +286,7 @@ get_pty(int master, int *retfd)
     return 1;
 }
 
-#endif /* __SVR4 */
+#endif /* /dev/ptmx or alternatives */
 
 static int
 newptycmd(char *nam, char *pname, char **args, int echo, int nblock)
@@ -276,7 +295,7 @@ newptycmd(char *nam, char *pname, char **args, int echo, int nblock)
     int master, slave, pid;
     Eprog prog;
 
-    prog = parse_string(zjoin(args, ' ', 1), 0);
+    prog = parse_string(zjoin(args, ' ', 1));
     if (!prog) {
 	errflag = 0;
 	return 1;
@@ -294,7 +313,7 @@ newptycmd(char *nam, char *pname, char **args, int echo, int nblock)
 	/* This code copied from the clone module, except for getting *
 	 * the descriptor from get_pty() and duplicating it to 0/1/2. */
 
-	clearjobtab();
+	clearjobtab(0);
 	ppid = getppid();
 	mypid = getpid();
 #ifdef HAVE_SETSID
@@ -603,20 +622,23 @@ ptywrite(Ptycmd cmd, char **args, int nonl)
 
 /**/
 static int
-bin_zpty(char *nam, char **args, char *ops, int func)
+bin_zpty(char *nam, char **args, Options ops, int func)
 {
-    if ((ops['r'] && ops['w']) ||
-	((ops['r'] || ops['w']) && (ops['d'] || ops['e'] ||
-				    ops['b'] || ops['L'])) ||
-	(ops['w'] && ops['t']) ||
-	(ops['n'] && (ops['b'] || ops['e'] || ops['r'] || ops['t'] ||
-		      ops['d'] || ops['L'])) ||
-	(ops['d'] && (ops['b'] || ops['e'] || ops['L'] || ops['t'])) ||
-	(ops['L'] && (ops['b'] || ops['e']))) {
+    if ((OPT_ISSET(ops,'r') && OPT_ISSET(ops,'w')) ||
+	((OPT_ISSET(ops,'r') || OPT_ISSET(ops,'w')) && 
+	 (OPT_ISSET(ops,'d') || OPT_ISSET(ops,'e') ||
+	  OPT_ISSET(ops,'b') || OPT_ISSET(ops,'L'))) ||
+	(OPT_ISSET(ops,'w') && OPT_ISSET(ops,'t')) ||
+	(OPT_ISSET(ops,'n') && (OPT_ISSET(ops,'b') || OPT_ISSET(ops,'e') ||
+				OPT_ISSET(ops,'r') || OPT_ISSET(ops,'t') ||
+				OPT_ISSET(ops,'d') || OPT_ISSET(ops,'L'))) ||
+	(OPT_ISSET(ops,'d') && (OPT_ISSET(ops,'b') || OPT_ISSET(ops,'e') ||
+				OPT_ISSET(ops,'L') || OPT_ISSET(ops,'t'))) ||
+	(OPT_ISSET(ops,'L') && (OPT_ISSET(ops,'b') || OPT_ISSET(ops,'e')))) {
 	zwarnnam(nam, "illegal option combination", NULL, 0);
 	return 1;
     }
-    if (ops['r'] || ops['w']) {
+    if (OPT_ISSET(ops,'r') || OPT_ISSET(ops,'w')) {
 	Ptycmd p;
 
 	if (!*args) {
@@ -628,13 +650,14 @@ bin_zpty(char *nam, char **args, char *ops, int func)
 	}
 	if (p->fin)
 	    return 2;
-	if (ops['t'] && p->read == -1 && !read_poll(p->fd, &p->read, 0))
+	if (OPT_ISSET(ops,'t') && p->read == -1 &&
+	    !read_poll(p->fd, &p->read, 0, 0))
 	    return 1;
 
-	return (ops['r'] ?
+	return (OPT_ISSET(ops,'r') ?
 		ptyread(nam, p, args + 1) :
-		ptywrite(p, args + 1, ops['n']));
-    } else if (ops['d']) {
+		ptywrite(p, args + 1, OPT_ISSET(ops,'n')));
+    } else if (OPT_ISSET(ops,'d')) {
 	Ptycmd p;
 	int ret = 0;
 
@@ -650,7 +673,7 @@ bin_zpty(char *nam, char **args, char *ops, int func)
 	    deleteallptycmds();
 
 	return ret;
-    } else if (ops['t']) {
+    } else if (OPT_ISSET(ops,'t')) {
 	Ptycmd p;
 
 	if (!*args) {
@@ -671,14 +694,15 @@ bin_zpty(char *nam, char **args, char *ops, int func)
 	    zwarnnam(nam, "pty command name already used: %s", *args, 0);
 	    return 1;
 	}
-	return newptycmd(nam, *args, args + 1, ops['e'], ops['b']);
+	return newptycmd(nam, *args, args + 1, OPT_ISSET(ops,'e'), 
+			 OPT_ISSET(ops,'b'));
     } else {
 	Ptycmd p;
 	char **a;
 
 	for (p = ptycmds; p; p = p->next) {
 	    checkptycmd(p);
-	    if (ops['L'])
+	    if (OPT_ISSET(ops,'L'))
 		printf("%s %s%s%s ", nam, (p->echo ? "-e " : ""),
 		       (p->nblock ? "-b " : ""), p->name);
 	    else if (p->fin)

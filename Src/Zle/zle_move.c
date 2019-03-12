@@ -483,7 +483,7 @@ vigotomark(char **args)
     int ch;
 
     ch = getkey(0);
-    if (ch == c)
+    if (ch == lastchar)
 	ch = 26;
     else {
 	if (ch < 'a' || ch > 'z')

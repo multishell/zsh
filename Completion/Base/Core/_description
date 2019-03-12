@@ -1,13 +1,13 @@
 #autoload
 
-local name gropt=-J format gname hidden hide match opts
+local name gropt nopt xopt format gname hidden hide match opts tag sort
 
 opts=()
 
-if [[ "$1" = -([12]|)[VJ] ]]; then
-  gropt="$1"
-  shift
-fi
+gropt=(-J)
+xopt=(-X)
+nopt=()
+zparseopts -K -D -a nopt 1 2 V=gropt J=gropt x=xopt
 
 3="${${3##[[:blank:]]#}%%[[:blank:]]#}"
 [[ -n "$3" ]] && _lastdescr=( "$_lastdescr[@]" "$3" )
@@ -31,6 +31,18 @@ zstyle -s ":completion:${curcontext}:$1" matcher match &&
     opts=($opts -M "$match")
 [[ -n "$_matcher" ]] && opts=($opts -M "$_matcher")
 
+# Use sort style, but ignore `menu' value to help _expand.
+# Also don't override explicit use of -V.
+if { zstyle -s ":completion:${curcontext}:$1" sort sort ||
+     zstyle -s ":completion:${curcontext}:" sort sort; } &&
+    [[ "$gropt" = -J && $sort != menu ]]; then
+    if [[ "$sort" = (yes|true|1|on) ]]; then
+	gropt=(-J)
+    else
+	gropt=(-V)
+    fi
+fi
+
 if [[ -z "$_comp_no_ignore" ]]; then
   zstyle -a ":completion:${curcontext}:$1" ignored-patterns _comp_ignore ||
     _comp_ignore=()
@@ -51,6 +63,8 @@ else
   _comp_ignore=()
 fi
 
+tag="$1"
+
 shift 2
 if [[ -z "$1" && $# -eq 1 ]]; then
   format=
@@ -60,16 +74,27 @@ fi
 
 if [[ -n "$gname" ]]; then
   if [[ -n "$format" ]]; then
-    set -A "$name" "$opts[@]" "$gropt" "$gname" -X "$format"
+    set -A "$name" "$opts[@]" "$nopt[@]" "$gropt" "$gname" "$xopt" "$format"
   else
-    set -A "$name" "$opts[@]" "$gropt" "$gname"
+    set -A "$name" "$opts[@]" "$nopt[@]" "$gropt" "$gname"
   fi
 else
   if [[ -n "$format" ]]; then
-    set -A "$name" "$opts[@]" "$gropt" -default- -X "$format"
+    set -A "$name" "$opts[@]" "$nopt[@]" "$gropt" -default- "$xopt" "$format"
   else
-    set -A "$name" "$opts[@]" "$gropt" -default-
+    set -A "$name" "$opts[@]" "$nopt[@]" "$gropt" -default-
   fi
+fi
+
+if ! (( ${funcstack[2,-1][(I)_description]} )) &&
+   zstyle -a ":completion:${curcontext}:$tag" fake match; then
+
+  local descr
+
+  descr=( "${(@M)match:#*[^\\]:*}" )
+
+  compadd "${(@P)name}" - "${(@)${(@)match:#*[^\\]:*}:s/\\:/:/}"
+  (( $#descr )) && _describe -t "$tag" '' descr "${(@P)name}"
 fi
 
 return 0

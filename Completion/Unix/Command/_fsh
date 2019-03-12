@@ -7,7 +7,7 @@ _arguments -C \
   '(- : *)'{-V,--version}'[display version information]' \
   '-r[specify method]:method:(rsh ssh)' \
   '-l[specify login id]:login:_users' \
-  '(-T --timeout)'{-T,--timeout}':idle timeout' \
+  '(-T --timeout)'{-T,--timeout}':idle timeout:' \
   ':remote host name:_hosts' \
   '(-):command: _command_names -e' \
   '*::args:->command' && ret=0

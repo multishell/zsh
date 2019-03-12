@@ -41,7 +41,8 @@ case $OSTYPE in
     opts=(
       '(-promisc promisc)'{,-}'promisc[disable or enable promiscuous mode]'
       '(-allmulti allmulti)'{,-}'allmulti[disable or enable all-multicast]'
-      'media[set physical port type]' 'hw[set hardware class]'
+      'media[set physical port type]:medium type:(auto 10base2 10baseT AUI)'
+      'hw[set hardware class]:hardware class:(ether ax25 ARCnet netrom)'
       add del dstaddr io_addr irq mem_start multicast pointopoint
       tunnel txqueuelen
     )
@@ -68,14 +69,14 @@ _arguments -C "$args[@]" \
   '::address family:(atalk ether inet inet6 ax25 ddp ipx netrom)' \
   '*:option:->options' && ret=0
   
-[[ -n "$state" ]] && _values -S ' ' 'option' "$opts[@]" \
+[[ -n "$state" ]] && _values -S ' ' -w 'option' "$opts[@]" \
   '(down)up[activate interface]' \
   '(up)down[shut down interface]' \
   '(-arp arp)'{,-}'arp[disable or enable address resolution protocol]' \
-  'metric[set routing metric for interface]' \
-  'mtu[set maximum transfer unit]' \
-  'netmask[specify network mask]' \
-  'broadcast[specify broadcast address]' \
-  'address[specify IP address of interface]' && ret=0
+  'metric[set routing metric for interface]:routing metric' \
+  'mtu[set maximum transfer unit]:mtu' \
+  'netmask[specify network mask]:netmask' \
+  'broadcast[specify broadcast address]:broadcast address' \
+  'address[specify IP address of interface]:IP address' && ret=0
 
 return ret

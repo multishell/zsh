@@ -1,16 +1,18 @@
 # Tests for _arguments.
 
 %prep
-  . $ZTST_srcdir/comptest
-
-  mkdir comp.tmp
-  cd comp.tmp
-
-  comptestinit -z $ZTST_testdir/../Src/zsh &&
-  {
-    comptesteval 'compdef _tst tst'
-    tst_arguments () { comptesteval "_tst () { _arguments ${${(@qq)*}} }" }
-  }
+  if ( zmodload -i zsh/zpty ) >/dev/null 2>&1; then
+    . $ZTST_srcdir/comptest
+    mkdir comp.tmp
+    cd comp.tmp
+    comptestinit -z $ZTST_testdir/../Src/zsh &&
+    {
+      comptesteval 'compdef _tst tst'
+      tst_arguments () { comptesteval "_tst () { _arguments ${${(@qq)*}} }" }
+    }
+  else
+    ZTST_unimplemented="the zsh/zpty module is not available"
+  fi
 
 %test
  tst_arguments ':desc1:(arg1)'
@@ -56,7 +58,7 @@
  comptest $'tst -\C-d'
 0:-+
 >DESCRIPTION:{option}
->NO:{-+ -- opt}
+>NO:{-+  -- opt}
 
  tst_arguments -+o
  comptest $'tst -\t\t\t\C-w\C-w+\t\t\t'
@@ -91,7 +93,7 @@
  comptest $'tst -\t'
 0:argument beginning with minus
 >line: {tst -}{}
->MESSAGE:{arg}
+>DESCRIPTION:{arg}
 >DESCRIPTION:{option}
 >NO:{-x}
 

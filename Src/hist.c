@@ -100,12 +100,12 @@ mod_export Histent hist_ring;
  
 /**/
 int histsiz;
-
+ 
 /* desired history-file size (in lines) */
-
+ 
 /**/
 int savehistsiz;
-
+ 
 /* if = 1, we have performed history substitution on the current line *
  * if = 2, we have used the 'p' modifier                              */
  
@@ -920,11 +920,42 @@ gethistent(int ev, int nearmatch)
     return he;
 }
 
+static void
+putoldhistentryontop(short keep_going)
+{
+    static Histent next = NULL;
+    Histent he = keep_going? next : hist_ring->down;
+    next = he->down;
+    if (isset(HISTEXPIREDUPSFIRST) && !(he->flags & HIST_DUP)) {
+	static int max_unique_ct = 0;
+	if (!keep_going)
+	    max_unique_ct = savehistsiz;
+	do {
+	    if (max_unique_ct-- <= 0 || he == hist_ring) {
+		max_unique_ct = 0;
+		he = hist_ring->down;
+		next = hist_ring;
+		break;
+	    }
+	    he = next;
+	    next = he->down;
+	} while (!(he->flags & HIST_DUP));
+    }
+    if (he != hist_ring->down) {
+	he->up->down = he->down;
+	he->down->up = he->up;
+	he->up = hist_ring;
+	he->down = hist_ring->down;
+	hist_ring->down = he->down->up = he;
+    }
+    hist_ring = he;
+}
+
 /**/
 Histent
 prepnexthistent(void)
 {
-    Histent he;
+    Histent he; 
     int curline_in_ring = hist_ring == &curline;
 
     if (curline_in_ring)
@@ -947,25 +978,9 @@ prepnexthistent(void)
 	histlinect++;
     }
     else {
-	he = hist_ring->down;
-	if (isset(HISTEXPIREDUPSFIRST) && !(he->flags & HIST_DUP)) {
-	    int max_unique_ct = savehistsiz;
-	    do {
-		if (max_unique_ct-- <= 0) {
-		    he = hist_ring->down;
-		    break;
-		}
-		he = he->down;
-	    } while (he != hist_ring->down && !(he->flags & HIST_DUP));
-	    if (he != hist_ring->down) {
-		he->up->down = he->down;
-		he->down->up = he->up;
-		he->up = hist_ring;
-		he->down = hist_ring->down;
-		hist_ring->down = he->down->up = he;
-	    }
-	}
-	freehistdata(hist_ring = he, 0);
+	putoldhistentryontop(0);
+	freehistdata(hist_ring, 0);
+	he = hist_ring;
     }
     he->histnum = ++curhist;
     if (curline_in_ring)
@@ -1385,7 +1400,11 @@ remtpath(char **junkptr)
     while (str >= *junkptr && !IS_DIRSEP(*str))
 	--str;
     if (str < *junkptr) {
-	*junkptr = dupstring (".");
+	if (IS_DIRSEP(**junkptr))
+	    *junkptr = dupstring ("/");
+	else
+	    *junkptr = dupstring (".");
+
 	return 0;
     }
     /* repeated slashes are considered like a single slash */
@@ -1759,8 +1778,14 @@ inithist(void)
 void
 resizehistents(void)
 {
-    while (histlinect > histsiz)
-	freehistnode((HashNode)hist_ring->down);
+    if (histlinect > histsiz) {
+	putoldhistentryontop(0);
+	freehistnode((HashNode)hist_ring);
+	while (histlinect > histsiz) {
+	    putoldhistentryontop(1);
+	    freehistnode((HashNode)hist_ring);
+	}
+    }
 }
 
 /* Remember the last line in the history file so we can find it again. */

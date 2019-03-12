@@ -3,7 +3,7 @@
 local curcontext="$curcontext" state line expl ret=1
 local suf usr grp req deref args
 
-if [[ $(_call_program version $words[1] --version 2>&1) = *Free\ Soft* ]]; then
+if _pick_variant gnu=Free\ Soft unix --version; then
   args=(
     '(-c --changes -v --verbose)'{-c,--changes}'[report each change made]'
     '(-c --changes -v --verbose)'{-v,--verbose}'[output info for every file processed]'
@@ -16,7 +16,7 @@ if [[ $(_call_program version $words[1] --version 2>&1) = *Free\ Soft* ]]; then
     '(- : *)--version[display version information]'
   )    
   [[ $service = chown ]] &&
-      args=( $args '--from=[restrict changes to files by current ownership]: :->owner' )
+      args+=( '--from=[restrict changes to files by current ownership]: :->owner' )
 else
   # based on $OSTYPE = solaris2.8
   args=(
@@ -26,7 +26,7 @@ else
   )
 fi
 
-(( $+words[(r)--reference*] )) || args=( $args '(--reference)1: :->owner' )
+(( $+words[(r)--reference*] )) || args+=( '(--reference)1: :->owner' )
 _arguments -C -s "$args[@]" '*:files:->files' && ret=0
 
 case $state in

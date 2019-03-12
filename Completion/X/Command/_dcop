@@ -38,8 +38,7 @@ if [[ -z "$state" ]]; then
   base=$?
   state=( ${state[CURRENT-base]:-arg} )
 
-  [[ $state[1] = application && $service = dcop(|find) ]] &&
-      state=( $state dcopref )
+  [[ $state[1] = application && $service = dcop(|find) ]] && state+=( dcopref )
 fi
 
 while (( $#state )); do
@@ -64,7 +63,7 @@ while (( $#state )); do
 
   case "$state[1]" in
     application|object)
-      [[ -n ${(M)vals:#*\(default\)} ]] && vals=( $vals default )
+      [[ -n ${(M)vals:#*\(default\)} ]] && vals+=( default )
       _wanted dcop-$state[1]s expl $state[1] compadd "$@" - ${vals% \(default\)} && ret=0
     ;;
 
@@ -87,7 +86,7 @@ while (( $#state )); do
 	  bool*) _wanted argument expl "$desc" compadd true false && return ;;
 	  (#i)*(file|path|dir)*) _wanted argument expl "$desc" _files && return ;;
 	  (#i)*url*) _wanted argument expl "$desc" _urls && return ;;
-	  *) _message "$desc" ;;
+	  *) _message -e argument "$desc" ;;
 	esac
       else
 	_message 'no more arguments'
@@ -103,14 +102,14 @@ while (( $#state )); do
 	else
 	  set -- "$@" -S"${${QIPREFIX:+)}:-\)}$compstate[quote] "
 	fi
-        state=( $state object )
+        state+=( object )
       else
         if compset -S ',*'; then
 	  set -- "$@" -S ''
 	else
 	  set -- "$@" -S ,
 	fi
-        state=( $state application )
+        state+=( application )
       fi
     ;;
   esac

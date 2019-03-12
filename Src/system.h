@@ -37,6 +37,14 @@
 #endif
 #endif
 
+#ifdef __linux
+/*
+ * Turn on numerous extensions.
+ * This is in order to get the functions for manipulating /dev/ptmx.
+ */
+#define _GNU_SOURCE 1
+#endif
+
 /* NeXT has half-implemented POSIX support *
  * which currently fools configure         */
 #ifdef __NeXT__
@@ -87,6 +95,16 @@ char *alloca _((size_t));
 
 #ifdef HAVE_UNISTD_H
 # include <unistd.h>
+#endif
+
+#ifdef HAVE_STDDEF_H
+/*
+ * Seen on Solaris 8 with gcc: stddef defines offsetof, which clashes
+ * with system.h's definition of the symbol unless we include this
+ * first.  Otherwise, this will be hooked in by wchar.h, too late
+ * for comfort.
+ */
+#include <stddef.h>
 #endif
 
 #include <stdio.h>

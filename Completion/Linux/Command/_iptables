@@ -38,7 +38,7 @@ case ${prev[${prev[(I)-p|--protocol]}+1]}; in
     )
   ;&
   udp)
-    args=( $args
+    args+=(
       '(--sport --source-port)'{--sport,--source-port}'[match packets based on source port]:*^!:port:_ports'
       '(--dport --destination-port)'{--dport,--destination-port}'[match packets based on destination port]:*^!:port:_ports'
     )
@@ -47,16 +47,16 @@ case ${prev[${prev[(I)-p|--protocol]}+1]}; in
 esac
 
 case ${prev[${prev[(I)-j|--jump]}+1]}; in
-  DNAT) args=( $args '(--to,--to-destination)'{--to,--to-destination}':address:_users-ports' ) ;;
+  DNAT) args+=( '(--to,--to-destination)'{--to,--to-destination}':address:_users-ports' ) ;;
   DSCP)
-    args=( $args
+    args+=(
       '--set-dscp[set the DSCP field]:value'
       '--set-dscp-class[set the DiffServ class]:class'
     )
   ;;
-  ECN) args=( $args '--ecn-tcp-remove[remove all ECN bits from TCP header]' ) ;;
+  ECN) args+=( '--ecn-tcp-remove[remove all ECN bits from TCP header]' ) ;;
   LOG)
-    args=( $args
+    args+=(
       '--log-level[specify level of logging]:log level:(debug info notice warning err crit alert emerg)'
       '--log-prefix[specify prefix string for log message]:string'
       '--log-tcp-sequence[log TCP sequence numbers]'
@@ -64,19 +64,19 @@ case ${prev[${prev[(I)-j|--jump]}+1]}; in
       '--log-ip-options[log IP options]'
     )
   ;;
-  MARK) args=( $args '--set-mark[set fwmark in packet]:number' ) ;;
-  REDIRECT|MASQUERADE) args=( $args '--to-ports[port (range) to map to]:port range:_ports' ) ;;
-  REJECT) args=( $args '--reject-with[drop packet and send reply]:reject type:->reject-types' ) ;;
-  SNAT) args=( $args '(--to,--to-source)*'{--to,--to-source}'[specify address to map source to]:address:_users-ports' ) ;;
+  MARK) args+=( '--set-mark[set fwmark in packet]:number' ) ;;
+  REDIRECT|MASQUERADE) args+=( '--to-ports[port (range) to map to]:port range:_ports' ) ;;
+  REJECT) args+=( '--reject-with[drop packet and send reply]:reject type:->reject-types' ) ;;
+  SNAT) args+=( '(--to,--to-source)*'{--to,--to-source}'[specify address to map source to]:address:_users-ports' ) ;;
   TCPMSS)
-    args=( $args
+    args+=(
       '--set-mss[explicitly set MSS option]:value'
       '--clamp-mss-to-pmtu[automatically clamp MSS value]'
     )
   ;;
-  TOS) args=( $args '--set-tos[set type of service field]:type of service:->tos' ) ;;
+  TOS) args+=( '--set-tos[set type of service field]:type of service:->tos' ) ;;
   ULOG)
-    args=( $args
+    args+=(
       '--ulog-nlgroup[specify netlink group used for logging]:netlink group'
       '--ulog-prefix[specify prefix string for log message]:string'
       '--ulog-cprange[specify size of each packet to be passed]:size (bytes)'
@@ -92,9 +92,9 @@ while
   (( i=words[(ib.i.)-m|--match]+1 )) 
 (( i<CURRENT )); do
   case ${words[i]}; in
-    ah) args=( $args '--ahspi[match SPIs in AH header]:*^!:spi' ) ;;
+    ah) args+=( '--ahspi[match SPIs in AH header]:*^!:spi' ) ;;
     conntrack)
-      args=( $args
+      args+=(
         '--ctstate[match packet state]:state:->cfstates'
 	'--ctproto[match protocol]:protocol:_ports'
 	'--ctorigsrc[match original source address]:*^!:network:_hosts'
@@ -106,31 +106,31 @@ while
       )
     ;;
     dscp)
-      args=( $args
+      args+=(
         '--dscp[match DSCP field]:value'
 	'--dscp-class[match the DiffServ class]:class'
       )
     ;;
-    esp) args=( $args '--espspi[match SPIs in ESP header]:*^!:spi' ) ;;
-    helper) args=( $args '--helper[match packets related to a conntrack-helper]:helper:(ftp)' ) ;;
-    length) args=( $args '--length[match packet length]:length' ) ;;
+    esp) args+=( '--espspi[match SPIs in ESP header]:*^!:spi' ) ;;
+    helper) args+=( '--helper[match packets related to a conntrack-helper]:helper:(ftp)' ) ;;
+    length) args+=( '--length[match packet length]:length' ) ;;
     limit)
-      args=( $args
+      args+=(
         '--limit[specify max matches limit]:number'
 	'--limit-burst[specify max burst before limit applies]:number'
       )
     ;;
-    mac) args=( $args '--mac-source[match source ethernet address]:*^!:ethernet address' ) ;;
-    mark) args=( $args '--mark[match fwmark in packet]:number' ) ;;
+    mac) args+=( '--mac-source[match source ethernet address]:*^!:ethernet address' ) ;;
+    mark) args+=( '--mark[match fwmark in packet]:number' ) ;;
     multiport)
-      args=( $args
+      args+=(
 	'--source-ports[match packets based on source ports]:ports:->port-list'
 	'(--dports --destination-ports)'{--dports,--destination-ports}'[match packets based on destination ports]:ports:->port-list'
 	'--ports[match where source and destination ports are equal]:ports:->port-list'
       )
     ;;
     owner)
-      args=( $args
+      args+=(
         '--uid-owner[match packet by user id of creating process]:user id'
 	'--gid-owner[match packet by ggroup id of creating process]:group id'
 	'--pid-owner[match packet by process id of creating process]:process id:_pids'
@@ -139,19 +139,19 @@ while
       )
     ;;
     physdev)
-      args=( $args
+      args+=(
         '--physdev-in[specify bridge port via which packet is received]:name'
         '--physdev-out[specify bridge port via which packet is sent]:name'
       )
     ;;
-    pkttype) args=( $args '--pkt-type[match link-layer packet type]:type:(unicast broadcast multicast)' ) ;;
+    pkttype) args+=( '--pkt-type[match link-layer packet type]:type:(unicast broadcast multicast)' ) ;;
     state)
-      args=( $args
+      args+=(
         '--state[match packet state]:state:->states'
       )
     ;;
-    tos) args=( $args '--tos[match type of service field]:type of service:->tos' ) ;;
-    ttl) args=( $args '--ttl[match type to live]:TTL value' ) ;;
+    tos) args+=( '--tos[match type of service field]:type of service:->tos' ) ;;
+    ttl) args+=( '--ttl[match type to live]:TTL value' ) ;;
   esac
 done
 
@@ -227,7 +227,7 @@ case "$state" in
   ;;
   *states)
     states=( NEW ESTABLISHED RELATED INVALID )
-    [[ "$state" = cf* ]] && states=( $states SNAT DNAT )
+    [[ "$state" = cf* ]] && states+=( SNAT DNAT )
     _values -s , 'state' $states && return
   ;;
   port-list)

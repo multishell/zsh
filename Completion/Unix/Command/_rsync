@@ -49,7 +49,7 @@ elif [[ -prefix 1 *: ]]; then
     _wanted files expl 'remote file or directory' \
         compadd -S/ -d remdispd ${${(M)remfiles:#*/}/${slash}(#e)/}
   else
-    _message 'remote files'
+    _message -e remote-files 'remote files'
   fi
 
 elif [[ -prefix 1 *@ ]]; then

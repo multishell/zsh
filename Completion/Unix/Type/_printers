@@ -1,12 +1,14 @@
-#autoload
+#compdef -value-,PRINTER,-default- -value-,LPDEST,-default-
 
-local expl ret=1 list disp
+local expl ret=1 list disp sep tmp
 
 if (( $+commands[lsallq] )); then
   # Use AIX's command to list print queues
   _wanted printers expl printer compadd $(lsallq)
   return
 fi
+
+zstyle -s ":completion:${curcontext}:printers" list-separator sep || sep=--
 
 if (( ! $+_lp_cache )); then
   local file entry names i
@@ -37,12 +39,18 @@ if (( ! $+_lp_cache )); then
       fi
     done < $file[1]
   fi
+
+  if [[ $OSTYPE = solaris* ]] && (( ${+commands[ypcat]} )) &&
+      tmp=$(_call_program printers ypcat printers.conf.byname 2>/dev/null); then
+    _lp_cache+=( ${${${(S)${(f)tmp}/(#b):*((#e)|description=([^:]#):)*/:${match[2]}|}%%|*}:#_default*} ) # If you use YP
+  fi
+
   (( $#_lp_cache )) || _lp_cache=( 'lp0:Guessed default printer' )
   (( $#_lp_alias_cache )) || unset _lp_alias_cache
 fi
 
 if zstyle -T ":completion:${curcontext}:printers" verbose; then
-  zformat -a list ' -- ' "$_lp_cache[@]"
+  zformat -a list " $sep " "$_lp_cache[@]"
   disp=(-ld list)
 else
   disp=()
@@ -53,7 +61,7 @@ _wanted printers expl printer \
 (( $+_lp_alias_cache )) || return 1
 
 if zstyle -T ":completion:${curcontext}:printers" verbose; then
-  zformat -a list ' -- ' "$_lp_alias_cache[@]"
+  zformat -a list " $sep " "$_lp_alias_cache[@]"
   disp=(-ld list)
 else
   disp=()

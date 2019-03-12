@@ -28,3 +28,5 @@ zshxmods.h
 bltinmods.list
 tags TAGS
 cscope.out
+*.swp
+*.dll

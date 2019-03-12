@@ -40,7 +40,7 @@ fi
 # are below these table.
 
 local curcontext="$curcontext" state line suf ret=1
-local args fss deffs=iso9660 tmp typeops=-t _nfs_access _nfs_ufs
+local args deffs=iso9660 tmp typeops=-t _nfs_access _nfs_ufs
 
 typeset -A opt_args
 
@@ -523,12 +523,11 @@ fi
 if [[ "$service" = mount ]]; then
 
   # Here are the tests and tables for the arguments and options for
-  # the `mount' program. The `fss' array has to be set to the names
-  # of the file system types understood on this system.
-  # This should also set the `deffs' parameter if the default file
-  # system type is not `iso9660' (it should be set to the name of
-  # the default file system type), and set 'typeops' to the mount 
-  # option for file system type selection when it is not '-t'.
+  # the `mount' program. This should set the `deffs' parameter if
+  # the default file system type is not `iso9660' (it should be set
+  # to the name of the default file system type), and set 'typeops'
+  # to the mount  option for file system type selection when it is
+  # not '-t'.
 
   case "$OSTYPE" in
   aix*)
@@ -538,13 +537,12 @@ if [[ "$service" = mount ]]; then
       '-n[remote node]:remote node:_hosts'
       '-p[mount as removable file system]'
       '-r[mount read-only]'
-      '-t[specify file system type]:file system type:->fstype'
+      '-t[specify file system type]:file system type:_file_systems'
       '-o[specify file system options]:file system option:->fsopt'
       '-v[filesystem defined by /etc/vfs]:VfsName'
       ':dev or dir:->devordir'
       ':mount point:_files -/'
     )
-    fss=( jfs nfs cdrfs )
     deffs=jfs
     ;;
   irix*)
@@ -558,12 +556,11 @@ if [[ "$service" = mount ]]; then
       '-o[specify file system options]:file system option:->fsopt'
       '-p[print list of mounted filesystems in format suitable for /etc/fstab]'
       '-r[mount read-only]'
-      '-t[specify file system type]:file system type:->fstype'
+      '-t[specify file system type]:file system type:_file_systems'
       '-v[verbose]'
       '-M[use alternate mtab]:alternate mtab:_files'
       '-P[with -p, prepend prefix to paths]:prefix'
     )
-    fss=( efs proc fd nfs iso9660 dos hfs cachefs )
     deffs=efs
     ;;
   linux*)
@@ -583,7 +580,7 @@ if [[ "$service" = mount ]]; then
       '(-V -h -r)-w[mount read/write]'
       '(-V -h)-L[mount partition with specified label]:label'
       '(-V -h)-U[mount partition with specified uuid]:uuid'
-      '(-V -h)-t[specify file system type]:file system type:->fstype'
+      '(-V -h)-t[specify file system type]:file system type:->fslist'
       '(-V -h)-O[with -a, restrict filesystems by options]:file system option:->fsopt'
       '(-V -h -a -O)-o[specify file system options]:file system option:->fsopt'
       '(: -)--bind[remount part of filesystem elsewhere]:old directory:_directories:new directory:_directories'
@@ -592,11 +589,6 @@ if [[ "$service" = mount ]]; then
       ':dev or dir:->devordir'
       ':mount point:_files -/'
     )
-    fss=( minix ext ext2 xiafs hpfs msdos umsdos vfat proc nfs iso9660
-          smbfs ncpfs affs ufs romfs sysv adfs autofs coda devpts efs
-          hfs ntfs qnx4 smbfs udf ext3 xfs reiserfs )
-    [[ -r /proc/filesystems ]] &&
-        fss=( ${$(</proc/filesystems)#nodev} )
     ;;
   osf*)
     args=( -s
@@ -605,7 +597,7 @@ if [[ "$service" = mount ]]; then
       '-e[list all mount points]'
       '-f[fake mount]'
       '-l[display values of all file system options]'
-      '-t[specify file system type]:file system type:->fstype'
+      '-t[specify file system type]:file system type:_file_systems'
       '-o[specify file system options]:file system option:->fsopt'
       '-u[remount file system]'
       '-r[mount read-only]'
@@ -614,13 +606,12 @@ if [[ "$service" = mount ]]; then
       ':dev or dir:->devordir'
       ':mount point:_files -/'
     )
-    fss=( advfs ufs nfs mfs cdfs )
     deffs=cdfs
     ;;
   solaris*)
     args=( -s
       '(-p -v)-a[mount all filesystems in fstab]'
-      '(-p -v)-F[specify file system type]:file system type:->fstype'
+      '(-p -v)-F[specify file system type]:file system type:_file_systems'
       '(-a -v)-p[print mounted file systems]'
       '(-p -a)-v[print mounted file systems verbosely]'
       '(-p -v)-V[echo command-line but do not execute]'
@@ -632,7 +623,6 @@ if [[ "$service" = mount ]]; then
       ':dev or dir:->devordir'
       ':mount point:_files -/'
     )
-    fss=( ufs nfs hsfs s5fs pcfs cachefs tmpfs )
     deffs=hsfs
     typeops=-F
     ;;
@@ -651,8 +641,6 @@ if [[ "$service" = mount ]]; then
       ':dev or dir:->devordir'
       ':mount point:_files -/'
     )
-    fss=( cd9660 devfs ext2fs fdesc kernfs linprocfs mfs msdos nfs
-          ntfs null nwfs portal procfs std ufs umap union )
     deffs=ufs
     ;;
   *)
@@ -660,13 +648,12 @@ if [[ "$service" = mount ]]; then
 
     args=( -s
       '(-o :)-a[mount all filesystems in fstab]'
-      '-t[specify file system type]:file system type:->fstype'
+      '-t[specify file system type]:file system type:_file_systems'
       '-o[specify file system options]:file system option:->fsopt'
       '-f[fake mount]'
       ':dev or dir:->devordir'
       ':mount point:_files -/'
     )
-    fss=( ufs )
     deffs=ufs
     ;;
   esac
@@ -683,7 +670,7 @@ else
 	'(*)-a[unmount all mounted file systems]'
 	'-f[force unmount]'
 	'-n[remote node]:remote node:_hosts'
-	'-t[specify file system type]:file system type:->fstype'
+	'-t[specify file system type]:file system type:_file_systems'
 	'*:dev or dir:->udevordir'
       )
     ;;
@@ -693,7 +680,7 @@ else
 	'-b[unmount all filesystems in /etc/fstab except those listed]:list of directories:_dir_list -s,'
 	'-h[unmount all filesystems associated with host]:hostnames:_hosts'
 	'-k[kill all processes with files open on filesystems before unmounting]'
-	'-t[unmount all filesystems of specified type]:file system type:->fstype'
+	'-t[unmount all filesystems of specified type]:file system type:_file_systems'
 	'-v[verbose]'
       )
     ;;  
@@ -706,7 +693,7 @@ else
 	'(-V -h)-r[remount read-only on failure]'
 	'(-V -h)-d[for loopback mount, free loop device]'
 	'(-V -h *)-a[unmount all file systems from /etc/mtab]'
-	'(-V -h)-t[specify file system type]:file system type:->fstype'
+	'(-V -h)-t[specify file system type]:file system type:_file_systems'
 	'(-V -h *)-O[with -a, restrict filesystems by options]:file system option:->fsopt'
 	'(-V -h)-f[force unmount]'
 	'(-V -h)-l[lazy unmount]'
@@ -719,7 +706,7 @@ else
 	'-A[unmount all mounted file systems except the root]'
 	'-f[force unmount]'
 	'-h[unmount all filesystems associated with host]:hostnames:_hosts'
-	'-t[unmount all filesystems of specified type]:file system type:->fstype'
+	'-t[unmount all filesystems of specified type]:file system type:->fslist'
 	'-v[verbose mode]'
 	'*:dev or dir:->udevordir'
       )
@@ -737,7 +724,7 @@ else
       args=(
 	'-v[verbose mode]'
 	'(*)-a[unmount all file systems from /etc/mtab]'
-	'-t[specify file system type]:file system type:->fstype'
+	'-t[specify file system type]:file system type:_file_systems'
 	'*:dev or dir:->udevordir'
       )
     ;;
@@ -748,11 +735,10 @@ else
 fi
 
 case "$state" in
-fstype)
+fslist)
   compset -P '*,'
   compset -S ',*' || suf=','
-  _wanted types expl 'file system type' \
-      compadd -qS "$suf" -M 'L:|no=' -a fss && ret=0
+  _file_systems -qS "$suf"
 ;;
 fsopt)
   _tags options || return 1
@@ -763,6 +749,17 @@ fsopt)
   ;;
 devordir)
   local dev_tmp mp_tmp mline
+
+  if compset -P '*:'; then
+    _wanted exports expl 'exported path' compadd \
+	${${(f)"$(path+=( {/usr,}/sbin(N) ) _call_program exports \
+	showmount -e ${IPREFIX%:} 2>/dev/null)"}[2,-1]%% *} && ret=0
+    return ret
+  fi
+  if compset -S ':*'; then
+    _hosts -S '' && ret=0
+    return ret
+  fi
 
   case "$OSTYPE" in
   freebsd*)
@@ -781,6 +778,7 @@ devordir)
     done < /etc/fstab
 
     _alternative \
+      'hosts:host:_hosts -S :' \
       'devices:device:compadd -a dev_tmp' \
       'directories:mount point:compadd -a mp_tmp' && ret=0
     ;;
@@ -788,7 +786,9 @@ devordir)
     if (( ${${(s.,.)opt_args[-o]}[(I)loop(|=*)]} )) ; then
       _wanted device-files expl 'loop device file' _files && ret=0
     else
-      _wanted files expl 'device or mount point' _files -g "*(-%,-/)" && ret=0
+      _alternative \
+        'hosts:host:_hosts -S :' \
+        'files:device or mount point:_files -g "*(-%b,-/)"' && ret=0
     fi
     ;;
   esac

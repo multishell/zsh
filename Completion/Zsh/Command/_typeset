@@ -23,6 +23,7 @@ allargs=(
   i '(-A -E -F -T -f)-+i[represent internally as an integer]'
   l '(-T -f)-l[convert the value to lowercase]'
   m '(-A -E -F -T -i)-m[treat arguments as patterns]'
+  p '-p[output parameters in form of calls to typeset]'
   r '(-f)-+r[mark parameters as readonly]'
   t '(-T)-+t[tag parameters and turn on execution tracing for functions]'
   tf '(-T)-+t[turn on execution tracing for functions]'
@@ -33,17 +34,17 @@ allargs=(
   x '(-f)-+x[export parameter]'
 )
 
-use="AEFHLRTUZafghilmrtux"
+use="AEFHLRTUZafghilmprtux"
 
 case ${service} in
-  float) use="EFHghlrtux";;
+  float) use="EFHghlprtux";;
   functions)
     use="Umtu"
     func=f
   ;;
   integer)
-    use="Hghilrtux"
-    allargs[i]='-i[specify arithmetic base for output]'
+    use="Hghilprtux"
+    allargs[i]='-i[specify arithmetic base for output]' \
   ;;
   readonly) use="${use/r/}" ;;
   local) use="${use/f/}" ;&
@@ -54,8 +55,7 @@ esac
 [[ -z "${words[(r)-*[aA]*]}" ]] || func=p
    
 for ((i=1;i<=$#use;++i)); do
-  args=( "${args[@]}" \
-      ${allargs[${use[$i]}${${(s::)use[$i]}[(r)[Uut]]:+$func}]} )
+  args+=( ${allargs[${use[$i]}${${(s::)use[$i]}[(r)[Uut]]:+$func}]} )
 done
 
 _arguments -C -s -A "-*" -S "${args[@]}" '*:vars:->vars_eq'

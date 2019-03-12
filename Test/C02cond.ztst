@@ -12,6 +12,7 @@
 
   touch zerolength
   chgrp $EGID zerolength
+
   print 'Garbuglio' >nonzerolength
 
   mkdir modish
@@ -134,6 +135,10 @@
     [[ -N newnewnew && ! -N unmodified ]]
   fi
 0:-N cond
+F:This test can fail on NFS-mounted filesystems as the access and
+F:modification times are not updated separately.  The test will fail
+F:on HFS+ (Apple Mac OS X default) filesystems because access times
+F:are not recorded. This does not indicate a problem in the shell.
 
   [[ newnewnew -nt zerolength && ! (unmodified -nt zerolength) ]]
 0:-nt cond

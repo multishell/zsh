@@ -10,14 +10,7 @@ _arguments -C -s \
   ':string:->string' \
   ':dictionary file:_files' && ret=0
 
-case "$state" in
-string)
-  if [[ -n "$PREFIX" ]]; then
-    _wanted values expl 'word prefix' compadd - $(_call_program values $words[1] $PREFIX) && return
-  else
-    _message 'word prefix'
-  fi
-  ;;
-esac
+[[ -n "$state" && ! -prefix - ]] && _wanted values expl 'word prefix' \
+    compadd - $(_call_program words $words[1] '"$PREFIX"') && return
 
 return ret

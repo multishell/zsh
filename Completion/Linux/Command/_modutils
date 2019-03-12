@@ -67,15 +67,15 @@ case "$state" in
   ;;
 
   all_modules)
-    modules=( ${${(M)${(f)"$(_call_program modules ${(M)words[1]##*/}modprobe -c 2>/dev/null)"}:#path*}#*[=]} )
-    _wanted modules expl module compadd ${^modules}/**/*.o(:t:r) && return
+    modules=( ${${${${(f)"$(_call_program modules ${(M)words[1]##*/}modprobe -l 2>/dev/null)"}:#}##*/}%.*} )
+    _wanted modules expl module compadd -a modules && return
   ;;
 
   params)
     if compset -P '*='; then
-      _message 'parameter value'
+      _message -e value 'parameter value'
     else
-      _message 'module parameter'
+      _message -e parameter 'module parameter'
     fi
   ;;
 esac

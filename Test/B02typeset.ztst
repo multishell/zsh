@@ -102,7 +102,7 @@
 
  declare +m
 1:Differences of declare and typeset
-?ZTST_execchunk:2: bad option: -m
+?(eval):1: bad option: -m
 
  scope10
  print $outer
@@ -148,7 +148,7 @@
  print $f
 0:Conversion of floating point to integer
 >float local f
->integer local f
+>integer 2 local f
 >2#11
 
  typeset -f
@@ -160,7 +160,7 @@
  r=failure
 1:Readonly declaration
 >success
-?ZTST_execchunk:2: read-only variable: r
+?(eval):3: read-only variable: r
 
  typeset r=success
  readonly r
@@ -168,7 +168,7 @@
  r=failure
 1:Convert to readonly
 >success
-?ZTST_execchunk:2: read-only variable: r
+?(eval):4: read-only variable: r
 
  typeset -gU array
  print $array
@@ -186,7 +186,7 @@
  typeset -T SCALAR array
  typeset +T SCALAR
 1:Untying is prohibited
-?ZTST_execchunk:typeset:2: use unset to remove tied variables
+?(eval):typeset:2: use unset to remove tied variables
 
  OUTER=outer
  scope13
@@ -195,9 +195,21 @@
 >i:n:n:e:r
 >outer
 
+ typeset -TU MORESTUFF=here-we-go-go-again morestuff '-'
+ print -l $morestuff
+0:Tied arrays with separator specified
+>here
+>we
+>go
+>again
+
+ typeset -T THIS will not work
+1:Tied array syntax
+?(eval):typeset:1: -T requires names of scalar and array
+
  local array[2]=x
 1:Illegal local array element assignment
-?ZTST_execchunk:local:2: array[2]: can't create local array elements
+?(eval):local:1: array[2]: can't create local array elements
 
  local -a array
  typeset array[1]=a array[2]=b array[3]=c
