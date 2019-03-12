@@ -27,6 +27,7 @@
 #	"completion"	prints only "compctl" commands.
 #	"functions"	prints "autoload" commands or actual functions.
 #	"limits"	prints "limit" commands for things like cputime, etc.
+#	"modules"	prints "zmodload" commands.
 #	"options"	prints "setopt" commands.
 #	"variables"	prints both shell and environment variables.
 #
@@ -34,10 +35,6 @@
 #			This is the default, and it's the same as typing all
 #			of the above options on the command line.
 #
-# AUTHOR:
-#	Karl E. Vogel <vogelke@c17mis.wpafb.af.mil>
-#	Control Data Systems, Inc.
-# 
 # CAVEATS:
 #	Assumes that you have the following programs in your search path:
 #		awk, cut, echo, grep, sed, sort
@@ -97,6 +94,7 @@ do
 		c*)	reporter_do_compctl=yes; reporter_do_all=no ;;
 		f*)	reporter_do_fun=yes; reporter_do_all=no ;;
 		l*)	reporter_do_lim=yes; reporter_do_all=no ;;
+		m*)	reporter_do_mod=yes; reporter_do_all=no ;;
 		o*)	reporter_do_setopt=yes; reporter_do_all=no ;;
 		v*)	reporter_do_vars=yes; reporter_do_all=no ;;
 		*)	;;
@@ -107,8 +105,6 @@ done
 #	The "cshjunkiequotes" option can break some of the commands
 #	used in the remainder of this script, so we check for that first
 #	and disable it.  We'll re-enable it later.
-#
-#	This bug was reported by Henry Guillaume <henryg@tusc.com.au>
 #
 
 reporter_junkiequotes="no"
@@ -202,14 +198,8 @@ fi
 #
 #	KEY BINDINGS
 #
-#	You may get an occasional message stating that a key is not bound,
-#	but I don't think this will cause any problems.
-#	It hasn't for me. :)
-#
-#	The sed nonsense is to make sure that a key-binding like \e" is
-#	handled correctly.  I don't know how to handle ranges of keys
-#	(like "something to something is bound to self-insert") so I ignore
-#	them.
+#	The -L option does most of the work.  The subshell is used to
+#	avoid modifying things that will be recorded later.
 #
 
 if test "$reporter_do_all" = "yes" -o "$reporter_do_bindings" = "yes"
@@ -217,14 +207,17 @@ then
 	echo
 	echo "# Key bindings."
 	echo
-
-	bindkey | grep -v '" to "' | cut -f1 |
-		sed -e 's/\^\[/\\e/' -e 's/""/\\""/' |
-		${AWK} '{print "bindkey -r " $0}'
-	echo
-	bindkey | grep -v '" to "' |
-		sed -e 's/\^\[/\\e/' -e 's/""/\\""/' |
-		${AWK} 'NF > 1 {print "bindkey " $0}'
+	bindkey -lL
+	(
+		alias bindkey=bindkey
+		bindkey () {
+			[[ "$1" == "-N" ]] || return
+			[[ "$2" == "--" ]] && shift
+			echo
+			builtin bindkey -L -M -- "$2"
+		}
+		eval "`builtin bindkey -lL`"
+	)
 fi
 
 #
@@ -295,6 +288,30 @@ then
 	limit | grep -v "cputime" | grep -v "unlimited" |
 		sed -e 's/Mb/m/' -e 's/Kb/k/' |
 		${AWK} 'NF > 1 {print "limit " $0}'
+fi
+
+#
+#	MODULE LOADING COMMANDS
+#
+
+if test "$reporter_do_all" = "yes" -o "$reporter_do_mod" = "yes"
+then
+	echo
+	if ( zmodload ) >& /dev/null; then
+		echo "# Modules."
+		echo
+		zmodload -d -L
+		echo
+		zmodload -ab -L
+		echo
+		zmodload -ac -L
+		echo
+		zmodload -ap -L
+		echo
+		zmodload -L
+	else
+		echo "# Modules: zmodload not available."
+	fi
 fi
 
 #

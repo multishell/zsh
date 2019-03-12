@@ -1,0 +1,9 @@
+#compdef ps2epsi ps2pdf psmulti pswrap
+
+local expl
+
+# ghostscript:
+#  ps2epsi ps2pdf
+
+_description files expl 'postscript file'
+_files "$expl[@]" -g '*.(#i)(ps|eps)'

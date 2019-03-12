@@ -27,13 +27,19 @@
  *
  */
 
-#include "zsh.h"
+#include "zsh.mdh"
+#include "utils.pro"
+
+/* name of script being sourced */
+
+/**/
+char *scriptname;
 
 /* Print an error */
  
 /**/
-void
-zerr(char *fmt, char *str, int num)
+mod_export void
+zerr(const char *fmt, const char *str, int num)
 {
     if (errflag || noerrs) {
 	if (noerrs < 2)
@@ -45,8 +51,8 @@ zerr(char *fmt, char *str, int num)
 }
 
 /**/
-void
-zerrnam(char *cmd, char *fmt, char *str, int num)
+mod_export void
+zerrnam(const char *cmd, const char *fmt, const char *str, int num)
 {
     if (errflag || noerrs)
 	return;
@@ -56,8 +62,8 @@ zerrnam(char *cmd, char *fmt, char *str, int num)
 }
 
 /**/
-void
-zwarn(char *fmt, char *str, int num)
+mod_export void
+zwarn(const char *fmt, const char *str, int num)
 {
     if (errflag || noerrs)
 	return;
@@ -70,30 +76,37 @@ zwarn(char *fmt, char *str, int num)
      */
     nicezputs((isset(SHINSTDIN) && !locallevel) ? "zsh" :
 	      scriptname ? scriptname : argzero, stderr);
-    fputs(": ", stderr);
+    fputc((unsigned char)':', stderr);
     zerrmsg(fmt, str, num);
 }
 
 /**/
-void
-zwarnnam(char *cmd, char *fmt, char *str, int num)
+mod_export void
+zwarnnam(const char *cmd, const char *fmt, const char *str, int num)
 {
     if (errflag || noerrs)
 	return;
     trashzle();
     if (unset(SHINSTDIN) || locallevel) {
 	nicezputs(scriptname ? scriptname : argzero, stderr);
-	fputs(": ", stderr);
+	fputc((unsigned char)':', stderr);
     }
-    nicezputs(cmd, stderr);
-    fputs(": ", stderr);
+    if (cmd) {
+	nicezputs(cmd, stderr);
+	fputc((unsigned char)':', stderr);
+    }
     zerrmsg(fmt, str, num);
 }
 
 /**/
 void
-zerrmsg(char *fmt, char *str, int num)
+zerrmsg(const char *fmt, const char *str, int num)
 {
+    if ((unset(SHINSTDIN) || locallevel) && lineno)
+	fprintf(stderr, "%ld: ", (long)lineno);
+    else
+	fputc((unsigned char)' ', stderr);
+
     while (*fmt)
 	if (*fmt == '%') {
 	    fmt++;
@@ -104,7 +117,7 @@ zerrmsg(char *fmt, char *str, int num)
 	    case 'l': {
 		char *s;
 		num = metalen(str, num);
-		s = halloc(num + 1);
+		s = zhalloc(num + 1);
 		memcpy(s, str, num);
 		s[num] = '\0';
 		nicezputs(s, stderr);
@@ -141,10 +154,7 @@ zerrmsg(char *fmt, char *str, int num)
 	    putc(*fmt == Meta ? *++fmt ^ 32 : *fmt, stderr);
 	    fmt++;
 	}
-    if ((unset(SHINSTDIN) || locallevel) && lineno)
-	fprintf(stderr, " [%ld]\n", (long)lineno);
-    else
-	putc('\n', stderr);
+    putc('\n', stderr);
     fflush(stderr);
 }
 
@@ -162,7 +172,7 @@ putraw(int c)
 /* Output a single character, for the termcap routines. */
 
 /**/
-int
+mod_export int
 putshout(int c)
 {
     putc(c, shout);
@@ -180,7 +190,7 @@ putshout(int c)
  * literal characters.                                                  */
 
 /**/
-char *
+mod_export char *
 nicechar(int c)
 {
     static char buf[6];
@@ -275,7 +285,7 @@ ispwd(char *s)
 static char xbuf[PATH_MAX*2];
 
 /**/
-char **
+static char **
 slashsplit(char *s)
 {
     char *t, **r, **q;
@@ -307,8 +317,9 @@ slashsplit(char *s)
 /* expands symlinks and .. or . expressions */
 /* if flag = 0, only expand .. and . expressions */
 
+/**/
 static int
-xsymlinks(char *s, int flag)
+xsymlinks(char *s)
 {
     char **pp, **opp;
     char xbuf2[PATH_MAX*2], xbuf3[PATH_MAX*2];
@@ -331,25 +342,20 @@ xsymlinks(char *s, int flag)
 	    *p = '\0';
 	    continue;
 	}
-	if (unset(CHASELINKS)) {
-	    strcat(xbuf, "/");
-	    strcat(xbuf, *pp);
-	    zsfree(*pp);
-	    continue;
-	}
 	sprintf(xbuf2, "%s/%s", xbuf, *pp);
 	t0 = readlink(unmeta(xbuf2), xbuf3, PATH_MAX);
-	if (t0 == -1 || !flag) {
+	if (t0 == -1) {
 	    strcat(xbuf, "/");
 	    strcat(xbuf, *pp);
 	    zsfree(*pp);
 	} else {
+	    ret = 1;
 	    metafy(xbuf3, t0, META_NOALLOC);
 	    if (*xbuf3 == '/') {
 		strcpy(xbuf, "");
-		ret = xsymlinks(xbuf3 + 1, flag);
+		xsymlinks(xbuf3 + 1);
 	    } else
-		ret = xsymlinks(xbuf3, flag);
+		xsymlinks(xbuf3);
 	    zsfree(*pp);
 	}
     }
@@ -357,22 +363,33 @@ xsymlinks(char *s, int flag)
     return ret;
 }
 
-/* expand symlinks in s, and remove other weird things */
+/*
+ * expand symlinks in s, and remove other weird things:
+ * note that this always expands symlinks.
+ */
 
 /**/
 char *
 xsymlink(char *s)
 {
-    if (unset(CHASELINKS))
-	return ztrdup(s);
     if (*s != '/')
 	return NULL;
     *xbuf = '\0';
-    if (!xsymlinks(s + 1, 1))
-	return ztrdup(s);
+    xsymlinks(s + 1);
     if (!*xbuf)
 	return ztrdup("/");
     return ztrdup(xbuf);
+}
+
+/**/
+void
+print_if_link(char *s)
+{
+    if (*s == '/') {
+	*xbuf = '\0';
+	if (xsymlinks(s + 1))
+	    printf(" -> "), zputs(*xbuf ? xbuf : "/", stdout);
+    }
 }
 
 /* print a directory */
@@ -395,6 +412,11 @@ fprintdir(char *s, FILE *f)
 /* Returns the current username.  It caches the username *
  * and uid to try to avoid requerying the password files *
  * or NIS/NIS+ database.                                 */
+
+/**/
+uid_t cached_uid;
+/**/
+char *cached_username;
 
 /**/
 char *
@@ -421,20 +443,20 @@ get_username(void)
 
 /* static variables needed by finddir(). */
 
-static char finddir_full[PATH_MAX];
+static char *finddir_full;
 static Nameddir finddir_last;
 static int finddir_best;
 
 /* ScanFunc used by finddir(). */
 
-static void finddir_scan _((HashNode, int));
-
+/**/
 static void
 finddir_scan(HashNode hn, int flags)
 {
     Nameddir nd = (Nameddir) hn;
 
-    if(nd->diff > finddir_best && !dircmp(nd->dir, finddir_full)) {
+    if(nd->diff > finddir_best && !dircmp(nd->dir, finddir_full)
+       && !(nd->flags & ND_NOABBREV)) {
 	finddir_last=nd;
 	finddir_best=nd->diff;
     }
@@ -449,6 +471,7 @@ Nameddir
 finddir(char *s)
 {
     static struct nameddir homenode = { NULL, "", 0, NULL, 0 };
+    static int ffsz;
 
     /* Invalidate directory cache if argument is NULL.  This is called *
      * whenever a node is added to or removed from the hash table, and *
@@ -456,15 +479,21 @@ finddir(char *s)
     if (!s) {
 	homenode.dir = home;
 	homenode.diff = strlen(home);
-	if(homenode.diff==1 || homenode.diff>=PATH_MAX)
+	if(homenode.diff==1)
 	    homenode.diff = 0;
+	if(!finddir_full)
+	    finddir_full = zalloc(ffsz = PATH_MAX);
 	finddir_full[0] = 0;
 	return finddir_last = NULL;
     }
 
-    if (!strcmp(s, finddir_full))
+    if(!strcmp(s, finddir_full) && *finddir_full)
 	return finddir_last;
 
+    if(strlen(s) >= ffsz) {
+	free(finddir_full);
+	finddir_full = zalloc(ffsz = strlen(s) * 2);
+    }
     strcpy(finddir_full, s);
     finddir_best=0;
     finddir_last=NULL;
@@ -476,7 +505,7 @@ finddir(char *s)
 /* add a named directory */
 
 /**/
-void
+mod_export void
 adduserdir(char *s, char *t, int flags, int always)
 {
     Nameddir nd;
@@ -514,6 +543,9 @@ adduserdir(char *s, char *t, int flags, int always)
     nd = (Nameddir) zcalloc(sizeof *nd);
     nd->flags = flags;
     nd->dir = ztrdup(t);
+    /* The variables PWD and OLDPWD are not to be displayed as ~PWD etc. */
+    if (!strcmp(s, "PWD") || !strcmp(s, "OLDPWD"))
+	nd->flags |= ND_NOABBREV;
     nameddirtab->addnode(nameddirtab, ztrdup(s), nd);
 }
 
@@ -547,7 +579,8 @@ getnameddir(char *name)
 	/* Retrieve an entry from the password table/database for this user. */
 	struct passwd *pw;
 	if ((pw = getpwnam(name))) {
-	    char *dir = xsymlink(pw->pw_dir);
+	    char *dir = isset(CHASELINKS) ? xsymlink(pw->pw_dir)
+		: ztrdup(pw->pw_dir);
 	    adduserdir(name, dir, ND_USERNAME, 1);
 	    str = dupstring(dir);
 	    zsfree(dir);
@@ -561,7 +594,7 @@ getnameddir(char *name)
 }
 
 /**/
-int
+static int
 dircmp(char *s, char *t)
 {
     if (s) {
@@ -574,18 +607,33 @@ dircmp(char *s, char *t)
     return 1;
 }
 
+/* extra functions to call before displaying the prompt */
+
+/**/
+mod_export LinkList prepromptfns;
+
+/* the last time we checked mail */
+ 
+/**/
+time_t lastmailcheck;
+ 
+/* the last time we checked the people in the WATCH variable */
+ 
+/**/
+time_t lastwatch;
+
 /* do pre-prompt stuff */
 
 /**/
 void
 preprompt(void)
 {
-    List list;
-    struct schedcmd *sch, *schl;
+    static time_t lastperiodic;
+    LinkNode ln;
+    Eprog prog;
     int period = getiparam("PERIOD");
     int mailcheck = getiparam("MAILCHECK");
 
-    in_vared = 0;
     /* If NOTIFY is not set, then check for completed *
      * jobs before we print the prompt.               */
     if (unset(NOTIFY))
@@ -595,8 +643,13 @@ preprompt(void)
 
     /* If a shell function named "precmd" exists, *
      * then execute it.                           */
-    if ((list = getshfunc("precmd")))
-	doshfunc(list, NULL, 0, 1);
+    if ((prog = getshfunc("precmd")) != &dummy_eprog) {
+	int osc = sfcontext;
+
+	sfcontext = SFC_HOOK;
+	doshfunc("precmd", prog, NULL, 0, 1);
+	sfcontext = osc;
+    }
     if (errflag)
 	return;
 
@@ -604,8 +657,12 @@ preprompt(void)
      * "periodic" exists, 3) it's been greater than PERIOD since we *
      * executed "periodic", then execute it now.                    */
     if (period && (time(NULL) > lastperiodic + period) &&
-	(list = getshfunc("periodic"))) {
-	doshfunc(list, NULL, 0, 1);
+	(prog = getshfunc("periodic")) != &dummy_eprog) {
+	int osc = sfcontext;
+
+	sfcontext = SFC_HOOK;
+	doshfunc("periodic", prog, NULL, 0, 1);
+	sfcontext = osc;
 	lastperiodic = time(NULL);
     }
     if (errflag)
@@ -638,24 +695,14 @@ preprompt(void)
 	lastmailcheck = time(NULL);
     }
 
-    /* Check scheduled commands */
-    for (schl = (struct schedcmd *)&schedcmds, sch = schedcmds; sch;
-	 sch = (schl = sch)->next) {
-	if (sch->time < time(NULL)) {
-	    execstring(sch->cmd, 0, 0);
-	    schl->next = sch->next;
-	    zsfree(sch->cmd);
-	    zfree(sch, sizeof(struct schedcmd));
-
-	    sch = schl;
-	}
-	if (errflag)
-	    return;
-    }
+    /* Some people have claimed that C performs type    *
+     * checking, but they were later found to be lying. */
+    for(ln = firstnode(prepromptfns); ln; ln = nextnode(ln))
+	(**(void (**) _((void)))getdata(ln))();
 }
 
 /**/
-void
+static void
 checkmailpath(char **s)
 {
     struct stat st;
@@ -672,7 +719,11 @@ checkmailpath(char **s)
 	if (**s == 0) {
 	    *v = c;
 	    zerr("empty MAILPATH component: %s", *s, 0);
+#ifndef MAILDIR_SUPPORT
 	} else if (stat(unmeta(*s), &st) == -1) {
+#else
+	} else if (mailstat(unmeta(*s), &st) == -1) {
+#endif
 	    if (errno != ENOENT)
 		zerr("%e: %s", *s, errno);
 	} else if (S_ISDIR(st.st_mode)) {
@@ -683,31 +734,23 @@ checkmailpath(char **s)
 
 	    if (lock) {
 		char *fn;
-		HEAPALLOC {
-		    pushheap();
-		    l = newlinklist();
-		    while ((fn = zreaddir(lock))) {
-			if (errflag)
-			    break;
-			/* Ignore `.' and `..'. */
-			if (fn[0] == '.' &&
-			    (fn[1] == '\0' ||
-			     (fn[1] == '.' && fn[2] == '\0')))
-			    continue;
-			if (u)
-			    sprintf(buf, "%s/%s?%s", *s, fn, u);
-			else
-			    sprintf(buf, "%s/%s", *s, fn);
-			addlinknode(l, dupstring(buf));
-			ct++;
-		    }
-		    closedir(lock);
-		    ap = arr = (char **) alloc(ct * sizeof(char *));
 
-		    while ((*ap++ = (char *)ugetnode(l)));
-		    checkmailpath(arr);
-		    popheap();
-		} LASTALLOC;
+		pushheap();
+		l = newlinklist();
+		while ((fn = zreaddir(lock, 1)) && !errflag) {
+		    if (u)
+			sprintf(buf, "%s/%s?%s", *s, fn, u);
+		    else
+			sprintf(buf, "%s/%s", *s, fn);
+		    addlinknode(l, dupstring(buf));
+		    ct++;
+		}
+		closedir(lock);
+		ap = arr = (char **) zhalloc(ct * sizeof(char *));
+
+		while ((*ap++ = (char *)ugetnode(l)));
+		checkmailpath(arr);
+		popheap();
 	    }
 	} else {
 	    if (st.st_size && st.st_atime <= st.st_mtime &&
@@ -716,19 +759,20 @@ checkmailpath(char **s)
 		    fprintf(shout, "You have new mail.\n");
 		    fflush(shout);
 		} else {
-		    char *usav = underscore;
+		    VARARR(char, usav, underscoreused);
 
-		    underscore = *s;
-		    HEAPALLOC {
-			u = dupstring(u);
-			if (! parsestr(u)) {
-			    singsub(&u);
-			    zputs(u, shout);
-			    fputc('\n', shout);
-			    fflush(shout);
-			}
-			underscore = usav;
-		    } LASTALLOC;
+		    memcpy(usav, underscore, underscoreused);
+
+		    setunderscore(*s);
+
+		    u = dupstring(u);
+		    if (! parsestr(u)) {
+			singsub(&u);
+			zputs(u, shout);
+			fputc('\n', shout);
+			fflush(shout);
+		    }
+		    setunderscore(usav);
 		}
 	    }
 	    if (isset(MAILWARNING) && st.st_atime > st.st_mtime &&
@@ -742,52 +786,32 @@ checkmailpath(char **s)
     }
 }
 
+/* This prints the XTRACE prompt. */
+
+/**/
+FILE *xtrerr = 0;
+
 /**/
 void
-freecompcond(void *a)
+printprompt4(void)
 {
-    Compcond cc = (Compcond) a;
-    Compcond and, or, c;
-    int n;
+    if (!xtrerr)
+	xtrerr = stderr;
+    if (prompt4) {
+	int l, t = opts[XTRACE];
+	char *s = dupstring(prompt4);
 
-    for (c = cc; c; c = or) {
-	or = c->or;
-	for (; c; c = and) {
-	    and = c->and;
-	    if (c->type == CCT_POS ||
-		c->type == CCT_NUMWORDS) {
-		free(c->u.r.a);
-		free(c->u.r.b);
-	    } else if (c->type == CCT_CURSUF ||
-		       c->type == CCT_CURPRE) {
-		for (n = 0; n < c->n; n++)
-		    if (c->u.s.s[n])
-			zsfree(c->u.s.s[n]);
-		free(c->u.s.s);
-	    } else if (c->type == CCT_RANGESTR ||
-		       c->type == CCT_RANGEPAT) {
-		for (n = 0; n < c->n; n++)
-		    if (c->u.l.a[n])
-			zsfree(c->u.l.a[n]);
-		free(c->u.l.a);
-		for (n = 0; n < c->n; n++)
-		    if (c->u.l.b[n])
-			zsfree(c->u.l.b[n]);
-		free(c->u.l.b);
-	    } else {
-		for (n = 0; n < c->n; n++)
-		    if (c->u.s.s[n])
-			zsfree(c->u.s.s[n]);
-		free(c->u.s.p);
-		free(c->u.s.s);
-	    }
-	    zfree(c, sizeof(struct compcond));
-	}
+	opts[XTRACE] = 0;
+	unmetafy(s, &l);
+	s = unmetafy(promptexpand(metafy(s, l, META_NOALLOC), 0, NULL, NULL), &l);
+	opts[XTRACE] = t;
+
+	fprintf(xtrerr, "%s", s);
     }
 }
 
 /**/
-void
+mod_export void
 freestr(void *a)
 {
     zsfree(a);
@@ -819,7 +843,7 @@ gettyinfo(struct ttyinfo *ti)
 }
 
 /**/
-void
+mod_export void
 settyinfo(struct ttyinfo *ti)
 {
     if (SHTTY != -1) {
@@ -848,8 +872,21 @@ settyinfo(struct ttyinfo *ti)
     }
 }
 
+/* the default tty state */
+ 
+/**/
+mod_export struct ttyinfo shttyinfo;
+
+/* != 0 if we need to call resetvideo() */
+
+/**/
+mod_export int resetneeded;
+
 #ifdef TIOCGWINSZ
-extern winchanged;
+/* window size changed */
+
+/**/
+mod_export int winchanged;
 #endif
 
 static int
@@ -977,7 +1014,7 @@ adjustwinsize(int from)
 	winchanged =
 #endif /* TIOCGWINSZ */
 	    resetneeded = 1;
-	refresh();
+	zrefresh();
     }
 }
 
@@ -985,7 +1022,7 @@ adjustwinsize(int from)
  * is already >= 10, it is not moved.  If it is invalid, -1 is returned. */
 
 /**/
-int
+mod_export int
 movefd(int fd)
 {
     if(fd != -1 && fd < 10) {
@@ -1011,7 +1048,7 @@ movefd(int fd)
 /* Move fd x to y.  If x == -1, fd y is closed. */
 
 /**/
-void
+mod_export void
 redup(int x, int y)
 {
     if(x < 0)
@@ -1029,7 +1066,7 @@ redup(int x, int y)
 /* Close the given fd, and clear it from fdtable. */
 
 /**/
-int
+mod_export int
 zclose(int fd)
 {
     if (fd >= 0) {
@@ -1048,7 +1085,7 @@ zclose(int fd)
  * is unique, for use as a temporary file.      */
  
 /**/
-char *
+mod_export char *
 gettempname(void)
 {
     char *s;
@@ -1067,7 +1104,7 @@ gettempname(void)
 /* Check if a string contains a token */
 
 /**/
-int
+mod_export int
 has_token(const char *s)
 {
     while(*s)
@@ -1079,7 +1116,7 @@ has_token(const char *s)
 /* Delete a character in a string */
  
 /**/
-void
+mod_export void
 chuck(char *str)
 {
     while ((str[0] = str[1]))
@@ -1087,7 +1124,7 @@ chuck(char *str)
 }
 
 /**/
-int
+mod_export int
 tulower(int c)
 {
     c &= 0xff;
@@ -1095,7 +1132,7 @@ tulower(int c)
 }
 
 /**/
-int
+mod_export int
 tuupper(int c)
 {
     c &= 0xff;
@@ -1116,7 +1153,7 @@ ztrncpy(char *s, char *t, int len)
 /* copy t into *s and update s */
 
 /**/
-void
+mod_export void
 strucpy(char **s, char *t)
 {
     char *u = *s;
@@ -1126,7 +1163,7 @@ strucpy(char **s, char *t)
 }
 
 /**/
-void
+mod_export void
 struncpy(char **s, char *t, int n)
 {
     char *u = *s;
@@ -1141,7 +1178,7 @@ struncpy(char **s, char *t, int n)
  * It doesn't count the NULL pointer at the end.          */
 
 /**/
-int
+mod_export int
 arrlen(char **s)
 {
     int count;
@@ -1153,7 +1190,7 @@ arrlen(char **s)
 /* Skip over a balanced pair of parenthesis. */
 
 /**/
-int
+mod_export int
 skipparens(char inpar, char outpar, char **s)
 {
     int level;
@@ -1170,12 +1207,12 @@ skipparens(char inpar, char outpar, char **s)
    return level;
 }
 
-/* Convert string to zlong.  This function (without the z) *
- * is contained in the ANSI standard C library, but a lot  *
- * of them seem to be broken.                              */
+/* Convert string to zlong (see zsh.h).  This function (without the z) *
+ * is contained in the ANSI standard C library, but a lot of them seem *
+ * to be broken.                                                       */
 
 /**/
-zlong
+mod_export zlong
 zstrtol(const char *s, char **t, int base)
 {
     zlong ret = 0;
@@ -1197,7 +1234,6 @@ zstrtol(const char *s, char **t, int base)
 	else
 	    base = 8;
     }
-
     if (base <= 10)
 	for (; *s >= '0' && *s < ('0' + base); s++)
 	    ret = ret * base + *s - '0';
@@ -1208,55 +1244,6 @@ zstrtol(const char *s, char **t, int base)
     if (t)
 	*t = (char *)s;
     return neg ? -ret : ret;
-}
-
-/* Convert string to quad_t. */
-
-#if defined(RLIM_T_IS_QUAD_T) || defined(RLIM_T_IS_UNSIGNED)
-
-/**/
-rlim_t
-zstrtorlimit(const char *s, char **t, int base)
-{
-    rlim_t ret = 0;
- 
-    if (!base) {
-	if (*s != '0')
-	    base = 10;
-	else if (*++s == 'x' || *s == 'X')
-	    base = 16, s++;
-	else
-	    base = 8;
-    }
-
-    if (base <= 10)
-	for (; *s >= '0' && *s < ('0' + base); s++)
-	    ret = ret * base + *s - '0';
-    else
-	for (; idigit(*s) || (*s >= 'a' && *s < ('a' + base - 10))
-	     || (*s >= 'A' && *s < ('A' + base - 10)); s++)
-	    ret = ret * base + (idigit(*s) ? (*s - '0') : (*s & 0x1f) + 9);
-    if (t)
-	*t = (char *)s;
-    return ret;
-}
-#endif
-
-/**/
-int
-checkrmall(char *s)
-{
-    fflush(stdin);
-    fprintf(shout, "zsh: sure you want to delete all the files in ");
-    if (*s != '/') {
-	nicezputs(pwd[1] ? unmeta(pwd) : "", shout);
-	fputc('/', shout);
-    }
-    nicezputs(s, shout);
-    fputs(" [yn]? ", shout);
-    fflush(shout);
-    feep();
-    return (getquery("ny") == 'y');
 }
 
 /**/
@@ -1295,6 +1282,29 @@ setblock_stdin(void)
 
 /**/
 int
+checkrmall(char *s)
+{
+    fprintf(shout, "zsh: sure you want to delete all the files in ");
+    if (*s != '/') {
+	nicezputs(pwd[1] ? unmeta(pwd) : "", shout);
+	fputc('/', shout);
+    }
+    nicezputs(s, shout);
+    if(isset(RMSTARWAIT)) {
+	fputs("? (waiting ten seconds)", shout);
+	fflush(shout);
+	zbeep();
+	sleep(10);
+	fputc('\n', shout);
+    }
+    fputs(" [yn]? ", shout);
+    fflush(shout);
+    zbeep();
+    return (getquery("ny", 1) == 'y');
+}
+
+/**/
+int
 read1char(void)
 {
     char c;
@@ -1307,29 +1317,40 @@ read1char(void)
 }
 
 /**/
+mod_export int
+noquery(int purge)
+{
+    int c, val = 0;
+
+#ifdef FIONREAD
+    ioctl(SHTTY, FIONREAD, (char *)&val);
+    if (purge) {
+	for (; val; val--)
+	    read(SHTTY, &c, 1);
+    }
+#endif
+
+    return val;
+}
+
+/**/
 int
-getquery(char *valid_chars)
+getquery(char *valid_chars, int purge)
 {
     int c, d;
     int isem = !strcmp(term, "emacs");
-
-#ifdef FIONREAD
-    int val = 0;
-#endif
 
     attachtty(mypgrp);
     if (!isem)
 	setcbreak();
 
-#ifdef FIONREAD
-    ioctl(SHTTY, FIONREAD, (char *)&val);
-    if (val) {
+    if (noquery(purge)) {
 	if (!isem)
 	    settyinfo(&shttyinfo);
 	write(SHTTY, "n\n", 2);
 	return 'n';
     }
-#endif
+
     while ((c = read1char()) >= 0) {
 	if (c == 'Y' || c == '\t')
 	    c = 'y';
@@ -1342,13 +1363,13 @@ getquery(char *valid_chars)
 	    break;
 	}
 	if (strchr(valid_chars, c)) {
-	    write(2, "\n", 1);
+	    write(SHTTY, "\n", 1);
 	    break;
 	}
-	feep();
+	zbeep();
 	if (icntrl(c))
-	    write(2, "\b \b", 3);
-	write(2, "\b \b", 3);
+	    write(SHTTY, "\b \b", 3);
+	write(SHTTY, "\b \b", 3);
     }
     if (isem) {
 	if (c != '\n')
@@ -1356,7 +1377,7 @@ getquery(char *valid_chars)
     } else {
 	settyinfo(&shttyinfo);
 	if (c != '\n' && !valid_chars)
-	    write(2, "\n", 1);
+	    write(SHTTY, "\n", 1);
     }
     return c;
 }
@@ -1365,7 +1386,7 @@ static int d;
 static char *guess, *best;
 
 /**/
-void
+static void
 spscan(HashNode hn, int scanflags)
 {
     int nd;
@@ -1381,7 +1402,7 @@ spscan(HashNode hn, int scanflags)
 /* fix s ; if hist is nonzero, fix the history list too */
 
 /**/
-void
+mod_export void
 spckword(char **s, int hist, int cmd, int ask)
 {
     char *t, *u;
@@ -1474,11 +1495,11 @@ spckword(char **s, int hist, int cmd, int ask)
 		if (strncmp(guess, best, preflen))
 		    return;
 		/* replace the temporarily expanded prefix with the original */
-		u = (char *) ncalloc(t - *s + strlen(best + preflen) + 1);
+		u = (char *) hcalloc(t - *s + strlen(best + preflen) + 1);
 		strncpy(u, *s, t - *s);
 		strcpy(u + (t - *s), best + preflen);
 	    } else {
-		u = (char *) ncalloc(strlen(best) + 2);
+		u = (char *) hcalloc(strlen(best) + 2);
 		strcpy(u + 1, best);
 	    }
 	    best = u;
@@ -1486,16 +1507,17 @@ spckword(char **s, int hist, int cmd, int ask)
 	    *guess = *best = ztokens[ic - Pound];
 	}
 	if (ask) {
-	    char *pptbuf;
-	    int pptlen;
-	    rstring = best;
-	    Rstring = guess;
-	    pptbuf = putprompt(sprompt, &pptlen, NULL, 1);
-	    fwrite(pptbuf, pptlen, 1, stderr);
-	    free(pptbuf);
-	    fflush(stderr);
-	    feep();
-	    x = getquery("nyae ");
+	    if (noquery(0)) {
+		x = 'n';
+	    } else {
+		char *pptbuf;
+		pptbuf = promptexpand(sprompt, 0, best, guess);
+		zputs(pptbuf, shout);
+		free(pptbuf);
+		fflush(shout);
+		zbeep();
+		x = getquery("nyae ", 0);
+	    }
 	} else
 	    x = 'y';
 	if (x == 'y' || x == ' ') {
@@ -1513,9 +1535,10 @@ spckword(char **s, int hist, int cmd, int ask)
 }
 
 /**/
-int
+mod_export int
 ztrftime(char *buf, int bufsize, char *fmt, struct tm *tm)
 {
+    int hr12;
 #ifndef HAVE_STRFTIME
     static char *astr[] =
     {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
@@ -1525,9 +1548,6 @@ ztrftime(char *buf, int bufsize, char *fmt, struct tm *tm)
 #else
     char *origbuf = buf;
 #endif
-    static char *lstr[] =
-    {"12", " 1", " 2", " 3", " 4", " 5", " 6", " 7", " 8", " 9",
-     "10", "11"};
     char tmp[3];
 
 
@@ -1542,17 +1562,31 @@ ztrftime(char *buf, int bufsize, char *fmt, struct tm *tm)
 		*buf++ = '0' + tm->tm_mday % 10;
 		break;
 	    case 'e':
+	    case 'f':
 		if (tm->tm_mday > 9)
 		    *buf++ = '0' + tm->tm_mday / 10;
+		else if (fmt[-1] == 'e')
+		    *buf++ = ' ';
 		*buf++ = '0' + tm->tm_mday % 10;
 		break;
 	    case 'k':
+	    case 'K':
 		if (tm->tm_hour > 9)
 		    *buf++ = '0' + tm->tm_hour / 10;
+		else if (fmt[-1] == 'k')
+		    *buf++ = ' ';
 		*buf++ = '0' + tm->tm_hour % 10;
 		break;
 	    case 'l':
-		strucpy(&buf, lstr[tm->tm_hour % 12]);
+	    case 'L':
+		hr12 = tm->tm_hour % 12;
+		if (hr12 == 0)
+		    hr12 = 12;
+	        if (hr12 > 9)
+		  *buf++ = '1';
+		else if (fmt[-1] == 'l')
+		  *buf++ = ' ';
+		*buf++ = '0' + (hr12 % 10);
 		break;
 	    case 'm':
 		*buf++ = '0' + (tm->tm_mon + 1) / 10;
@@ -1601,8 +1635,8 @@ ztrftime(char *buf, int bufsize, char *fmt, struct tm *tm)
 }
 
 /**/
-char *
-zjoin(char **arr, int delim)
+mod_export char *
+zjoin(char **arr, int delim, int heap)
 {
     int len = 0;
     char **s, *ret, *ptr;
@@ -1611,7 +1645,7 @@ zjoin(char **arr, int delim)
 	len += strlen(*s) + 1;
     if (!len)
 	return "";
-    ptr = ret = (char *) ncalloc(len);
+    ptr = ret = (heap ? (char *) hcalloc(len) : (char *) zcalloc(len));
     for (s = arr; *s; s++) {
 	strucpy(&ptr, *s);
 	if (delim)
@@ -1655,7 +1689,7 @@ colonsplit(char *s, int uniq)
 }
 
 /**/
-int
+static int
 skipwsep(char **s)
 {
     char *t = *s;
@@ -1672,19 +1706,21 @@ skipwsep(char **s)
 }
 
 /**/
-char **
-spacesplit(char *s, int allownull)
+mod_export char **
+spacesplit(char *s, int allownull, int heap)
 {
     char *t, **ret, **ptr;
+    int l = sizeof(*ret) * (wordcount(s, NULL, -!allownull) + 1);
+    char *(*dup)(const char *) = (heap ? dupstring : ztrdup);
 
-    ptr = ret = (char **) ncalloc(sizeof(*ret) * (wordcount(s, NULL, -!allownull) + 1));
+    ptr = ret = (heap ? (char **) hcalloc(l) : (char **) zcalloc(l));
 
     t = s;
     skipwsep(&s);
     if (*s && isep(*s == Meta ? s[1] ^ 32 : *s))
-	*ptr++ = dupstring(allownull ? "" : nulstring);
+	*ptr++ = dup(allownull ? "" : nulstring);
     else if (!allownull && t != s)
-	*ptr++ = dupstring("");
+	*ptr++ = dup("");
     while (*s) {
 	if (isep(*s == Meta ? s[1] ^ 32 : *s)) {
 	    if (*s == Meta)
@@ -1695,21 +1731,22 @@ spacesplit(char *s, int allownull)
 	t = s;
 	findsep(&s, NULL);
 	if (s > t || allownull) {
-	    *ptr = (char *) ncalloc((s - t) + 1);
+	    *ptr = (heap ? (char *) hcalloc((s - t) + 1) :
+		    (char *) zcalloc((s - t) + 1));
 	    ztrncpy(*ptr++, t, s - t);
 	} else
-	    *ptr++ = dupstring(nulstring);
+	    *ptr++ = dup(nulstring);
 	t = s;
 	skipwsep(&s);
     }
     if (!allownull && t != s)
-	*ptr++ = dupstring("");
+	*ptr++ = dup("");
     *ptr = NULL;
     return ret;
 }
 
 /**/
-int
+static int
 findsep(char **s, char *sep)
 {
     int i;
@@ -1826,8 +1863,8 @@ wordcount(char *s, char *sep, int mul)
 }
 
 /**/
-char *
-sepjoin(char **s, char *sep)
+mod_export char *
+sepjoin(char **s, char *sep, int heap)
 {
     char *r, *p, **t;
     int l, sl;
@@ -1843,7 +1880,7 @@ sepjoin(char **s, char *sep)
     }
     sl = strlen(sep);
     for (t = s, l = 1 - sl; *t; l += strlen(*t) + sl, t++);
-    r = p = (char *) ncalloc(l);
+    r = p = (heap ? (char *) hcalloc(l) : (char *) zcalloc(l));
     t = s;
     while (*t) {
 	strucpy(&p, *t);
@@ -1856,22 +1893,24 @@ sepjoin(char **s, char *sep)
 
 /**/
 char **
-sepsplit(char *s, char *sep, int allownull)
+sepsplit(char *s, char *sep, int allownull, int heap)
 {
     int n, sl;
     char *t, *tt, **r, **p;
 
     if (!sep)
-	return spacesplit(s, allownull);
+	return spacesplit(s, allownull, heap);
 
     sl = strlen(sep);
     n = wordcount(s, sep, 1);
-    r = p = (char **) ncalloc((n + 1) * sizeof(char *));
+    r = p = (heap ? (char **) hcalloc((n + 1) * sizeof(char *)) :
+	     (char **) zcalloc((n + 1) * sizeof(char *)));
 
     for (t = s; n--;) {
 	tt = t;
 	findsep(&t, sep);
-	*p = (char *) ncalloc(t - tt + 1);
+	*p = (heap ? (char *) hcalloc(t - tt + 1) :
+	      (char *) zcalloc(t - tt + 1));
 	strncpy(*p, tt, t - tt);
 	(*p)[t - tt] = '\0';
 	p++;
@@ -1885,753 +1924,15 @@ sepsplit(char *s, char *sep, int allownull)
 /* Get the definition of a shell function */
 
 /**/
-List
+mod_export Eprog
 getshfunc(char *nam)
 {
     Shfunc shf;
-    List l;
 
-    if ((shf = (Shfunc) shfunctab->getnode(shfunctab, nam))) {
-	/* if autoloaded and currently undefined */
-	if (shf->flags & PM_UNDEFINED) {
-	    if (!(l = getfpfunc(nam))) {
-		zerr("function not found: %s", nam, 0);
-		return NULL;
-	    }
-	    shf->flags &= ~PM_UNDEFINED;
-	    PERMALLOC {
-		shf->funcdef = (List) dupstruct(l);
-	    } LASTALLOC;
-	}
-	return shf->funcdef;
-    } else {
-	return NULL;
-    }
-}
+    if (!(shf = (Shfunc) shfunctab->getnode(shfunctab, nam)))
+	return &dummy_eprog;
 
-/* allocate a tree element */
-
-static int sizetab[N_COUNT] =
-{
-    sizeof(struct list),
-    sizeof(struct sublist),
-    sizeof(struct pline),
-    sizeof(struct cmd),
-    sizeof(struct redir),
-    sizeof(struct cond),
-    sizeof(struct forcmd),
-    sizeof(struct casecmd),
-    sizeof(struct ifcmd),
-    sizeof(struct whilecmd),
-    sizeof(struct varasg)};
-
-static int flagtab[N_COUNT] =
-{
-    NT_SET(N_LIST, 1, NT_NODE, NT_NODE, 0, 0),
-    NT_SET(N_SUBLIST, 2, NT_NODE, NT_NODE, 0, 0),
-    NT_SET(N_PLINE, 1, NT_NODE, NT_NODE, 0, 0),
-    NT_SET(N_CMD, 2, NT_STR | NT_LIST, NT_NODE, NT_NODE | NT_LIST, NT_NODE | NT_LIST),
-    NT_SET(N_REDIR, 3, NT_STR, 0, 0, 0),
-    NT_SET(N_COND, 1, NT_NODE, NT_NODE, 0, 0),
-    NT_SET(N_FOR, 1, NT_STR, NT_NODE, 0, 0),
-    NT_SET(N_CASE, 0, NT_STR | NT_ARR, NT_NODE | NT_ARR, 0, 0),
-    NT_SET(N_IF, 0, NT_NODE | NT_ARR, NT_NODE | NT_ARR, 0, 0),
-    NT_SET(N_WHILE, 1, NT_NODE, NT_NODE, 0, 0),
-    NT_SET(N_VARASG, 1, NT_STR, NT_STR, NT_STR | NT_LIST, 0)};
-
-/**/
-void *
-allocnode(int type)
-{
-    struct node *n;
-
-    n = (struct node *) alloc(sizetab[type]);
-    memset((void *) n, 0, sizetab[type]);
-    n->ntype = flagtab[type];
-    if (useheap)
-	n->ntype |= NT_HEAP;
-
-    return (void *) n;
-}
-
-/**/
-void *
-dupstruct(void *a)
-{
-    struct node *n, *r;
-
-    n = (struct node *) a;
-    if (!a || ((List) a) == &dummy_list)
-	return (void *) a;
-
-    if ((n->ntype & NT_HEAP) && !useheap) {
-	HEAPALLOC {
-	    n = (struct node *) dupstruct2((void *) n);
-	} LASTALLOC;
-	n = simplifystruct(n);
-    }
-    r = (struct node *)dupstruct2((void *) n);
-
-    if (!(n->ntype & NT_HEAP) && useheap)
-	r = expandstruct(r, N_LIST);
-
-    return (void *) r;
-}
-
-/**/
-struct node *
-simplifystruct(struct node *n)
-{
-    if (!n || ((List) n) == &dummy_list)
-	return n;
-
-    switch (NT_TYPE(n->ntype)) {
-    case N_LIST:
-	{
-	    List l = (List) n;
-
-	    l->left = (Sublist) simplifystruct((struct node *)l->left);
-	    if ((l->type & Z_SYNC) && !l->right)
-		return (struct node *)l->left;
-	}
-	break;
-    case N_SUBLIST:
-	{
-	    Sublist sl = (Sublist) n;
-
-	    sl->left = (Pline) simplifystruct((struct node *)sl->left);
-	    if (sl->type == END && !sl->flags && !sl->right)
-		return (struct node *)sl->left;
-	}
-	break;
-    case N_PLINE:
-	{
-	    Pline pl = (Pline) n;
-
-	    pl->left = (Cmd) simplifystruct((struct node *)pl->left);
-	    if (pl->type == END && !pl->right)
-		return (struct node *)pl->left;
-	}
-	break;
-    case N_CMD:
-	{
-	    Cmd c = (Cmd) n;
-	    int i = 0;
-
-	    if (empty(c->args))
-		c->args = NULL, i++;
-	    if (empty(c->redir))
-		c->redir = NULL, i++;
-	    if (empty(c->vars))
-		c->vars = NULL, i++;
-
-	    c->u.list = (List) simplifystruct((struct node *)c->u.list);
-	    if (i == 3 && !c->flags &&
-		(c->type == CWHILE || c->type == CIF ||
-		 c->type == COND))
-		return (struct node *)c->u.list;
-	}
-	break;
-    case N_FOR:
-	{
-	    Forcmd f = (Forcmd) n;
-
-	    f->list = (List) simplifystruct((struct node *)f->list);
-	}
-	break;
-    case N_CASE:
-	{
-	    struct casecmd *c = (struct casecmd *)n;
-	    List *l;
-
-	    for (l = c->lists; *l; l++)
-		*l = (List) simplifystruct((struct node *)*l);
-	}
-	break;
-    case N_IF:
-	{
-	    struct ifcmd *i = (struct ifcmd *)n;
-	    List *l;
-
-	    for (l = i->ifls; *l; l++)
-		*l = (List) simplifystruct((struct node *)*l);
-	    for (l = i->thenls; *l; l++)
-		*l = (List) simplifystruct((struct node *)*l);
-	}
-	break;
-    case N_WHILE:
-	{
-	    struct whilecmd *w = (struct whilecmd *)n;
-
-	    w->cont = (List) simplifystruct((struct node *)w->cont);
-	    w->loop = (List) simplifystruct((struct node *)w->loop);
-	}
-    }
-
-    return n;
-}
-
-/**/
-struct node *
-expandstruct(struct node *n, int exp)
-{
-    struct node *m;
-
-    if (!n || ((List) n) == &dummy_list)
-	return n;
-
-    if (exp != N_COUNT && exp != NT_TYPE(n->ntype)) {
-	switch (exp) {
-	case N_LIST:
-	    {
-		List l;
-
-		m = (struct node *) allocnode(N_LIST);
-		l = (List) m;
-		l->type = Z_SYNC;
-		l->left = (Sublist) expandstruct(n, N_SUBLIST);
-
-		return (struct node *)l;
-	    }
-	case N_SUBLIST:
-	    {
-		Sublist sl;
-
-		m = (struct node *) allocnode(N_SUBLIST);
-		sl = (Sublist) m;
-		sl->type = END;
-		sl->left = (Pline) expandstruct(n, N_PLINE);
-
-		return (struct node *)sl;
-	    }
-	case N_PLINE:
-	    {
-		Pline pl;
-
-		m = (struct node *) allocnode(N_PLINE);
-		pl = (Pline) m;
-		pl->type = END;
-		pl->left = (Cmd) expandstruct(n, N_CMD);
-
-		return (struct node *)pl;
-	    }
-	case N_CMD:
-	    {
-		Cmd c;
-
-		m = (struct node *) allocnode(N_CMD);
-		c = (Cmd) m;
-		switch (NT_TYPE(n->ntype)) {
-		case N_WHILE:
-		    c->type = CWHILE;
-		    break;
-		case N_IF:
-		    c->type = CIF;
-		    break;
-		case N_COND:
-		    c->type = COND;
-		}
-		c->u.list = (List) expandstruct(n, NT_TYPE(n->ntype));
-		c->args = newlinklist();
-		c->vars = newlinklist();
-		c->redir = newlinklist();
-
-		return (struct node *)c;
-	    }
-	}
-    } else
-	switch (NT_TYPE(n->ntype)) {
-	case N_LIST:
-	    {
-		List l = (List) n;
-
-		l->left = (Sublist) expandstruct((struct node *)l->left,
-						 N_SUBLIST);
-		l->right = (List) expandstruct((struct node *)l->right,
-					       N_LIST);
-	    }
-	    break;
-	case N_SUBLIST:
-	    {
-		Sublist sl = (Sublist) n;
-
-		sl->left = (Pline) expandstruct((struct node *)sl->left,
-						N_PLINE);
-		sl->right = (Sublist) expandstruct((struct node *)sl->right,
-						   N_SUBLIST);
-	    }
-	    break;
-	case N_PLINE:
-	    {
-		Pline pl = (Pline) n;
-
-		pl->left = (Cmd) expandstruct((struct node *)pl->left,
-					      N_CMD);
-		pl->right = (Pline) expandstruct((struct node *)pl->right,
-						 N_PLINE);
-	    }
-	    break;
-	case N_CMD:
-	    {
-		Cmd c = (Cmd) n;
-
-		if (!c->args)
-		    c->args = newlinklist();
-		if (!c->vars)
-		    c->vars = newlinklist();
-		if (!c->redir)
-		    c->redir = newlinklist();
-
-		switch (c->type) {
-		case CFOR:
-		case CSELECT:
-		    c->u.list = (List) expandstruct((struct node *)c->u.list,
-						    N_FOR);
-		    break;
-		case CWHILE:
-		    c->u.list = (List) expandstruct((struct node *)c->u.list,
-						    N_WHILE);
-		    break;
-		case CIF:
-		    c->u.list = (List) expandstruct((struct node *)c->u.list,
-						    N_IF);
-		    break;
-		case CCASE:
-		    c->u.list = (List) expandstruct((struct node *)c->u.list,
-						    N_CASE);
-		    break;
-		case COND:
-		    c->u.list = (List) expandstruct((struct node *)c->u.list,
-						    N_COND);
-		    break;
-		case ZCTIME:
-		    c->u.list = (List) expandstruct((struct node *)c->u.list,
-						    N_SUBLIST);
-		    break;
-		default:
-		    c->u.list = (List) expandstruct((struct node *)c->u.list,
-						    N_LIST);
-		}
-	    }
-	    break;
-	case N_FOR:
-	    {
-		Forcmd f = (Forcmd) n;
-
-		f->list = (List) expandstruct((struct node *)f->list,
-					      N_LIST);
-	    }
-	    break;
-	case N_CASE:
-	    {
-		struct casecmd *c = (struct casecmd *)n;
-		List *l;
-
-		for (l = c->lists; *l; l++)
-		    *l = (List) expandstruct((struct node *)*l, N_LIST);
-	    }
-	    break;
-	case N_IF:
-	    {
-		struct ifcmd *i = (struct ifcmd *)n;
-		List *l;
-
-		for (l = i->ifls; *l; l++)
-		    *l = (List) expandstruct((struct node *)*l, N_LIST);
-		for (l = i->thenls; *l; l++)
-		    *l = (List) expandstruct((struct node *)*l, N_LIST);
-	    }
-	    break;
-	case N_WHILE:
-	    {
-		struct whilecmd *w = (struct whilecmd *)n;
-
-		w->cont = (List) expandstruct((struct node *)w->cont,
-					      N_LIST);
-		w->loop = (List) expandstruct((struct node *)w->loop,
-					      N_LIST);
-	    }
-	}
-
-    return n;
-}
-
-/* duplicate a syntax tree node of given type, argument number */
-
-/**/
-void *
-dupnode(int type, void *a, int argnum)
-{
-    if (!a)
-	return NULL;
-    switch (NT_N(type, argnum)) {
-    case NT_NODE:
-	return (void *) dupstruct2(a);
-    case NT_STR:
-	return (useheap) ? ((void *) dupstring(a)) :
-	    ((void *) ztrdup(a));
-    case NT_LIST | NT_NODE:
-	if (type & NT_HEAP) {
-	    if (useheap)
-		return (void *) duplist(a, (VFunc) dupstruct2);
-	    else
-		return (void *) list2arr(a, (VFunc) dupstruct2);
-	} else if (useheap)
-	    return (void *) arr2list(a, (VFunc) dupstruct2);
-	else
-	    return (void *) duparray(a, (VFunc) dupstruct2);
-    case NT_LIST | NT_STR:
-	if (type & NT_HEAP) {
-	    if (useheap)
-		return (void *) duplist(a, (VFunc) dupstring);
-	    else
-		return (void *) list2arr(a, (VFunc) ztrdup);
-	} else if (useheap)
-	    return (void *) arr2list(a, (VFunc) dupstring);
-	else
-	    return (void *) duparray(a, (VFunc) ztrdup);
-    case NT_NODE | NT_ARR:
-	return (void *) duparray(a, (VFunc) dupstruct2);
-    case NT_STR | NT_ARR:
-	return (void *) duparray(a, (VFunc) (useheap ? dupstring : ztrdup));
-    default:
-	abort();
-    }
-}
-
-/* Free a syntax tree node of given type, argument number */
-
-/**/
-void
-freetreenode(int type, void *a, int argnum)
-{
-    if (!a)
-	return;
-    switch (NT_N(type, argnum)) {
-    case NT_NODE:
-	freestruct(a);
-	break;
-    case NT_STR:
-	zsfree(a);
-	break;
-    case NT_LIST | NT_NODE:
-    case NT_NODE | NT_ARR:
-	{
-	    char **p = (char **)a;
-
-	    while (*p)
-		freestruct(*p++);
-	    free(a);
-	}
-	break;
-    case NT_LIST | NT_STR:
-    case NT_STR | NT_ARR:
-	freearray(a);
-	break;
-    default:
-	abort();
-    }
-}
-
-/* duplicate a syntax tree */
-
-/**/
-void **
-dupstruct2(void *a)
-{
-    struct node *n = (struct node *)a, *m;
-    int type;
-
-    if (!n || ((List) n) == &dummy_list)
-	return a;
-    type = n->ntype;
-    m = (struct node *) alloc(sizetab[NT_TYPE(type)]);
-    m->ntype = (type & ~NT_HEAP);
-    if (useheap)
-	m->ntype |= NT_HEAP;
-    switch (NT_TYPE(type)) {
-    case N_LIST:
-	{
-	    List nl = (List) n;
-	    List ml = (List) m;
-
-	    ml->type = nl->type;
-	    ml->left = (Sublist) dupnode(type, nl->left, 0);
-	    ml->right = (List) dupnode(type, nl->right, 1);
-	}
-	break;
-    case N_SUBLIST:
-	{
-	    Sublist nsl = (Sublist) n;
-	    Sublist msl = (Sublist) m;
-
-	    msl->type = nsl->type;
-	    msl->flags = nsl->flags;
-	    msl->left = (Pline) dupnode(type, nsl->left, 0);
-	    msl->right = (Sublist) dupnode(type, nsl->right, 1);
-	}
-	break;
-    case N_PLINE:
-	{
-	    Pline npl = (Pline) n;
-	    Pline mpl = (Pline) m;
-
-	    mpl->type = npl->type;
-	    mpl->left = (Cmd) dupnode(type, npl->left, 0);
-	    mpl->right = (Pline) dupnode(type, npl->right, 1);
-	}
-	break;
-    case N_CMD:
-	{
-	    Cmd nc = (Cmd) n;
-	    Cmd mc = (Cmd) m;
-
-	    mc->type = nc->type;
-	    mc->flags = nc->flags;
-	    mc->lineno = nc->lineno;
-	    mc->args = (LinkList) dupnode(type, nc->args, 0);
-	    mc->u.generic = (void *) dupnode(type, nc->u.generic, 1);
-	    mc->redir = (LinkList) dupnode(type, nc->redir, 2);
-	    mc->vars = (LinkList) dupnode(type, nc->vars, 3);
-	}
-	break;
-    case N_REDIR:
-	{
-	    Redir nr = (Redir) n;
-	    Redir mr = (Redir) m;
-
-	    mr->type = nr->type;
-	    mr->fd1 = nr->fd1;
-	    mr->fd2 = nr->fd2;
-	    mr->name = (char *)dupnode(type, nr->name, 0);
-	}
-	break;
-    case N_COND:
-	{
-	    Cond nco = (Cond) n;
-	    Cond mco = (Cond) m;
-
-	    mco->type = nco->type;
-	    mco->left = (void *) dupnode(type, nco->left, 0);
-	    mco->right = (void *) dupnode(type, nco->right, 1);
-	}
-	break;
-    case N_FOR:
-	{
-	    Forcmd nf = (Forcmd) n;
-	    Forcmd mf = (Forcmd) m;
-
-	    mf->inflag = nf->inflag;
-	    mf->name = (char *)dupnode(type, nf->name, 0);
-	    mf->list = (List) dupnode(type, nf->list, 1);
-	}
-	break;
-    case N_CASE:
-	{
-	    struct casecmd *ncc = (struct casecmd *)n;
-	    struct casecmd *mcc = (struct casecmd *)m;
-
-	    mcc->pats = (char **)dupnode(type, ncc->pats, 0);
-	    mcc->lists = (List *) dupnode(type, ncc->lists, 1);
-	}
-	break;
-    case N_IF:
-	{
-	    struct ifcmd *nic = (struct ifcmd *)n;
-	    struct ifcmd *mic = (struct ifcmd *)m;
-
-	    mic->ifls = (List *) dupnode(type, nic->ifls, 0);
-	    mic->thenls = (List *) dupnode(type, nic->thenls, 1);
-
-	}
-	break;
-    case N_WHILE:
-	{
-	    struct whilecmd *nwc = (struct whilecmd *)n;
-	    struct whilecmd *mwc = (struct whilecmd *)m;
-
-	    mwc->cond = nwc->cond;
-	    mwc->cont = (List) dupnode(type, nwc->cont, 0);
-	    mwc->loop = (List) dupnode(type, nwc->loop, 1);
-	}
-	break;
-    case N_VARASG:
-	{
-	    Varasg nva = (Varasg) n;
-	    Varasg mva = (Varasg) m;
-
-	    mva->type = nva->type;
-	    mva->name = (char *)dupnode(type, nva->name, 0);
-	    mva->str = (char *)dupnode(type, nva->str, 1);
-	    mva->arr = (LinkList) dupnode(type, nva->arr, 2);
-	}
-	break;
-    }
-    return (void **) m;
-}
-
-/* free a syntax tree */
-
-/**/
-void
-freestruct(void *a)
-{
-    struct node *n = (struct node *)a;
-    int type;
-
-    if (!n || ((List) n) == &dummy_list)
-	return;
-
-    type = n->ntype;
-    switch (NT_TYPE(type)) {
-    case N_LIST:
-	{
-	    List nl = (List) n;
-
-	    freetreenode(type, nl->left, 0);
-	    freetreenode(type, nl->right, 1);
-	}
-	break;
-    case N_SUBLIST:
-	{
-	    Sublist nsl = (Sublist) n;
-
-	    freetreenode(type, nsl->left, 0);
-	    freetreenode(type, nsl->right, 1);
-	}
-	break;
-    case N_PLINE:
-	{
-	    Pline npl = (Pline) n;
-
-	    freetreenode(type, npl->left, 0);
-	    freetreenode(type, npl->right, 1);
-	}
-	break;
-    case N_CMD:
-	{
-	    Cmd nc = (Cmd) n;
-
-	    freetreenode(type, nc->args, 0);
-	    freetreenode(type, nc->u.generic, 1);
-	    freetreenode(type, nc->redir, 2);
-	    freetreenode(type, nc->vars, 3);
-	}
-	break;
-    case N_REDIR:
-	{
-	    Redir nr = (Redir) n;
-
-	    freetreenode(type, nr->name, 0);
-	}
-	break;
-    case N_COND:
-	{
-	    Cond nco = (Cond) n;
-
-	    freetreenode(type, nco->left, 0);
-	    freetreenode(type, nco->right, 1);
-	}
-	break;
-    case N_FOR:
-	{
-	    Forcmd nf = (Forcmd) n;
-
-	    freetreenode(type, nf->name, 0);
-	    freetreenode(type, nf->list, 1);
-	}
-	break;
-    case N_CASE:
-	{
-	    struct casecmd *ncc = (struct casecmd *)n;
-
-	    freetreenode(type, ncc->pats, 0);
-	    freetreenode(type, ncc->lists, 1);
-	}
-	break;
-    case N_IF:
-	{
-	    struct ifcmd *nic = (struct ifcmd *)n;
-
-	    freetreenode(type, nic->ifls, 0);
-	    freetreenode(type, nic->thenls, 1);
-
-	}
-	break;
-    case N_WHILE:
-	{
-	    struct whilecmd *nwc = (struct whilecmd *)n;
-
-	    freetreenode(type, nwc->cont, 0);
-	    freetreenode(type, nwc->loop, 1);
-	}
-	break;
-    case N_VARASG:
-	{
-	    Varasg nva = (Varasg) n;
-
-	    freetreenode(type, nva->name, 0);
-	    freetreenode(type, nva->str, 1);
-	    freetreenode(type, nva->arr, 2);
-	}
-	break;
-    }
-    zfree(n, sizetab[NT_TYPE(type)]);
-}
-
-/**/
-LinkList
-duplist(LinkList l, VFunc func)
-{
-    LinkList ret;
-    LinkNode node;
-
-    ret = newlinklist();
-    for (node = firstnode(l); node; incnode(node))
-	addlinknode(ret, func(getdata(node)));
-    return ret;
-}
-
-/**/
-char **
-duparray(char **arr, VFunc func)
-{
-    char **ret, **rr;
-
-    ret = (char **) alloc((arrlen(arr) + 1) * sizeof(char *));
-    for (rr = ret; *arr;)
-	*rr++ = (char *)func(*arr++);
-    *rr = NULL;
-
-    return ret;
-}
-
-/**/
-char **
-list2arr(LinkList l, VFunc func)
-{
-    char **arr, **r;
-    LinkNode n;
-
-    arr = r = (char **) alloc((countlinknodes(l) + 1) * sizeof(char *));
-
-    for (n = firstnode(l); n; incnode(n))
-	*r++ = (char *)func(getdata(n));
-    *r = NULL;
-
-    return arr;
-}
-
-/**/
-LinkList
-arr2list(char **arr, VFunc func)
-{
-    LinkList l = newlinklist();
-
-    while (*arr)
-	addlinknode(l, func(*arr++));
-
-    return l;
+    return shf->funcdef;
 }
 
 /**/
@@ -2646,18 +1947,25 @@ mkarray(char *s)
 }
 
 /**/
-void
-feep(void)
+mod_export void
+zbeep(void)
 {
-    if (isset(BEEP))
-	write(2, "\07", 1);
+    char *vb;
+    if ((vb = getsparam("ZBEEP"))) {
+	int len;
+	vb = getkeystring(vb, &len, 2, NULL);
+	write(SHTTY, vb, len);
+    } else if (isset(BEEP))
+	write(SHTTY, "\07", 1);
 }
 
 /**/
-void
+mod_export void
 freearray(char **s)
 {
     char **t = s;
+
+    DPUTS(!s, "freearray() with zero argument");
 
     while (*s)
 	zsfree(*s++);
@@ -2677,27 +1985,10 @@ equalsplit(char *s, char **t)
     return 0;
 }
 
-/* see if the right side of a list is trivial */
+/* the ztypes table */
 
 /**/
-void
-simplifyright(List l)
-{
-    Cmd c;
-
-    if (l == &dummy_list || !l->right)
-	return;
-    if (l->right->right || l->right->left->right ||
-	l->right->left->flags || l->right->left->left->right ||
-	l->left->flags)
-	return;
-    c = l->left->left->left;
-    if (c->type != SIMPLE || nonempty(c->args) || nonempty(c->redir)
-	|| nonempty(c->vars))
-	return;
-    l->right = NULL;
-    return;
-}
+mod_export short int typtab[256];
 
 /* initialize the ztypes table */
 
@@ -2747,19 +2038,33 @@ inittyptab(void)
 }
 
 /**/
-char **
+mod_export char **
 arrdup(char **s)
 {
     char **x, **y;
 
-    y = x = (char **) ncalloc(sizeof(char *) * (arrlen(s) + 1));
+    y = x = (char **) zhalloc(sizeof(char *) * (arrlen(s) + 1));
 
     while ((*x++ = dupstring(*s++)));
+
     return y;
 }
 
 /**/
-char *
+mod_export char **
+zarrdup(char **s)
+{
+    char **x, **y;
+
+    y = x = (char **) zalloc(sizeof(char *) * (arrlen(s) + 1));
+
+    while ((*x++ = ztrdup(*s++)));
+
+    return y;
+}
+
+/**/
+static char *
 spname(char *oldname)
 {
     char *p, spnameguess[PATH_MAX + 1], spnamebest[PATH_MAX + 1];
@@ -2794,7 +2099,7 @@ spname(char *oldname)
 }
 
 /**/
-int
+static int
 mindist(char *dir, char *mindistguess, char *mindistbest)
 {
     int mindistd, nd;
@@ -2812,7 +2117,7 @@ mindist(char *dir, char *mindistguess, char *mindistbest)
     }
     if (!(dd = opendir(unmeta(dir))))
 	return mindistd;
-    while ((fn = zreaddir(dd))) {
+    while ((fn = zreaddir(dd, 0))) {
 	nd = spdist(fn, mindistguess,
 		    (int)strlen(mindistguess) / 4 + 1);
 	if (nd <= mindistd) {
@@ -2827,11 +2132,11 @@ mindist(char *dir, char *mindistguess, char *mindistbest)
 }
 
 /**/
-int
+static int
 spdist(char *s, char *t, int thresh)
 {
     char *p, *q;
-    char *keymap =
+    const char qwertykeymap[] =
     "\n\n\n\n\n\n\n\n\n\n\n\n\n\n\
 \t1234567890-=\t\
 \tqwertyuiop[]\t\
@@ -2843,6 +2148,23 @@ spdist(char *s, char *t, int thresh)
 \tASDFGHJKL:\"\n\t\
 \tZXCVBNM<>?\n\n\t\
 \n\n\n\n\n\n\n\n\n\n\n\n\n\n";
+    const char dvorakkeymap[] =
+    "\n\n\n\n\n\n\n\n\n\n\n\n\n\n\
+\t1234567890[]\t\
+\t',.pyfgcrl/=\t\
+\taoeuidhtns-\n\t\
+\t;qjkxbmwvz\t\t\t\
+\n\n\n\n\n\n\n\n\n\n\n\n\n\n\
+\t!@#$%^&*(){}\t\
+\t\"<>PYFGCRL?+\t\
+\tAOEUIDHTNS_\n\t\
+\t:QJKXBMWVZ\n\n\t\
+\n\n\n\n\n\n\n\n\n\n\n\n\n\n";
+    const char *keymap;
+    if ( isset( DVORAK ) )
+      keymap = dvorakkeymap;
+    else
+      keymap = qwertykeymap;
 
     if (!strcmp(s, t))
 	return 0;
@@ -2909,7 +2231,7 @@ setcbreak(void)
 /* give the tty to some process */
 
 /**/
-void
+mod_export void
 attachtty(pid_t pgrp)
 {
     static int ep = 0;
@@ -3066,29 +2388,30 @@ getbaudrate(struct ttyinfo *shttyinfo)
 }
 #endif
 
-/* Escape tokens and null characters.  Buf is the string which should be    *
- * escaped.  len is the length of the string.  If len is -1, buf should     *
- * be null terminated.  If len is non-zero and the third paramerer is not   *
- * META_DUP buf should point to an at least len+1 long memory area.  The    *
- * return value points to the quoted string.  If the given string does not  *
- * contain any special character which should be quoted and the third       *
- * parameter is not META_DUP, buf is returned unchanged (a terminating null *
- * character is appended to buf if necessary).  Otherwise the third `heap'  *
- * argument determines the method used to allocate space for the result.    *
- * It can have the following values:                                        *
- *   META_REALLOC: use zrealloc on buf                                      *
- *   META_USEHEAP: get memory from the heap                                 *
- *   META_NOALLOC: buf points to a memory area which is long enough to hold *
- *                 the quoted form, just quote it and return buf.           *
- *   META_STATIC:  store the quoted string in a static area.  The original  *
- *                 sting should be at most PATH_MAX long.                   *
- *   META_ALLOC:   allocate memory for the new string with zalloc().        *
- *   META_DUP:     leave buf unchanged and allocate space for the return    *
- *                 value even if buf does not contains special characters   *
- *   META_HEAPDUP: same as META_DUP, but uses the heap                      */
+/* Escape tokens and null characters.  Buf is the string which should be     *
+ * escaped.  len is the length of the string.  If len is -1, buf should be   *
+ * null terminated.  If len is non-negative and the third paramerer is not   *
+ * META_DUP, buf should point to an at least len+1 long memory area.  The    *
+ * return value points to the quoted string.  If the given string does not   *
+ * contain any special character which should be quoted and the third        *
+ * parameter is not META_(HEAP|)DUP, buf is returned unchanged (a            *
+ * terminating null character is appended to buf if necessary).  Otherwise   *
+ * the third `heap' argument determines the method used to allocate space    *
+ * for the result.  It can have the following values:                        *
+ *   META_REALLOC:  use zrealloc on buf                                      *
+ *   META_HREALLOC: use hrealloc on buf                                      *
+ *   META_USEHEAP:  get memory from the heap.  This leaves buf unchanged.    *
+ *   META_NOALLOC:  buf points to a memory area which is long enough to hold *
+ *                  the quoted form, just quote it and return buf.           *
+ *   META_STATIC:   store the quoted string in a static area.  The original  *
+ *                  sting should be at most PATH_MAX long.                   *
+ *   META_ALLOC:    allocate memory for the new string with zalloc().        *
+ *   META_DUP:      leave buf unchanged and allocate space for the return    *
+ *                  value even if buf does not contains special characters   *
+ *   META_HEAPDUP:  same as META_DUP, but uses the heap                      */
 
 /**/
-char *
+mod_export char *
 metafy(char *buf, int len, int heap)
 {
     int meta = 0;
@@ -3109,15 +2432,16 @@ metafy(char *buf, int len, int heap)
 	case META_REALLOC:
 	    buf = zrealloc(buf, len + meta + 1);
 	    break;
-	case META_USEHEAP:
+	case META_HREALLOC:
 	    buf = hrealloc(buf, len, len + meta + 1);
 	    break;
 	case META_ALLOC:
 	case META_DUP:
 	    buf = memcpy(zalloc(len + meta + 1), buf, len);
 	    break;
+	case META_USEHEAP:
 	case META_HEAPDUP:
-	    buf = memcpy(halloc(len + meta + 1), buf, len);
+	    buf = memcpy(zhalloc(len + meta + 1), buf, len);
 	    break;
 	case META_STATIC:
 #ifdef DEBUG
@@ -3152,7 +2476,7 @@ metafy(char *buf, int len, int heap)
 }
 
 /**/
-char *
+mod_export char *
 unmetafy(char *s, int *len)
 {
     char *p, *t;
@@ -3170,8 +2494,8 @@ unmetafy(char *s, int *len)
  * unmetafied substring length.                                        */
 
 /**/
-int
-metalen(char *s, int len)
+mod_export int
+metalen(const char *s, int len)
 {
     int mlen = len;
 
@@ -3187,22 +2511,23 @@ metalen(char *s, int len)
 /* This function converts a zsh internal string to a form which can be *
  * passed to a system call as a filename.  The result is stored in a   *
  * single static area.  NULL returned if the result is longer than     *
- * PATH_MAX.                                                           */
+ * 4 * PATH_MAX.                                                       */
 
 /**/
-char *
-unmeta(char *file_name)
+mod_export char *
+unmeta(const char *file_name)
 {
-    static char fn[PATH_MAX];
-    char *p, *t;
+    static char fn[4 * PATH_MAX];
+    char *p;
+    const char *t;
 
-    for (t = file_name, p = fn; *t && p < fn + PATH_MAX - 1; p++)
+    for (t = file_name, p = fn; *t && p < fn + 4 * PATH_MAX - 1; p++)
 	if ((*p = *t++) == Meta)
 	    *p = *t++ ^ 32;
     if (*t)
 	return NULL;
     if (p - fn == t - file_name)
-	return file_name;
+	return (char *) file_name;
     *p = '\0';
     return fn;
 }
@@ -3244,7 +2569,7 @@ ztrcmp(unsigned char const *s1, unsigned char const *s2)
  * 2 is r is the lowercase prefix of s and return 3 otherwise. */
 
 /**/
-int
+mod_export int
 metadiffer(char const *s, char const *r, int len)
 {
     int l = len;
@@ -3271,7 +2596,7 @@ metadiffer(char const *s, char const *r, int len)
 /* Return the unmetafied length of a metafied string. */
 
 /**/
-int
+mod_export int
 ztrlen(char const *s)
 {
     int l;
@@ -3291,7 +2616,7 @@ ztrlen(char const *s)
 /* Subtract two pointers in a metafied string. */
 
 /**/
-int
+mod_export int
 ztrsub(char const *t, char const *s)
 {
     int l = t - s;
@@ -3310,18 +2635,25 @@ ztrsub(char const *t, char const *s)
 }
 
 /**/
-char *
-zreaddir(DIR *dir)
+mod_export char *
+zreaddir(DIR *dir, int ignoredots)
 {
-    struct dirent *de = readdir(dir);
+    struct dirent *de;
 
-    return de ? metafy(de->d_name, -1, META_STATIC) : NULL;
+    do {
+	de = readdir(dir);
+	if(!de)
+	    return NULL;
+    } while(ignoredots && de->d_name[0] == '.' &&
+	(!de->d_name[1] || (de->d_name[1] == '.' && !de->d_name[2])));
+
+    return metafy(de->d_name, -1, META_STATIC);
 }
 
-/* Unmetafy and output a string. */
+/* Unmetafy and output a string.  Tokens are skipped. */
 
 /**/
-int
+mod_export int
 zputs(char const *s, FILE *stream)
 {
     int c;
@@ -3329,7 +2661,10 @@ zputs(char const *s, FILE *stream)
     while (*s) {
 	if (*s == Meta)
 	    c = *++s ^ 32;
-	else
+	else if(itok(*s)) {
+	    s++;
+	    continue;
+	} else
 	    c = *s;
 	s++;
 	if (fputc(c, stream) < 0)
@@ -3338,10 +2673,50 @@ zputs(char const *s, FILE *stream)
     return 0;
 }
 
+/* Create a visibly-represented duplicate of a string. */
+
+/**/
+static char *
+nicedup(char const *s, int heap)
+{
+    int c, len = strlen(s) * 5;
+    VARARR(char, buf, len);
+    char *p = buf, *n;
+
+    while ((c = *s++)) {
+	if (itok(c)) {
+	    if (c <= Comma)
+		c = ztokens[c - Pound];
+	    else 
+		continue;
+	}
+	if (c == Meta)
+	    c = *s++ ^ 32;
+	n = nicechar(c);
+	while(*n)
+	    *p++ = *n++;
+    }
+    return metafy(buf, p - buf, (heap ? META_HEAPDUP : META_DUP));
+}
+
+/**/
+mod_export char *
+niceztrdup(char const *s)
+{
+    return nicedup(s, 0);
+}
+
+/**/
+mod_export char *
+nicedupstring(char const *s)
+{
+    return nicedup(s, 1);
+}
+
 /* Unmetafy and output a string, displaying special characters readably. */
 
 /**/
-int
+mod_export int
 nicezputs(char const *s, FILE *stream)
 {
     int c;
@@ -3364,7 +2739,7 @@ nicezputs(char const *s, FILE *stream)
 /* Return the length of the visible representation of a metafied string. */
 
 /**/
-size_t
+mod_export size_t
 niceztrlen(char const *s)
 {
     size_t l = 0;
@@ -3387,7 +2762,7 @@ niceztrlen(char const *s)
 /* check for special characters in the string */
 
 /**/
-int
+mod_export int
 hasspecial(char const *s)
 {
     for (; *s; s++)
@@ -3396,10 +2771,160 @@ hasspecial(char const *s)
     return 0;
 }
 
+/* Quote the string s and return the result.  If e is non-zero, the         *
+ * pointer it points to may point to a position in s and in e the position  *
+ * of the corresponding character in the quoted string is returned.         *
+ * The last argument should be zero if this is to be used outside a string, *
+ * one if it is to be quoted for the inside of a single quoted string, and  *
+ * two if it is for the inside of  double quoted string.                    *
+ * The string may be metafied and contain tokens.                           */
+
+/**/
+mod_export char *
+bslashquote(const char *s, char **e, int instring)
+{
+    const char *u, *tt;
+    char *v;
+    char *buf = hcalloc(4 * strlen(s) + 1);
+    int sf = 0;
+
+    tt = v = buf;
+    u = s;
+    for (; *u; u++) {
+	if (e && *e == u)
+	    *e = v, sf = 1;
+	if (instring == 3) {
+	  int c = *u;
+	  if (c == Meta) {
+	    c = *++u ^ 32;
+	  }
+	  c &= 0xff;
+	  if(isprint(c)) {
+	    switch (c) {
+	    case '\\':
+	    case '\'':
+	      *v++ = '\\';
+	      *v++ = c;
+	      break;
+
+	    default:
+	      if(imeta(c)) {
+		*v++ = Meta;
+		*v++ = c ^ 32;
+	      }
+	      else {
+		if (isset(BANGHIST) && c == bangchar) {
+		  *v++ = '\\';
+		}
+		*v++ = c;
+	      }
+	      break;
+	    }
+	  }
+	  else {
+	    switch (c) {
+	    case '\0':
+	      *v++ = '\\';
+	      *v++ = '0';
+	      if ('0' <= u[1] && u[1] <= '7') {
+		*v++ = '0';
+		*v++ = '0';
+	      }
+	      break;
+
+	    case '\007': *v++ = '\\'; *v++ = 'a'; break;
+	    case '\b': *v++ = '\\'; *v++ = 'b'; break;
+	    case '\f': *v++ = '\\'; *v++ = 'f'; break;
+	    case '\n': *v++ = '\\'; *v++ = 'n'; break;
+	    case '\r': *v++ = '\\'; *v++ = 'r'; break;
+	    case '\t': *v++ = '\\'; *v++ = 't'; break;
+	    case '\v': *v++ = '\\'; *v++ = 'v'; break;
+
+	    default:
+	      *v++ = '\\';
+	      *v++ = '0' + ((c >> 6) & 7);
+	      *v++ = '0' + ((c >> 3) & 7);
+	      *v++ = '0' + (c & 7);
+	      break;
+	    }
+	  }
+	  continue;
+	}
+	else if (*u == Tick || *u == Qtick) {
+	    char c = *u++;
+
+	    *v++ = c;
+	    while (*u && *u != c)
+		*v++ = *u++;
+	    *v++ = c;
+	    if (!*u)
+		u--;
+	    continue;
+	}
+	else if ((*u == String || *u == Qstring) &&
+		 (u[1] == Inpar || u[1] == Inbrack || u[1] == Inbrace)) {
+	    char c = (u[1] == Inpar ? Outpar : (u[1] == Inbrace ?
+						Outbrace : Outbrack));
+	    char beg = *u;
+	    int level = 0;
+
+	    *v++ = *u++;
+	    *v++ = *u++;
+	    while (*u && (*u != c || level)) {
+		if (*u == beg)
+		    level++;
+		else if (*u == c)
+		    level--;
+		*v++ = *u++;
+	    }
+	    if (*u)
+		*v++ = *u;
+	    else
+		u--;
+	    continue;
+	}
+	else if (ispecial(*u) &&
+		 ((*u != '=' && *u != '~') ||
+		  u == s ||
+		  (isset(MAGICEQUALSUBST) && (u[-1] == '=' || u[-1] == ':')) ||
+		  (*u == '~' && isset(EXTENDEDGLOB))) &&
+	    (!instring ||
+	     (isset(BANGHIST) && *u == (char)bangchar && instring != 1) ||
+	     (instring == 2 &&
+	      (*u == '$' || *u == '`' || *u == '\"' || *u == '\\')) ||
+	     (instring == 1 && *u == '\''))) {
+	    if (*u == '\n' || (instring == 1 && *u == '\'')) {
+		if (unset(RCQUOTES)) {
+		    *v++ = '\'';
+		    if (*u == '\'')
+			*v++ = '\\';
+		    *v++ = *u;
+		    *v++ = '\'';
+		} else if (*u == '\n')
+		    *v++ = '"', *v++ = '\n', *v++ = '"';
+		else
+		    *v++ = '\'', *v++ = '\'';
+		continue;
+	    } else
+		*v++ = '\\';
+	}
+	if(*u == Meta)
+	    *v++ = *u++;
+	*v++ = *u;
+    }
+    *v = '\0';
+
+    if (e && *e == u)
+	*e = v, sf = 1;
+    DPUTS(e && !sf, "BUG: Wild pointer *e in bslashquote()");
+
+    return buf;
+}
+
 /* Unmetafy and output a string, quoted if it contains special characters. */
 
 /**/
-int
+mod_export int
 quotedzputs(char const *s, FILE *stream)
 {
     int inquote = 0, c;
@@ -3471,102 +2996,302 @@ quotedzputs(char const *s, FILE *stream)
     return 0;
 }
 
-/* Identify an option name */
+/* Double-quote a metafied string. */
 
 /**/
-int
-optlookup(char *s)
+mod_export char *
+dquotedztrdup(char const *s)
 {
-    char *t;
-    int optno, starts_no;
+    int len = strlen(s) * 4 + 2;
+    char *buf = zalloc(len);
+    char *p = buf, *ret;
 
-    t = s = dupstring(s);
+    if(isset(CSHJUNKIEQUOTES)) {
+	int inquote = 0;
 
-    /* exorcise underscores, and change to lowercase */
-    while (*t)
-	if (*t == '_')
-	    chuck(t);
-	else {
-	    *t = tulower(*t);
+	while(*s) {
+	    int c = *s++;
+
+	    if (c == Meta)
+		c = *s++ ^ 32;
+	    switch(c) {
+		case '"':
+		case '$':
+		case '`':
+		    if(inquote) {
+			*p++ = '"';
+			inquote = 0;
+		    }
+		    *p++ = '\\';
+		    *p++ = c;
+		    break;
+		default:
+		    if(!inquote) {
+			*p++ = '"';
+			inquote = 1;
+		    }
+		    if(c == '\n')
+			*p++ = '\\';
+		    *p++ = c;
+		    break;
+	    }
+	}
+	if (inquote)
+	    *p++ = '"';
+    } else {
+	int pending = 0;
+
+	*p++ = '"';
+	while(*s) {
+	    int c = *s++;
+
+	    if (c == Meta)
+		c = *s++ ^ 32;
+	    switch(c) {
+		case '\\':
+		    if(pending)
+			*p++ = '\\';
+		    *p++ = '\\';
+		    pending = 1;
+		    break;
+		case '"':
+		case '$':
+		case '`':
+		    if(pending)
+			*p++ = '\\';
+		    *p++ = '\\';
+		    /* fall through */
+		default:
+		    *p++ = c;
+		    pending = 0;
+		    break;
+	    }
+	}
+	if(pending)
+	    *p++ = '\\';
+	*p++ = '"';
+    }
+    ret = metafy(buf, p - buf, META_DUP);
+    zfree(buf, len);
+    return ret;
+}
+
+/* Unmetafy and output a string, double quoting it in its entirety. */
+
+#if 0 /**/
+int
+dquotedzputs(char const *s, FILE *stream)
+{
+    char *d = dquotedztrdup(s);
+    int ret = zputs(d, stream);
+
+    zsfree(d);
+    return ret;
+}
+#endif
+
+/*
+ * Decode a key string, turning it into the literal characters.
+ * The length is returned in len.
+ * fromwhere determines how the processing works.
+ *   0:  Don't handle keystring, just print-like escapes.
+ *       Expects misc to be present.
+ *   1:  Handle Emacs-like \C-X arguments etc., but not ^X
+ *       Expects misc to be present.
+ *   2:  Handle ^X as well as emacs-like keys; don't handle \c
+ *       for no newlines.
+ *   3:  As 1, but don't handle \c.
+ *   4:  Do $'...' quoting.  Overwrites the existing string instead of
+ *       zhalloc'ing 
+ *   5:  As 2, but \- is special.  Expects misc to be defined.
+ *   6:  As 2, but parses only one character and returns end-pointer
+ *       and parsed character in *misc
+ */
+
+/**/
+mod_export char *
+getkeystring(char *s, int *len, int fromwhere, int *misc)
+{
+    char *buf, tmp[1];
+    char *t, *u = NULL;
+    char svchar = '\0';
+    int meta = 0, control = 0;
+
+    if (fromwhere == 6)
+	t = buf = tmp;
+    else if (fromwhere != 4)
+	t = buf = zhalloc(strlen(s) + 1);
+    else {
+	t = buf = s;
+	s += 2;
+    }
+    for (; *s; s++) {
+	if (*s == '\\' && s[1]) {
+	    switch (*++s) {
+	    case 'a':
+#ifdef __STDC__
+		*t++ = '\a';
+#else
+		*t++ = '\07';
+#endif
+		break;
+	    case 'n':
+		*t++ = '\n';
+		break;
+	    case 'b':
+		*t++ = '\b';
+		break;
+	    case 't':
+		*t++ = '\t';
+		break;
+	    case 'v':
+		*t++ = '\v';
+		break;
+	    case 'f':
+		*t++ = '\f';
+		break;
+	    case 'r':
+		*t++ = '\r';
+		break;
+	    case 'E':
+		if (!fromwhere) {
+		    *t++ = '\\', s--;
+		    continue;
+		}
+	    case 'e':
+		*t++ = '\033';
+		break;
+	    case 'M':
+		if (fromwhere) {
+		    if (s[1] == '-')
+			s++;
+		    meta = 1 + control;	/* preserve the order of ^ and meta */
+		} else
+		    *t++ = '\\', s--;
+		continue;
+	    case 'C':
+		if (fromwhere) {
+		    if (s[1] == '-')
+			s++;
+		    control = 1;
+		} else
+		    *t++ = '\\', s--;
+		continue;
+	    case Meta:
+		*t++ = '\\', s--;
+		break;
+	    case '-':
+		if (fromwhere == 5) {
+		    *misc  = 1;
+		    break;
+		}
+		goto def;
+	    case 'c':
+		if (fromwhere < 2) {
+		    *misc = 1;
+		    break;
+		}
+	    default:
+	    def:
+		if ((idigit(*s) && *s < '8') || *s == 'x') {
+		    if (!fromwhere) {
+			if (*s == '0')
+			    s++;
+			else if (*s != 'x') {
+			    *t++ = '\\', s--;
+			    continue;
+			}
+		    }
+		    if (s[1] && s[2] && s[3]) {
+			svchar = s[3];
+			s[3] = '\0';
+			u = s;
+		    }
+		    *t++ = zstrtol(s + (*s == 'x'), &s,
+				   (*s == 'x') ? 16 : 8);
+		    if (svchar) {
+			u[3] = svchar;
+			svchar = '\0';
+		    }
+		    s--;
+		} else {
+		    if (!fromwhere && *s != '\\')
+			*t++ = '\\';
+		    *t++ = *s;
+		}
+		break;
+	    }
+	} else if (fromwhere == 4 && *s == Snull) {
+	    for (u = t; (*u++ = *s++););
+	    return t + 1;
+	} else if (*s == '^' && !control &&
+		   (fromwhere == 2 || fromwhere == 5 || fromwhere == 6)) {
+	    control = 1;
+	    continue;
+	} else if (*s == Meta)
+	    *t++ = *++s ^ 32;
+	else
+	    *t++ = *s;
+	if (meta == 2) {
+	    t[-1] |= 0x80;
+	    meta = 0;
+	}
+	if (control) {
+	    if (t[-1] == '?')
+		t[-1] = 0x7f;
+	    else
+		t[-1] &= 0x9f;
+	    control = 0;
+	}
+	if (meta) {
+	    t[-1] |= 0x80;
+	    meta = 0;
+	}
+	if (fromwhere == 4 && imeta(t[-1])) {
+	    *t = t[-1] ^ 32;
+	    t[-1] = Meta;
 	    t++;
 	}
-    starts_no = (s[0] == 'n' && s[1] == 'o');
-
-    /* search for name in table */
-    for (optno = OPT_SIZE; --optno; ) {
-	if (!strcmp(optns[optno].name, s))
-	    return optno;
-	if (starts_no && !strcmp(optns[optno].name, s+2))
-	    return -optno;
+	if (fromwhere == 6 && t != tmp) {
+	    *misc = STOUC(tmp[0]);
+	    return s + 1;
+	}
     }
-
-    return 0;
+    DPUTS(fromwhere == 4, "BUG: unterminated $' substitution");
+    *t = '\0';
+    *len = t - buf;
+    return buf;
 }
 
-/* Identify an option letter */
+/* Return non-zero if s is a prefix of t. */
 
 /**/
-int
-optlookupc(char c)
+mod_export int
+strpfx(char *s, char *t)
 {
-    int optno;
-
-    if(!c || (c & OPT_REV))
-	return 0;
-
-    /* search for letter in the table */
-    for (optno = OPT_SIZE; --optno; ) {
-	char id = optid(optns[optno]);
-	if (id == c)
-	    return optno;
-	if (id == (char)(c | OPT_REV))
-	    return -optno;
-    }
-
-    return 0;
+    while (*s && *s == *t)
+	s++, t++;
+    return !*s;
 }
 
-/* Set or unset an option.  The option number may be negative, indicating *
- * that the sense is reversed from the usual meaning of the option.       */
+/* Return non-zero if s is a suffix of t. */
 
 /**/
-int
-dosetopt(int optno, int value, int force)
+mod_export int
+strsfx(char *s, char *t)
 {
-    if(!optno)
-	return -1;
-    if(optno < 0) {
-	optno = -optno;
-	value = !value;
-    }
-    if(!force && (optno == INTERACTIVE || optno == SHINSTDIN ||
-	    optno == SINGLECOMMAND)) {
-	if (opts[optno] == value)
-	    return 0;
-	/* it is not permitted to change the value of these options */
-	return -1;
-    } else if(!force && optno == USEZLE && value) {
-	/* we require a terminal in order to use ZLE */
-	if(!interact || SHTTY == -1 || !shout)
-	    return -1;
-    } else if(optno == PRIVILEGED && !value) {
-	/* unsetting PRIVILEGED causes the shell to make itself unprivileged */
-#ifdef HAVE_SETUID
-	setuid(getuid());
-	setgid(getgid());
-#endif /* HAVE_SETUID */
-    }
-    opts[optno] = value;
-    if (optno == BANGHIST || optno == SHINSTDIN)
-	inittyptab();
+    int ls = strlen(s), lt = strlen(t);
+
+    if (ls <= lt)
+	return !strcmp(t + lt - ls, s);
     return 0;
 }
 
 /**/
-char *
+mod_export char *
 dupstrpfx(const char *s, int len)
 {
-    char *r = ncalloc(len + 1);
+    char *r = zhalloc(len + 1);
 
     memcpy(r, s, len);
     r[len] = '\0';
@@ -3574,7 +3299,7 @@ dupstrpfx(const char *s, int len)
 }
 
 /**/
-char *
+mod_export char *
 ztrduppfx(const char *s, int len)
 {
     char *r = zalloc(len + 1);
@@ -3584,13 +3309,395 @@ ztrduppfx(const char *s, int len)
     return r;
 }
 
+/* Append a string to an allocated string, reallocating to make room. */
+
+/**/
+mod_export char *
+appstr(char *base, char const *append)
+{
+    return strcat(realloc(base, strlen(base) + strlen(append) + 1), append);
+}
+
+/**/
+static int
+upchdir(int n)
+{
+    char buf[PATH_MAX];
+    char *s;
+    int err = -1;
+
+    while (n > 0) {
+	for (s = buf; s < buf + PATH_MAX - 4 && n--; )
+	    *s++ = '.', *s++ = '.', *s++ = '/';
+	s[-1] = '\0';
+	if (chdir(buf))
+	    return err;
+	err = -2;
+    }
+    return 0;
+}
+
+/* Change directory, without following symlinks.  Returns 0 on success, -1 *
+ * on failure.  Sets errno to ENOTDIR if any symlinks are encountered.  If *
+ * fchdir() fails, or the current directory is unreadable, we might end up *
+ * in an unwanted directory in case of failure.                            */
+
+/**/
+mod_export int
+lchdir(char const *path, struct dirsav *d, int hard)
+{
+    char const *pptr;
+    int level;
+    struct stat st1;
+    struct dirsav ds;
+#ifdef HAVE_LSTAT
+    char buf[PATH_MAX + 1], *ptr;
+    int err;
+    struct stat st2;
+#endif
+
+    if (!d) {
+	ds.ino = ds.dev = 0;
+	ds.dirname = NULL;
+	ds.dirfd = -1;
+	d = &ds;
+    }
+#ifdef HAVE_LSTAT
+    if ((*path == '/' || !hard) &&
+	(d != &ds || hard)){
+#else
+    if (*path == '/') {
+#endif
+	level = -1;
+#ifdef HAVE_FCHDIR
+	if (d->dirfd < 0 && (d->dirfd = open(".", O_RDONLY | O_NOCTTY)) < 0 &&
+	    zgetdir(d) && *d->dirname != '/')
+	    d->dirfd = open("..", O_RDONLY | O_NOCTTY);
+#else
+	if (!d->dirname)
+	    zgetdir(d);
+#endif
+    } else {
+	level = 0;
+	if (!d->dev && !d->ino) {
+	    stat(".", &st1);
+	    d->dev = st1.st_dev;
+	    d->ino = st1.st_ino;
+	}
+    }
+
+#ifdef HAVE_LSTAT
+    if (!hard)
+#endif
+    {
+	if (d != &ds) {
+	    for (pptr = path; *pptr; level++) {
+		while (*pptr && *pptr++ != '/');
+		while (*pptr == '/')
+		    pptr++;
+	    }
+	    d->level = level;
+	}
+	return zchdir((char *) path);
+    }
+#ifdef HAVE_LSTAT
+    if (*path == '/')
+	chdir("/");
+    for(;;) {
+	while(*path == '/')
+	    path++;
+	if(!*path) {
+	    if (d == &ds) {
+		zsfree(ds.dirname);
+		if (ds.dirfd >=0)
+		    close(ds.dirfd);
+	    } else
+		d->level = level;
+	    return 0;
+	}
+	for(pptr = path; *++pptr && *pptr != '/'; ) ;
+	if(pptr - path > PATH_MAX) {
+	    err = ENAMETOOLONG;
+	    break;
+	}
+	for(ptr = buf; path != pptr; )
+	    *ptr++ = *path++;
+	*ptr = 0;
+	if(lstat(buf, &st1)) {
+	    err = errno;
+	    break;
+	}
+	if(!S_ISDIR(st1.st_mode)) {
+	    err = ENOTDIR;
+	    break;
+	}
+	if(chdir(buf)) {
+	    err = errno;
+	    break;
+	}
+	if (level >= 0)
+	    level++;
+	if(lstat(".", &st2)) {
+	    err = errno;
+	    break;
+	}
+	if(st1.st_dev != st2.st_dev || st1.st_ino != st2.st_ino) {
+	    err = ENOTDIR;
+	    break;
+	}
+    }
+    if (restoredir(d)) {
+	if (d == &ds) {
+	    zsfree(ds.dirname);
+	    if (ds.dirfd >=0)
+		close(ds.dirfd);
+	}
+	errno = err;
+	return -2;
+    }
+    if (d == &ds) {
+	zsfree(ds.dirname);
+	if (ds.dirfd >=0)
+	    close(ds.dirfd);
+    }
+    errno = err;
+    return -1;
+#endif /* HAVE_LSTAT */
+}
+
+/**/
+mod_export int
+restoredir(struct dirsav *d)
+{
+    int err = 0;
+    struct stat sbuf;
+
+    if (d->dirname && *d->dirname == '/')
+	return chdir(d->dirname);
+#ifdef HAVE_FCHDIR
+    if (d->dirfd >= 0) {
+	if (!fchdir(d->dirfd)) {
+	    if (!d->dirname) {
+		return 0;
+	    } else if (chdir(d->dirname)) {
+		close(d->dirfd);
+		d->dirfd = -1;
+		err = -2;
+	    }
+	} else {
+	    close(d->dirfd);
+	    d->dirfd = err = -1;
+	}
+    } else
+#endif
+    if (d->level > 0)
+	err = upchdir(d->level);
+    else if (d->level < 0)
+	err = -1;
+    if (d->dev || d->ino) {
+	stat(".", &sbuf);
+	if (sbuf.st_ino != d->ino || sbuf.st_dev != d->dev)
+	    err = -2;
+    }
+    return err;
+}
+
+/* Get a signal number from a string */
+
+/**/
+mod_export int
+getsignum(char *s)
+{
+    int x, i;
+
+    /* check for a signal specified by number */
+    x = atoi(s);
+    if (idigit(*s) && x >= 0 && x < VSIGCOUNT)
+	return x;
+
+    /* search for signal by name */
+    for (i = 0; i < VSIGCOUNT; i++)
+	if (!strcmp(s, sigs[i]))
+	    return i;
+
+    /* no matching signal */
+    return -1;
+}
+
+/* Check whether the shell is running with privileges in effect.  *
+ * This is the case if EITHER the euid is zero, OR (if the system *
+ * supports POSIX.1e (POSIX.6) capability sets) the process'      *
+ * Effective or Inheritable capability sets are non-empty.        */
+
+/**/
+int
+privasserted(void)
+{
+    if(!geteuid())
+	return 1;
+#ifdef HAVE_CAP_GET_PROC
+    {
+	cap_t caps = cap_get_proc();
+	if(caps) {
+	    /* POSIX doesn't define a way to test whether a capability set *
+	     * is empty or not.  Typical.  I hope this is conforming...    */
+	    cap_flag_value_t val;
+	    cap_value_t n;
+	    for(n = 0; !cap_get_flag(caps, n, CAP_EFFECTIVE, &val); n++)
+		if(val ||
+		   (!cap_get_flag(caps, n, CAP_INHERITABLE, &val) && val)) {
+		    cap_free(caps);
+		    return 1;
+		}
+	    cap_free(caps);
+	}
+    }
+#endif /* HAVE_CAP_GET_PROC */
+    return 0;
+}
+
 #ifdef DEBUG
 
 /**/
-void
+mod_export void
 dputs(char *message)
 {
     fprintf(stderr, "%s\n", message);
     fflush(stderr);
+}
+
+#endif /* DEBUG */
+
+/**/
+mod_export int
+mode_to_octal(mode_t mode)
+{
+    int m = 0;
+
+    if(mode & S_ISUID)
+	m |= 04000;
+    if(mode & S_ISGID)
+	m |= 02000;
+    if(mode & S_ISVTX)
+	m |= 01000;
+    if(mode & S_IRUSR)
+	m |= 00400;
+    if(mode & S_IWUSR)
+	m |= 00200;
+    if(mode & S_IXUSR)
+	m |= 00100;
+    if(mode & S_IRGRP)
+	m |= 00040;
+    if(mode & S_IWGRP)
+	m |= 00020;
+    if(mode & S_IXGRP)
+	m |= 00010;
+    if(mode & S_IROTH)
+	m |= 00004;
+    if(mode & S_IWOTH)
+	m |= 00002;
+    if(mode & S_IXOTH)
+	m |= 00001;
+    return m;
+}
+
+#ifdef MAILDIR_SUPPORT
+/*
+ *     Stat a file. If it's a maildir, check all messages
+ *     in the maildir and present the grand total as a file.
+ *     The fields in the 'struct stat' are from the mail directory.
+ *     The following fields are emulated:
+ *
+ *     st_nlink        always 1
+ *     st_size         total number of bytes in all files
+ *     st_blocks       total number of messages
+ *     st_atime        access time of newest file in maildir
+ *     st_mtime        modify time of newest file in maildir
+ *     st_mode         S_IFDIR changed to S_IFREG
+ *
+ *     This is good enough for most mail-checking applications.
+ */
+int
+mailstat(char *path, struct stat *st)
+{
+       DIR                     *dd;
+       struct                  dirent *fn;
+       struct stat             st_ret, st_tmp;
+       static struct stat      st_new_last, st_ret_last;
+       char                    dir[PATH_MAX * 2];
+       char                    file[PATH_MAX * 2];
+       int                     i, l;
+       time_t                  atime = 0, mtime = 0;
+
+       /* First see if it's a directory. */
+       if ((i = stat(path, st)) != 0 || !S_ISDIR(st->st_mode))
+               return i;
+       if (strlen(path) > sizeof(dir) - 5) {
+               errno = ENAMETOOLONG;
+               return -1;
+       }
+
+       st_ret = *st;
+       st_ret.st_nlink = 1;
+       st_ret.st_size  = 0;
+       st_ret.st_blocks  = 0;
+       st_ret.st_mode  &= ~S_IFDIR;
+       st_ret.st_mode  |= S_IFREG;
+
+       /* See if cur/ is present */
+       sprintf(dir, "%s/cur", path);
+       if (stat(dir, &st_tmp) || !S_ISDIR(st_tmp.st_mode)) return 0;
+       st_ret.st_atime = st_tmp.st_atime;
+
+       /* See if tmp/ is present */
+       sprintf(dir, "%s/tmp", path);
+       if (stat(dir, &st_tmp) || !S_ISDIR(st_tmp.st_mode)) return 0;
+       st_ret.st_mtime = st_tmp.st_mtime;
+
+       /* And new/ */
+       sprintf(dir, "%s/new", path);
+       if (stat(dir, &st_tmp) || !S_ISDIR(st_tmp.st_mode)) return 0;
+       st_ret.st_mtime = st_tmp.st_mtime;
+
+       /* Optimization - if new/ didn't change, nothing else did. */
+       if (st_tmp.st_dev == st_new_last.st_dev &&
+           st_tmp.st_ino == st_new_last.st_ino &&
+           st_tmp.st_atime == st_new_last.st_atime &&
+           st_tmp.st_mtime == st_new_last.st_mtime) {
+               *st = st_ret_last;
+               return 0;
+       }
+       st_new_last = st_tmp;
+
+       /* Loop over new/ and cur/ */
+       for (i = 0; i < 2; i++) {
+               sprintf(dir, "%s/%s", path, i ? "cur" : "new");
+               sprintf(file, "%s/", dir);
+               l = strlen(file);
+               if ((dd = opendir(dir)) == NULL)
+                       return 0;
+               while ((fn = readdir(dd)) != NULL) {
+                       if (fn->d_name[0] == '.' ||
+                           strlen(fn->d_name) + l >= sizeof(file))
+                               continue;
+                       strcpy(file + l, fn->d_name);
+                       if (stat(file, &st_tmp) != 0)
+                               continue;
+                       st_ret.st_size += st_tmp.st_size;
+                       st_ret.st_blocks++;
+                       if (st_tmp.st_atime != st_tmp.st_mtime &&
+                           st_tmp.st_atime > atime)
+                               atime = st_tmp.st_atime;
+                       if (st_tmp.st_mtime > mtime)
+                               mtime = st_tmp.st_mtime;
+               }
+               closedir(dd);
+       }
+
+       if (atime) st_ret.st_atime = atime;
+       if (mtime) st_ret.st_mtime = mtime;
+
+       *st = st_ret_last = st_ret;
+       return 0;
 }
 #endif

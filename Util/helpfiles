@@ -1,7 +1,6 @@
 #!/usr/local/bin/perl -- -*-perl-*-
 
 # helpfiles:  make help files for Z-shell builtins from the manual entries.
-# Author:  Peter Stephenson <pws@ifh.de>
 
 # Create help files for zsh commands in the current directory;
 # assumes no other files are present.

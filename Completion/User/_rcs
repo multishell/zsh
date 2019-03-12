@@ -1,0 +1,12 @@
+#compdef co ci rcs
+
+local nm=$compstate[nmatches] cmd="${words[1]:t}"
+
+[[ $cmd = ci || $cmd = rcs ]] && _files
+
+if [[ $compstate[nmatches] -eq nm && -d RCS && $cmd != ci ]]; then
+  local rep expl
+
+  rep=(RCS/$PREFIX*$SUFFIX,v(:t:s/\,v//))
+  (( $#rep )) && _wanted files expl 'RCS file' compadd - $rep
+fi

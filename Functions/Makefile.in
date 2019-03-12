@@ -1,7 +1,7 @@
 #
 # Makefile for Functions subdirectory
 #
-# Copyright (c) 1995 Richard Coleman
+# Copyright (c) 1999 Peter Stephensons
 # All rights reserved.
 #
 # Permission is hereby granted, without written agreement and without
@@ -10,59 +10,57 @@
 # purpose, provided that the above copyright notice and the following
 # two paragraphs appear in all copies of this software.
 #
-# In no event shall Richard Coleman or the Zsh Development Group be liable
+# In no event shall Peter Stephenson or the Zsh Development Group be liable
 # to any party for direct, indirect, special, incidental, or consequential
 # damages arising out of the use of this software and its documentation,
-# even if Richard Coleman and the Zsh Development Group have been advised of
+# even if Peter Stephenson and the Zsh Development Group have been advised of
 # the possibility of such damage.
 #
-# Richard Coleman and the Zsh Development Group specifically disclaim any
+# Peter Stephenson and the Zsh Development Group specifically disclaim any
 # warranties, including, but not limited to, the implied warranties of
 # merchantability and fitness for a particular purpose.  The software
-# provided hereunder is on an "as is" basis, and Richard Coleman and the
+# provided hereunder is on an "as is" basis, and Peter Stephenson and the
 # Zsh Development Group have no obligation to provide maintenance,
 # support, updates, enhancements, or modifications.
 #
 
-SHELL = /bin/sh
+subdir = Functions
+dir_top = ..
+SUBDIRS =
 
-srcdir = @srcdir@
-VPATH  = @srcdir@
+@VERSION_MK@
 
-.SUFFIXES:
+# source/build directories
+VPATH           = @srcdir@
+sdir            = @srcdir@
+sdir_top        = @top_srcdir@
+INSTALL         = @INSTALL@
 
-# all files in this directory included in the distribution
-DIST = Makefile.in acx cat cdmatch cdmatch2 checkmail cx harden \
-mere multicomp proto pushd randline run-help yp yu zed
+@DEFS_MK@
 
 # ========== DEPENDENCIES FOR BUILDING ==========
 
 all:
 
+# ========== DEPENDENCIES FOR INSTALLING ==========
+
+install: install.fns
+
+uninstall: uninstall.fns
+
+@FUNCINST_MK@
+
 # ========== DEPENDENCIES FOR CLEANUP ==========
 
-mostlyclean:
-	rm -f *~
+mostlyclean-here:
 
-clean: mostlyclean
-
-distclean: clean
+distclean-here:
 	rm -f Makefile
 
-realclean: distclean
+realclean-here:
 
-superclean: realclean
+@CLEAN_MK@
 
 # ========== DEPENDENCIES FOR MAINTENANCE ==========
 
-subdir = Functions
-
-Makefile: Makefile.in ../config.status
-	cd .. && CONFIG_FILES=$(subdir)/$@ CONFIG_HEADERS= ./config.status
-
-distdir = ../`cat ../distname`/$(subdir)
-dist: $(DIST)
-	@echo "Copying distribution files in $(subdir)"
-	for file in $(DIST); do    \
-	  cp -p $$file $(distdir); \
-	done
+@CONFIG_MK@

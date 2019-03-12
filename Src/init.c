@@ -3,7 +3,7 @@
  *
  * This file is part of zsh, the Z shell.
  *
- * Copyright (c) 1992-1996 Paul Falstad
+ * Copyright (c) 1992-1997 Paul Falstad
  * All rights reserved.
  *
  * Permission is hereby granted, without written agreement and without
@@ -27,70 +27,72 @@
  *
  */
 
-#define GLOBALS
-#include "zsh.h"
+#include "zsh.mdh"
 
-static int noexitct = 0;
+#include "zshpaths.h"
+#include "zshxmods.h"
+
+#include "init.pro"
 
 /**/
-int
-main(int argc, char **argv)
-{
-    char **t;
-#ifdef USE_LOCALE
-    setlocale(LC_ALL, "");
-#endif
+int noexitct = 0;
 
-    global_permalloc();
+/* buffer for $_ and its length */
 
-    for (t = argv; *t; *t = metafy(*t, -1, META_ALLOC), t++);
+/**/
+char *underscore;
 
-    if (!(zsh_name = strrchr(argv[0], '/')))
-	zsh_name = argv[0];
-    else
-	zsh_name++;
-    if (*zsh_name == '-')
-	zsh_name++;
+/**/
+int underscorelen, underscoreused;
 
-    fdtable_size = OPEN_MAX;
-    fdtable = zcalloc(fdtable_size);
+/* what level of sourcing we are at */
+ 
+/**/
+int sourcelevel;
 
-    emulate(zsh_name, 1);   /* initialises most options */
-    opts[LOGINSHELL] = (**argv == '-');
-    opts[MONITOR] = 1;   /* may be unset in init_io() */
-    opts[PRIVILEGED] = (getuid() != geteuid() || getgid() != getegid());
-    opts[USEZLE] = 1;   /* may be unset in init_io() */
-    parseargs(argv);   /* sets INTERACTIVE, SHINSTDIN and SINGLECOMMAND */
+/* the shell tty fd */
 
-    SHTTY = -1;
-    init_io();
-    setupvals();
-    init_signals();
-    global_heapalloc();
-    run_init_scripts();
-    init_misc();
+/**/
+mod_export int SHTTY;
 
-    for (;;) {
-	do
-	    loop(1,0);
-	while (tok != ENDINPUT);
-	if (!(isset(IGNOREEOF) && interact)) {
-#if 0
-	    if (interact)
-		fputs(islogin ? "logout\n" : "exit\n", shout);
-#endif
-	    zexit(lastval, 0);
-	    continue;
-	}
-	noexitct++;
-	if (noexitct >= 10) {
-	    stopmsg = 1;
-	    zexit(lastval, 0);
-	}
-	zerrnam("zsh", (!islogin) ? "use 'exit' to exit."
-		: "use 'logout' to logout.", NULL, 0);
-    }
-}
+/* the FILE attached to the shell tty */
+
+/**/
+mod_export FILE *shout;
+
+/* termcap strings */
+ 
+/**/
+mod_export char *tcstr[TC_COUNT];
+
+/* lengths of each termcap string */
+ 
+/**/
+mod_export int tclen[TC_COUNT];
+
+/* Values of the li, co and am entries */
+
+/**/
+int tclines, tccolumns;
+/**/
+mod_export int hasam;
+
+/* Pointer to read-key function from zle */
+
+/**/
+mod_export int (*getkeyptr) _((int));
+
+/* SIGCHLD mask */
+
+/**/
+mod_export sigset_t sigchld_mask;
+
+/**/
+mod_export struct hookdef zshhooks[] = {
+    HOOKDEF("exit", NULL, HOOKF_ALL),
+    HOOKDEF("before_trap", NULL, HOOKF_ALL),
+    HOOKDEF("after_trap", NULL, HOOKF_ALL),
+};
 
 /* keep executing lists until EOF found */
 
@@ -98,54 +100,60 @@ main(int argc, char **argv)
 void
 loop(int toplevel, int justonce)
 {
-    List list;
-#ifdef DEBUG
-    int oasp = toplevel ? 0 : alloc_stackp;
-#endif
+    Eprog prog;
 
     pushheap();
     for (;;) {
 	freeheap();
 	errflag = 0;
+	hbegin(1);		/* init history mech        */
 	if (isset(SHINSTDIN)) {
 	    setblock_stdin();
-	    if (interact)
+	    if (interact) {
+	        int hstop = stophist;
+		stophist = 3;
 		preprompt();
+		stophist = hstop;
+	    }
 	}
-	hbegin();		/* init history mech        */
 	intr();			/* interrupts on            */
 	lexinit();              /* initialize lexical state */
-	if (!(list = parse_event())) {	/* if we couldn't parse a list */
+	if (!(prog = parse_event())) {	/* if we couldn't parse a list */
 	    hend();
-	    if ((tok == ENDINPUT && !errflag) || justonce)
+	    if ((tok == ENDINPUT && !errflag) ||
+		(tok == LEXERR && (!isset(SHINSTDIN) || !toplevel)) ||
+		justonce)
 		break;
 	    continue;
 	}
 	if (hend()) {
 	    int toksav = tok;
-	    List prelist;
+	    Eprog preprog;
 
-	    if (toplevel && (prelist = getshfunc("preexec")) != &dummy_list) {
-		Histent he = gethistent(curhist);
+	    if (toplevel && (preprog = getshfunc("preexec")) != &dummy_eprog) {
 		LinkList args;
-		PERMALLOC {
-		    args = newlinklist();
-		    addlinknode(args, "preexec");
-		    if (he && he->text)
-			addlinknode(args, he->text);
-		} LASTALLOC;
-		doshfunc(prelist, args, 0, 1);
+		int osc = sfcontext;
+
+		args = znewlinklist();
+		zaddlinknode(args, "preexec");
+		if (hist_ring)
+		    zaddlinknode(args, hist_ring->text);
+
+		sfcontext = SFC_HOOK;
+		doshfunc("preexec", preprog, args, 0, 1);
+		sfcontext = osc;
 		freelinklist(args, (FreeFunc) NULL);
 		errflag = 0;
 	    }
 	    if (stopmsg)	/* unset 'you have stopped jobs' flag */
 		stopmsg--;
-	    execlist(list, 0, 0);
+	    execode(prog, 0, 0);
+	    if (toplevel)
+		freeeprogs();
 	    tok = toksav;
 	    if (toplevel)
 		noexitct = 0;
 	}
-	DPUTS(alloc_stackp != oasp, "BUG: alloc_stackp changed in loop()");
 	if (ferror(stderr)) {
 	    zerr("write error", NULL, 0);
 	    clearerr(stderr);
@@ -169,33 +177,8 @@ loop(int toplevel, int justonce)
     popheap();
 }
 
-/**/
-void
-emulate(const char *zsh_name, int fully)
-{
-    int optno;
-
-    /* Work out the new emulation mode */
-    if(!strcmp(zsh_name, "csh"))
-	emulation = EMULATE_CSH;
-    else if(!strcmp(zsh_name, "ksh"))
-	emulation = EMULATE_KSH;
-    else if(!strcmp(zsh_name, "sh"))
-	emulation = EMULATE_SH;
-    else
-	emulation = EMULATE_ZSH;
-
-    /* Set options: each non-special option is set according to the *
-     * current emulation mode if either it is considered relevant   *
-     * to emulation or we are doing a full emulation (as indicated  *
-     * by the `fully' parameter).                                   */
-    for(optno = OPT_SIZE; --optno; )
-	if((fully && !(optns[optno].flags & OPT_SPECIAL)) ||
-	    	(optns[optno].flags & OPT_EMULATE))
-	    opts[optno] = defset(optno);
-}
-
 static char *cmd;
+static int restricted;
 
 /**/
 void
@@ -206,7 +189,7 @@ parseargs(char **argv)
     LinkList paramlist;
     int bourne = (emulation == EMULATE_KSH || emulation == EMULATE_SH);
 
-    hackzero = argzero = *argv++;
+    argzero = *argv++;
     SHIN = 0;
 
     /* There's a bit of trickery with opts[INTERACTIVE] here.  It starts *
@@ -239,6 +222,7 @@ parseargs(char **argv)
 		cmd = *argv;
 		opts[INTERACTIVE] &= 1;
 		opts[SHINSTDIN] = 0;
+		scriptname = ztrdup("zsh");
 	    } else if (**argv == 'o') {
 		if (!*++*argv)
 		    argv++;
@@ -248,6 +232,8 @@ parseargs(char **argv)
 		}
 		if(!(optno = optlookup(*argv)))
 		    zerr("no such option: %s", *argv, 0);
+		else if (optno == RESTRICTED)
+		    restricted = action;
 		else
 		    dosetopt(optno, action, 1);
               break;
@@ -263,14 +249,16 @@ parseargs(char **argv)
 	    	if (!(optno = optlookupc(**argv))) {
 		    zerr("bad option: -%c", NULL, **argv);
 		    exit(1);
-		} else
+		} else if (optno == RESTRICTED)
+		    restricted = action;
+		else
 		    dosetopt(optno, action, 1);
 	    }
 	}
 	argv++;
     }
     doneoptions:
-    paramlist = newlinklist();
+    paramlist = znewlinklist();
     if (cmd) {
 	if (!*argv) {
 	    zerr("string expected after -%s", cmd, 0);
@@ -282,7 +270,7 @@ parseargs(char **argv)
 	if (unset(SHINSTDIN)) {
 	    argzero = *argv;
 	    if (!cmd)
-		SHIN = movefd(open(unmeta(argzero), O_RDONLY));
+		SHIN = movefd(open(unmeta(argzero), O_RDONLY | O_NOCTTY));
 	    if (SHIN == -1) {
 		zerr("can't open input file: %s", argzero, 0);
 		exit(1);
@@ -291,7 +279,7 @@ parseargs(char **argv)
 	    argv++;
 	}
 	while (*argv)
-	    addlinknode(paramlist, ztrdup(*argv++));
+	    zaddlinknode(paramlist, ztrdup(*argv++));
     } else
 	opts[SHINSTDIN] = 1;
     if(isset(SINGLECOMMAND))
@@ -306,7 +294,7 @@ parseargs(char **argv)
 
 
 /**/
-void
+mod_export void
 init_io(void)
 {
     long ttpgrp;
@@ -435,7 +423,7 @@ init_io(void)
 }
 
 /**/
-void
+mod_export void
 init_shout(void)
 {
     static char shoutbuf[BUFSIZ];
@@ -458,13 +446,18 @@ init_shout(void)
 #endif
 }
 
-/* flag for whether terminal has automargin (wraparound) capability */
-extern hasam;
+/* names of the termcap strings we want */
+
+static char *tccapnams[TC_COUNT] = {
+    "cl", "le", "LE", "nd", "RI", "up", "UP", "do",
+    "DO", "dc", "DC", "ic", "IC", "cd", "ce", "al", "dl", "ta",
+    "md", "so", "us", "me", "se", "ue", "ch"
+};
 
 /* Initialise termcap */
 
 /**/
-int
+mod_export int
 init_term(void)
 {
 #ifndef TGETENT_ACCEPTS_NULL
@@ -555,21 +548,43 @@ init_term(void)
 void
 setupvals(void)
 {
+#ifdef HAVE_GETPWUID
     struct passwd *pswd;
+#endif
     struct timezone dummy_tz;
     char *ptr;
 #ifdef HAVE_GETRLIMIT
     int i;
 #endif
+#if defined(SITEFPATH_DIR) || defined(FPATH_DIR)
+    char **fpathptr;
+# if defined(FPATH_DIR) && defined(FPATH_SUBDIRS)
+    char *fpath_subdirs[] = FPATH_SUBDIRS;
+    int j;
+# endif
+# ifdef SITEFPATH_DIR
+    int fpathlen = 1;
+# else
+    int fpathlen = 0;
+# endif
+#endif
+
+    addhookdefs(argzero, zshhooks, sizeof(zshhooks)/sizeof(*zshhooks));
+
+    init_eprog();
+
+    zero_mnumber.type = MN_INTEGER;
+    zero_mnumber.u.l = 0;
+
+    getkeyptr = NULL;
 
     lineno = 1;
     noeval = 0;
     curhist = 0;
     histsiz = DEFAULT_HISTSIZE;
     inithist();
-    clwords = (char **) zcalloc((clwsize = 16) * sizeof(char *));
 
-    cmdstack = (unsigned char *) zalloc(256);
+    cmdstack = (unsigned char *) zalloc(CMDSTACKSZ);
     cmdsp = 0;
 
     bangchar = '!';
@@ -594,57 +609,85 @@ setupvals(void)
     cdpath   = mkarray(NULL);
     manpath  = mkarray(NULL);
     fignore  = mkarray(NULL);
+
+#if defined(SITEFPATH_DIR) || defined(FPATH_DIR)
+# ifdef FPATH_DIR
+#  ifdef FPATH_SUBDIRS
+    fpathlen += sizeof(fpath_subdirs)/sizeof(char *);
+#  else
+    fpathlen++;
+#  endif
+# endif
+    fpath = fpathptr = (char **)zalloc((fpathlen+1)*sizeof(char *));
+# ifdef SITEFPATH_DIR
+    *fpathptr++ = ztrdup(SITEFPATH_DIR);
+    fpathlen--;
+# endif
+# ifdef FPATH_DIR
+#  ifdef FPATH_SUBDIRS
+    for (j = 0; j < fpathlen; j++)
+	*fpathptr++ = tricat(FPATH_DIR, "/", fpath_subdirs[j]);
+#  else
+    *fpathptr++ = ztrdup(FPATH_DIR);
+#  endif
+# endif
+    *fpathptr = NULL;
+#else
     fpath    = mkarray(NULL);
+#endif
+
     mailpath = mkarray(NULL);
     watch    = mkarray(NULL);
     psvar    = mkarray(NULL);
+    module_path = mkarray(ztrdup(MODULE_DIR));
+    modules = znewlinklist();
+    linkedmodules = znewlinklist();
 
     /* Set default prompts */
-    if (opts[INTERACTIVE]) {
-	prompt  = ztrdup("%m%# ");
-	prompt2 = ztrdup("%_> ");
-    } else {
+    if(unset(INTERACTIVE)) {
 	prompt = ztrdup("");
 	prompt2 = ztrdup("");
+    } else if (emulation == EMULATE_KSH || emulation == EMULATE_SH) {
+	prompt  = ztrdup(privasserted() ? "# " : "$ ");
+	prompt2 = ztrdup("> ");
+    } else {
+	prompt  = ztrdup("%m%# ");
+	prompt2 = ztrdup("%_> ");
     }
     prompt3 = ztrdup("?# ");
-    prompt4 = ztrdup("+ ");
+    prompt4 = (emulation == EMULATE_KSH || emulation == EMULATE_SH)
+	? ztrdup("+ ") : ztrdup("+%N:%i> ");
     sprompt = ztrdup("zsh: correct '%R' to '%r' [nyae]? ");
 
     ifs         = ztrdup(DEFAULT_IFS);
     wordchars   = ztrdup(DEFAULT_WORDCHARS);
     postedit    = ztrdup("");
-    underscore  = ztrdup("");
+    underscore  = (char *) zalloc(underscorelen = 32);
+    underscoreused = 1;
+    *underscore = '\0';
 
     zoptarg = ztrdup("");
     zoptind = 1;
-    schedcmds = NULL;
 
     ppid  = (zlong) getppid();
     mypid = (zlong) getpid();
     term  = ztrdup("");
 
-    /* The following variable assignments cause zsh to behave more *
-     * like Bourne and Korn shells when invoked as "sh" or "ksh".  *
-     * NULLCMD=":" and READNULLCMD=":"                             */
-
-    if (emulation == EMULATE_KSH || emulation == EMULATE_SH) {
-	nullcmd     = ztrdup(":");
-	readnullcmd = ztrdup(":");
-    } else {
-	nullcmd     = ztrdup("cat");
-	readnullcmd = ztrdup("more");
-    }
+    nullcmd     = ztrdup("cat");
+    readnullcmd = ztrdup("more");
 
     /* We cache the uid so we know when to *
      * recheck the info for `USERNAME'     */
     cached_uid = getuid();
 
     /* Get password entry and set info for `HOME' and `USERNAME' */
+#ifdef HAVE_GETPWUID
     if ((pswd = getpwuid(cached_uid))) {
 	home = metafy(pswd->pw_dir, -1, META_DUP);
 	cached_username = ztrdup(pswd->pw_name);
-    } else {
+    } else
+#endif /* HAVE_GETPWUID */
+	   {
 	home = ztrdup("/");
 	cached_username = ztrdup("");
     }
@@ -656,7 +699,7 @@ setupvals(void)
     else if ((ptr = zgetenv("PWD")) && ispwd(ptr))
 	pwd = ztrdup(ptr);
     else
-	pwd = metafy(zgetcwd(), -1, META_REALLOC);
+	pwd = metafy(zgetcwd(), -1, META_DUP);
 
     oldpwd = ztrdup(pwd);  /* initialize `OLDPWD' = `PWD' */
 
@@ -668,9 +711,11 @@ setupvals(void)
     createcmdnamtable();    /* create hash table for external commands */
     createshfunctable();    /* create hash table for shell functions   */
     createbuiltintable();   /* create hash table for builtin commands  */
-    createcompctltable();   /* create hash table for compctls          */
     createnameddirtable();  /* create hash table for named directories */
     createparamtable();     /* create paramater hash table             */
+
+    condtab = NULL;
+    wrappers = NULL;
 
 #ifdef TIOCGWINSZ
     adjustwinsize(0);
@@ -682,15 +727,6 @@ setupvals(void)
     setiparam("LINES", lines);
 #endif
 
-    /* create hash table for multi-character emacs bindings */
-    createemkeybindtable();
-
-    /* create hash table for multi-character vi bindings */
-    createvikeybindtable();
-
-    initkeybindings();	    /* initialize key bindings */
-    compctlsetup();
-
 #ifdef HAVE_GETRLIMIT
     for (i = 0; i != RLIM_NLIMITS; i++) {
 	getrlimit(i, current_limits + i);
@@ -700,13 +736,14 @@ setupvals(void)
 
     breaks = loops = 0;
     lastmailcheck = time(NULL);
-    locallist = NULL;
     locallevel = sourcelevel = 0;
+    sfcontext = SFC_NONE;
     trapreturn = 0;
     noerrexit = -1;
     nohistsave = 1;
-    dirstack = newlinklist();
-    bufstack = newlinklist();
+    dirstack = znewlinklist();
+    bufstack = znewlinklist();
+    prepromptfns = znewlinklist();
     hsubl = hsubr = NULL;
     lastpid = 0;
     bshin = SHIN ? fdopen(SHIN, "r") : stdin;
@@ -727,6 +764,8 @@ setupvals(void)
 void
 init_signals(void)
 {
+    sigchld_mask = signal_mask(SIGCHLD);
+
     intr();
 
 #ifndef QDEBUG
@@ -798,30 +837,31 @@ run_init_scripts(void)
 #ifdef GLOBAL_ZSHENV
 	source(GLOBAL_ZSHENV);
 #endif
-	if (isset(RCS)) {
-	    if (unset(PRIVILEGED))
-		sourcehome(".zshenv");
-	    if (islogin) {
+	if (isset(RCS) && unset(PRIVILEGED))
+	    sourcehome(".zshenv");
+	if (islogin) {
 #ifdef GLOBAL_ZPROFILE
-		source(GLOBAL_ZPROFILE);
+	    if (isset(RCS) && isset(GLOBALRCS))
+		    source(GLOBAL_ZPROFILE);
 #endif
-		if (unset(PRIVILEGED))
-		    sourcehome(".zprofile");
-	    }
-	    if (interact) {
+	    if (isset(RCS) && unset(PRIVILEGED))
+		sourcehome(".zprofile");
+	}
+	if (interact) {
 #ifdef GLOBAL_ZSHRC
+	    if (isset(RCS) && isset(GLOBALRCS))
 		source(GLOBAL_ZSHRC);
 #endif
-		if (unset(PRIVILEGED))
-		    sourcehome(".zshrc");
-	    }
-	    if (islogin) {
+	    if (isset(RCS) && unset(PRIVILEGED))
+		sourcehome(".zshrc");
+	}
+	if (islogin) {
 #ifdef GLOBAL_ZLOGIN
+	    if (isset(RCS) && isset(GLOBALRCS))
 		source(GLOBAL_ZLOGIN);
 #endif
-		if (unset(PRIVILEGED))
-		    sourcehome(".zlogin");
-	    }
+	    if (isset(RCS) && unset(PRIVILEGED))
+		sourcehome(".zlogin");
 	}
     }
     noerrexit = 0;
@@ -834,10 +874,16 @@ run_init_scripts(void)
 void
 init_misc(void)
 {
+#ifndef RESTRICTED_R
+    if ( restricted )
+#else
+    if (*zsh_name == 'r' || restricted)
+#endif
+	dosetopt(RESTRICTED, 1, 0);
     if (cmd) {
 	if (SHIN >= 10)
 	    fclose(bshin);
-	SHIN = movefd(open("/dev/null", O_RDONLY));
+	SHIN = movefd(open("/dev/null", O_RDONLY | O_NOCTTY));
 	bshin = fdopen(SHIN, "r");
 	execstring(cmd, 0, 1);
 	stopmsg = 1;
@@ -845,7 +891,7 @@ init_misc(void)
     }
 
     if (interact && isset(RCS))
-	readhistfile(getsparam("HISTFILE"), 0);
+	readhistfile(NULL, 0, HFILE_USE_OPTIONS);
 }
 
 /* source a file */
@@ -854,12 +900,17 @@ init_misc(void)
 int
 source(char *s)
 {
-    int tempfd, fd, cj, oldlineno;
+    Eprog prog;
+    int tempfd = -1, fd, cj, oldlineno;
     int oldshst, osubsh, oloops;
     FILE *obshin;
-    char *old_scriptname = scriptname;
+    char *old_scriptname = scriptname, *us;
+    unsigned char *ocs;
+    int ocsp;
 
-    if (!s || (tempfd = movefd(open(unmeta(s), O_RDONLY))) == -1) {
+    if (!s || 
+	(!(prog = try_source_file((us = unmeta(s)))) &&
+	 (tempfd = movefd(open(us, O_RDONLY | O_NOCTTY))) == -1)) {
 	return 1;
     }
 
@@ -871,9 +922,15 @@ source(char *s)
     oldlineno = lineno;          /* store our current lineno                  */
     oloops    = loops;           /* stored the # of nested loops we are in    */
     oldshst   = opts[SHINSTDIN]; /* store current value of this option        */
+    ocs = cmdstack;
+    ocsp = cmdsp;
+    cmdstack = (unsigned char *) zalloc(CMDSTACKSZ);
+    cmdsp = 0;
 
-    SHIN = tempfd;
-    bshin = fdopen(SHIN, "r");
+    if (!prog) {
+	SHIN = tempfd;
+	bshin = fdopen(SHIN, "r");
+    }
     subsh  = 0;
     lineno = 1;
     loops  = 0;
@@ -881,14 +938,24 @@ source(char *s)
     scriptname = s;
 
     sourcelevel++;
-    loop(0, 0);			/* loop through the file to be sourced        */
+    if (prog) {
+	pushheap();
+	errflag = 0;
+	execode(prog, 1, 0);
+	popheap();
+    } else
+	loop(0, 0);		     /* loop through the file to be sourced  */
     sourcelevel--;
-    fclose(bshin);
-    fdtable[SHIN] = 0;
 
     /* restore the current shell state */
-    SHIN = fd;                       /* the shell input fd                   */
-    bshin = obshin;                  /* file handle for buffered shell input */
+    if (prog)
+	freeeprog(prog);
+    else {
+	fclose(bshin);
+	fdtable[SHIN] = 0;
+	SHIN = fd;		     /* the shell input fd                   */
+	bshin = obshin;		     /* file handle for buffered shell input */
+    }
     subsh = osubsh;                  /* whether we are in a subshell         */
     thisjob = cj;                    /* current job number                   */
     lineno = oldlineno;              /* our current lineno                   */
@@ -897,6 +964,9 @@ source(char *s)
     errflag = 0;
     retflag = 0;
     scriptname = old_scriptname;
+    free(cmdstack);
+    cmdstack = ocs;
+    cmdsp = ocsp;
 
     return 0;
 }
@@ -923,26 +993,90 @@ sourcehome(char *s)
 
 /**/
 void
-compctlsetup(void)
+init_bltinmods(void)
 {
-    static char
-        *os[] =
-    {"setopt", "unsetopt", NULL}, *vs[] =
-    {"export", "typeset", "vared", "unset", NULL}, *cs[] =
-    {"which", "builtin", NULL}, *bs[] =
-    {"bindkey", NULL};
 
-    compctl_process(os, CC_OPTIONS, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
-		    NULL, NULL, 0);
-    compctl_process(vs, CC_VARS, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
-		    NULL, NULL, 0);
-    compctl_process(bs, CC_BINDINGS, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
-		    NULL, NULL, 0);
-    compctl_process(cs, CC_COMMPATH, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
-		    NULL, NULL, 0);
-    cc_compos.mask = CC_COMMPATH;
-    cc_default.refc = 10000;
-    cc_default.mask = CC_FILES;
-    cc_first.refc = 10000;
-    cc_first.mask = 0;
+#include "bltinmods.list"
+
+    load_module("zsh/main");
+}
+
+/**/
+mod_export void
+noop_function(void)
+{
+    /* do nothing */
+}
+
+/**/
+mod_export void
+noop_function_int(int nothing)
+{
+    /* do nothing */
+}
+
+/* ZLE entry point pointers.  They are defined here because the initial *
+ * values depend on whether ZLE is linked in or not -- if it is, we     *
+ * avoid wasting space with the fallback functions.  No other source    *
+ * file needs to know which modules are linked in.                      */
+
+#ifdef LINKED_XMOD_zshQszle
+
+/**/
+mod_export ZleVoidFn trashzleptr = noop_function;
+/**/
+mod_export ZleVoidFn refreshptr = noop_function;
+/**/
+mod_export ZleVoidIntFn spaceinlineptr = noop_function_int;
+/**/
+mod_export ZleReadFn zlereadptr = autoload_zleread;
+
+#else /* !LINKED_XMOD_zshQszle */
+
+mod_export ZleVoidFn trashzleptr = noop_function;
+mod_export ZleVoidFn refreshptr = noop_function;
+mod_export ZleVoidIntFn spaceinlineptr = noop_function_int;
+# ifdef UNLINKED_XMOD_zshQszle
+mod_export ZleReadFn zlereadptr = autoload_zleread;
+# else /* !UNLINKED_XMOD_zshQszle */
+mod_export ZleReadFn zlereadptr = fallback_zleread;
+# endif /* !UNLINKED_XMOD_zshQszle */
+
+#endif /* !LINKED_XMOD_zshQszle */
+
+/**/
+unsigned char *
+autoload_zleread(char *lp, char *rp, int ha)
+{
+    zlereadptr = fallback_zleread;
+    if (load_module("zsh/zle"))
+	load_module("zsh/compctl");
+    return zleread(lp, rp, ha);
+}
+
+/**/
+mod_export unsigned char *
+fallback_zleread(char *lp, char *rp, int ha)
+{
+    char *pptbuf;
+    int pptlen;
+
+    pptbuf = unmetafy(promptexpand(lp, 0, NULL, NULL), &pptlen);
+    write(2, (WRITE_ARG_2_T)pptbuf, pptlen);
+    free(pptbuf);
+    return (unsigned char *)shingetline();
+}
+
+/* compctl entry point pointers.  Similar to the ZLE ones. */
+
+/**/
+mod_export CompctlReadFn compctlreadptr = fallback_compctlread;
+
+/**/
+mod_export int
+fallback_compctlread(char *name, char **args, char *ops, char *reply)
+{
+    zwarnnam(name, "option valid only in functions called from completion",
+	    NULL, 0);
+    return 1;
 }

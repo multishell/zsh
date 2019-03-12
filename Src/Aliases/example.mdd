@@ -1,0 +1,18 @@
+name=example
+
+moddeps="zsh/example"
+
+objects="example.o"
+
+:<<\Make
+example.mdd: alias.mdd.in
+	rm -f $@
+	cd $(sdir) && ./.preconfig
+
+example.c: alias.c.in
+	sed 's,@NAME@,example,g' < $(sdir)/alias.c.in > $@
+
+clean-here: clean.example
+clean.example:
+	rm -f example.c
+Make

@@ -1,3 +1,7 @@
+------------
+ZSH FEATURES
+------------
+
 very close to ksh/sh grammar, with csh additions
 most features of ksh, bash, and tcsh
 can emulate ksh or POSIX sh
@@ -67,3 +71,4 @@ tty mode freezing
 up to 9 startup files (but you only need 1 or 2)
 really 8-bit clean, and we mean it this time
 which -a cmd lists all occurrences of "cmd" in the path
+dynamically loadable binary modules

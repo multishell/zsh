@@ -1,0 +1,85 @@
+# Put standard ANSI color codes in environment for easy use
+reset_color=$'\e[0m'
+bold_color=$'\e[1m'
+
+# Foreground
+
+typeset -Ag fg
+fg=(
+  grey      $'\e[30m'
+  red       $'\e[31m'
+  green     $'\e[32m'
+  yellow    $'\e[33m'
+  blue      $'\e[34m'
+  magenta   $'\e[35m'
+  cyan      $'\e[36m'
+  white     $'\e[37m'
+)
+fg_zzzz="$reset_color"
+
+typeset -Ag fg_no_bold
+fg_no_bold=(
+  grey      $'\e[0;30m'
+  red       $'\e[0;31m'
+  green     $'\e[0;32m'
+  yellow    $'\e[0;33m'
+  blue      $'\e[0;34m'
+  magenta   $'\e[0;35m'
+  cyan      $'\e[0;36m'
+  white     $'\e[0;37m'
+)
+fg_no_bold_zzzz="$reset_color"
+
+typeset -Ag fg_bold
+fg_bold=(
+  grey      $'\e[1;30m'
+  red       $'\e[1;31m'
+  green     $'\e[1;32m'
+  yellow    $'\e[1;33m'
+  blue      $'\e[1;34m'
+  magenta   $'\e[1;35m'
+  cyan      $'\e[1;36m'
+  white     $'\e[1;37m'
+)
+fg_bold_zzzz="$reset_color"
+
+# Background
+
+typeset -Ag bg
+bg=(
+  grey      $'\e[40m'
+  red       $'\e[41m'
+  green     $'\e[42m'
+  yellow    $'\e[43m'
+  blue      $'\e[44m'
+  magenta   $'\e[45m'
+  cyan      $'\e[46m'
+  white     $'\e[47m'
+)
+bg_zzzz="$reset_color"
+
+typeset -Ag bg_no_bold
+bg_no_bold=(
+  grey      $'\e[0;40m'
+  red       $'\e[0;41m'
+  green     $'\e[0;42m'
+  yellow    $'\e[0;43m'
+  blue      $'\e[0;44m'
+  magenta   $'\e[0;45m'
+  cyan      $'\e[0;46m'
+  white     $'\e[0;47m'
+)
+bg_no_bold_zzzz="$reset_color"
+
+typeset -Ag bg_bold
+bg_bold=(
+  grey      $'\e[1;40m'
+  red       $'\e[1;41m'
+  green     $'\e[1;42m'
+  yellow    $'\e[1;43m'
+  blue      $'\e[1;44m'
+  magenta   $'\e[1;45m'
+  cyan      $'\e[1;46m'
+  white     $'\e[1;47m'
+)
+bg_bold_zzzz="$reset_color"

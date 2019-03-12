@@ -1,0 +1,18 @@
+name=deltochar
+
+moddeps="zsh/deltochar"
+
+objects="deltochar.o"
+
+:<<\Make
+deltochar.mdd: alias.mdd.in
+	rm -f $@
+	cd $(sdir) && ./.preconfig
+
+deltochar.c: alias.c.in
+	sed 's,@NAME@,deltochar,g' < $(sdir)/alias.c.in > $@
+
+clean-here: clean.deltochar
+clean.deltochar:
+	rm -f deltochar.c
+Make

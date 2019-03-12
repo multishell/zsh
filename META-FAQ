@@ -9,27 +9,27 @@ Author
 ------
 
 Zsh was originally written by Paul Falstad <pf@zsh.org>.
-Zsh is now maintained by the members of the zsh-workers mailing list
-<zsh-workers@sunsite.auc.dk>.  Revision of version 3.0 is currently
-coordinated by Bart Schaefer <schaefer@zsh.org>.  New development is
-currently coordinated by Peter Stephenson <pws@zsh.org>.  The
-coordinator can be contacted at <coordinator@zsh.org>, but matters
-relating to the code should generally go to the mailing list.
+Zsh is now maintained by the members of the zsh-workers mailing
+list <zsh-workers@sunsite.auc.dk>.  The development is currently
+coordinated by Peter Stephenson <pws@zsh.org>.  The coordinator
+can be contacted at <coordinator@zsh.org>, but matters relating to
+the code should generally go to the mailing list.
 
 Availability
 ------------
 
 Zsh is available from the following anonymous FTP sites.  These mirror
-sites are kept frequently up to date.
+sites are kept frequently up to date.  The sites marked with (H) may be
+mirroring ftp.cs.elte.hu instead of the primary site.
 
       Primary site
-            ftp://ftp.zsh.org/pub/
-            http://www.zsh.org/pub/
+            ftp://ftp.zsh.org/pub/zsh/
+            http://www.zsh.org/pub/zsh/
 
       Australia
-            ftp://ftp.zsh.org/pub/
-            http://www.zsh.org/pub/
-            ftp://ftp.ips.gov.au/mirror/zsh/
+            ftp://ftp.zsh.org/pub/zsh/
+            http://www.zsh.org/pub/zsh/
+            ftp://ftp.ips.gov.au/pub/packages/zsh/  (H)
 
       Denmark
             ftp://sunsite.auc.dk/pub/unix/shells/zsh/
@@ -41,7 +41,7 @@ sites are kept frequently up to date.
             ftp://ftp.cenatls.cena.dgac.fr/pub/shells/zsh/
 
       Germany
-            ftp://ftp.fu-berlin.de/pub/unix/shells/zsh/
+            ftp://ftp.fu-berlin.de/pub/unix/shells/zsh/  (H)
             ftp://ftp.gmd.de/packages/zsh/
             ftp://ftp.uni-trier.de/pub/unix/shell/zsh/
 
@@ -58,7 +58,7 @@ sites are kept frequently up to date.
             ftp://ftp.unina.it/pub/Unix/pkgs/shell/zsh/
 
       Japan
-            ftp://ftp.nisiq.net/pub/shells/zsh/
+            ftp://ftp.nisiq.net/pub/shells/zsh/  (H)
             ftp://ftp.win.ne.jp/pub/shell/zsh/
 
       Norway
@@ -69,6 +69,7 @@ sites are kept frequently up to date.
 
       Romania
             ftp://ftp.roedu.net/pub/mirrors/ftp.zsh.org/pub/zsh/
+            ftp://ftp.kappa.ro/pub/mirrors/ftp.zsh.org/pub/zsh/
 
       Slovenia
             ftp://ftp.siol.net/mirrors/zsh/
@@ -142,3 +143,15 @@ The Zsh Web Page
 Zsh has a web page which is located at http://www.zsh.org/.  This is
 maintained by Karsten Thygesen <karthy@zsh.org>, of SunSITE Denmark.
 The contact address for web-related matters is <webmaster@zsh.org>.
+
+
+The Zsh Userguide
+-----------------
+
+A userguide is currently in preparation.  It is intended to complement the
+manual, with explanations and hints on issues where the manual can be
+cabbalistic, hierographic, or downright mystifying (for example, the word
+`hierographic' does not exist).  It can be viewed in its current state at
+http://sunsite.auc.dk/zsh/Guide/.  As of this writing, chapters dealing
+with startup files and their contents and the new completion system are
+essentially complete.

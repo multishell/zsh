@@ -3,7 +3,7 @@
  *
  * This file is part of zsh, the Z shell.
  *
- * Copyright (c) 1992-1996 Paul Falstad
+ * Copyright (c) 1992-1997 Paul Falstad
  * All rights reserved.
  *
  * Permission is hereby granted, without written agreement and without
@@ -26,8 +26,6 @@
  * support, updates, enhancements, or modifications.
  *
  */
-
-#include "signames.h"
 
 #define SIGNAL_HANDTYPE RETSIGTYPE (*)_((int))
 
@@ -58,8 +56,8 @@
 # define sigismember(s,n)  ((*(s) & (1 << ((n) - 1))) != 0)
 #endif   /* ifndef POSIX_SIGNALS */
  
-#define child_block()      signal_block(signal_mask(SIGCHLD))
-#define child_unblock()    signal_unblock(signal_mask(SIGCHLD))
+#define child_block()      signal_block(sigchld_mask)
+#define child_unblock()    signal_unblock(sigchld_mask)
 #define child_suspend(S)   signal_suspend(SIGCHLD, S)
 
 /* ignore a signal */
@@ -87,10 +85,36 @@
     if (!--queueing_enabled) { \
 	while (queue_front != queue_rear) {      /* while signals in queue */ \
 	    sigset_t oset; \
-	    queue_front = ++queue_front % MAX_QUEUE_SIZE; \
+	    queue_front = (queue_front + 1) % MAX_QUEUE_SIZE; \
 	    oset = signal_setmask(signal_mask_queue[queue_front]); \
 	    handler(signal_queue[queue_front]);  /* handle queued signal   */ \
 	    signal_setmask(oset); \
 	} \
     } \
 } while (0)
+
+
+/* Make some signal functions faster. */
+
+#ifdef POSIX_SIGNALS
+#define signal_block(S) \
+    ((dummy_sigset1 = (S)), \
+     sigprocmask(SIG_BLOCK, &dummy_sigset1, &dummy_sigset2), \
+     dummy_sigset2)
+#else
+# ifdef BSD_SIGNALS
+#define signal_block(S) sigblock(S)
+# else
+extern sigset_t signal_block _((sigset_t));
+# endif  /* BSD_SIGNALS   */
+#endif   /* POSIX_SIGNALS */
+
+#ifdef POSIX_SIGNALS
+#define signal_unblock(S) \
+    ((dummy_sigset1 = (S)), \
+     sigprocmask(SIG_UNBLOCK, &dummy_sigset1, &dummy_sigset2), \
+     dummy_sigset2)
+#else
+extern sigset_t signal_unblock _((sigset_t));
+#endif   /* POSIX_SIGNALS */
+

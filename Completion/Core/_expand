@@ -1,0 +1,154 @@
+#autoload
+
+# This completer function is intended to be used as the first completer
+# function and allows one to say more explicitly when and how the word
+# from the line should be expanded than expand-or-complete.
+# This function will allow other completer functions to be called if
+# the expansions done produce no result or do not change the original
+# word from the line.
+
+setopt localoptions nullglob
+
+[[ _matcher_num -gt 1 ]] && return 1
+
+local exp word sort expr expl subd suf=" " force opt
+
+(( $# )) &&
+    while getopts gsco opt; do
+      force="$force$opt"
+    done
+
+if [[ "$funcstack[2]" = _prefix ]]; then
+  word="$IPREFIX$PREFIX$SUFFIX"
+else
+  word="$IPREFIX$PREFIX$SUFFIX$ISUFFIX"
+fi
+
+# First, see if we should insert all *completions*.
+
+if [[ "$force" = *c* ]] ||
+   { zstyle -s ":completion:${curcontext}:" completions expr &&
+     [[ "${(e):-\$[$expr]}" -eq 1 ]] }; then
+  compstate[insert]=all
+  [[ "$curcontext" = expand-word:* ]] && _complete && return 0
+  return 1
+fi
+
+# In exp we will collect the expansion.
+
+exp=("$word")
+
+# First try substitution. That weird thing spanning multiple lines
+# changes quoted spaces, tabs, and newlines into spaces and protects
+# this function from aborting on parse errors in the expansion.
+
+if [[ "$force" = *s* ]] ||
+   { { zstyle -s ":completion:${curcontext}:" substitute expr ||
+       { [[ "$curcontext" = expand-word:* ]] && expr=1 } } &&
+         [[ "${(e):-\$[$expr]}" -eq 1 ]] }; then
+  exp=( ${(f)"$(print -lR - ${(e)exp//\\[ 	
+]/ })"} ) 2>/dev/null
+else
+  exp=( "${exp:s/\\\$/\$}" )
+fi
+
+# If the array is empty, store the original string again.
+
+(( $#exp )) || exp=("$word")
+
+subd=("$exp[@]")
+
+# Now try globbing.
+
+[[ "$force" = *g* ]] ||
+  { { zstyle -s ":completion:${curcontext}:" glob expr ||
+      { [[ "$curcontext" = expand-word:* ]] && expr=1 } } &&
+        [[ "${(e):-\$[$expr]}" -eq 1 ]] } &&
+    exp=( ${~exp} )
+
+# If we don't have any expansions or only one and that is the same
+# as the original string, we let other completers run.
+
+(( $#exp )) || exp=("$subd[@]")
+
+[[ $#exp -eq 1 && "$exp[1]" = "$word"(|\(N\)) ]] && return 1
+
+# With subst-globs-only we bail out if there were no glob expansions,
+# regardless of any substitutions
+
+[[ "$force" = *o* ]] ||
+  { zstyle -s ":completion:${curcontext}:" subst-globs-only expr &&
+      [[ "${(e):-\$[$expr]}" -eq 1 ]] } && 
+        [[ "$subd" = "$exp"(|\(N\)) ]] && return 1
+
+# Now add as matches whatever the user requested.
+
+zstyle -s ":completion:${curcontext}:" sort sort
+
+[[ "$sort" = (yes|true|1|on) ]] && exp=( "${(@o)exp}" )
+
+# If there is only one expansion, add a suitable suffix
+
+if (( $#exp == 1 )); then
+  if [[ -d $exp && "$exp[1]" != */ ]]; then
+    suf=/
+  elif zstyle -T ":completion:${curcontext}:" add-space; then
+    suf=
+  fi
+fi
+
+if [[ -z "$compstate[insert]" ]] ;then
+  if [[ "$sort" = menu ]]; then
+    _description expansions expl expansions "o:$word"
+  else
+    _description -V expansions expl expansions "o:$word"
+  fi
+
+  compadd "$expl[@]" -UQ -qS "$suf" - "$exp[@]"
+else
+  _tags all-expansions expansions original
+
+  if _requested all-expansions expl 'all expansions'; then
+    local disp dstr
+
+    if [[ "${#${exp}}" -ge COLUMNS ]]; then
+      disp=( -ld dstr )
+      dstr=( "${(r:COLUMNS-5:)exp} ..." )
+    else
+      disp=()
+    fi
+    compadd "$disp[@]" "$expl[@]" -UQ -qS "$suf" - "$exp"
+  fi
+  if [[ $#exp -gt 1 ]] && _requested expansions; then
+    local i normal dir
+
+    if [[ "$sort" = menu ]]; then
+      _description expansions expl expansions "o:$word"
+    else
+      _description -V expansions expl expansions "o:$word"
+    fi
+    if zstyle -T ":completion:${curcontext}:" add-space; then
+      suf=' '
+    else
+      suf=
+    fi
+    normal=()
+    dir=()
+
+    for i in "$exp[@]"; do
+      if [[ -d "$i" && "$i" != */ ]]; then
+        dir=( "$dir[@]" "$i" )
+      else
+	normal=( "$normal[@]" "$i" )
+      fi
+    done
+    (( $#dir ))    && compadd "$expl[@]" -UQ -qS/ - "$dir[@]"
+    (( $#normal )) && compadd "$expl[@]" -UQ -qS "$suf" - "$normal[@]"
+  fi
+
+  _requested original expl original && compadd "$expl[@]" -UQ - "$word"
+
+  compstate[insert]=menu
+fi
+
+return 0

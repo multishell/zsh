@@ -1,0 +1,18 @@
+name=cap
+
+moddeps="zsh/cap"
+
+objects="cap.o"
+
+:<<\Make
+cap.mdd: alias.mdd.in
+	rm -f $@
+	cd $(sdir) && ./.preconfig
+
+cap.c: alias.c.in
+	sed 's,@NAME@,cap,g' < $(sdir)/alias.c.in > $@
+
+clean-here: clean.cap
+clean.cap:
+	rm -f cap.c
+Make

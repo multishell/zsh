@@ -1,0 +1,18 @@
+name=complist
+
+moddeps="zsh/complist"
+
+objects="complist.o"
+
+:<<\Make
+complist.mdd: alias.mdd.in
+	rm -f $@
+	cd $(sdir) && ./.preconfig
+
+complist.c: alias.c.in
+	sed 's,@NAME@,complist,g' < $(sdir)/alias.c.in > $@
+
+clean-here: clean.complist
+clean.complist:
+	rm -f complist.c
+Make

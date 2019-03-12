@@ -1,9 +1,13 @@
 
 Archive-Name: unix-faq/shell/zsh
-Last-Modified: 2000/04/30
+Last-Modified: 2000/05/24
 Submitted-By: pws@pwstephenson.fsnet.co.uk (Peter Stephenson)
 Posting-Frequency: Monthly
 Copyright: (C) P.W. Stephenson, 1995--2000 (see end of document)
+
+Changes since issue posted April 2000:
+
+2.5  Mention that ${var/old/new} is a little different from bash.
 
 This document contains a list of frequently-asked (or otherwise
 significant) questions concerning the Z-shell, a command interpreter
@@ -747,6 +751,20 @@ your shell' posted frequently to the USENET group comp.unix.shell.
   Broadly, bash has paid more attention to standards compliancy
   (i.e. POSIX) for longer, and has so far avoided the more abstruse
   interactive features (programmable completion, etc.) that zsh has.
+
+  In recent years there has been a certain amount of crossover in the
+  extensions, however.  Zsh now (3.1.6) has bash's `${var/old/new}'
+  feature for replacing the text old with the text(new) in the
+  parameter $var.  Note one difference here:  while both shells
+  implement the syntax `${var/#old/new}' and `${var/%old/new}' for
+  anchoring the match of old to the start or end of the parameter text,
+  respectively, in zsh you can't put the `#' or `%' inside a
+  parameter:  in other words `{var/$old/new}' where old begins with
+  a `#' treats that as an ordinary character in zsh, unlike bash.  To
+  do this sort of thing in zsh you can use (from 3.1.7) the new syntax
+  for anchors in any pattern, `(#s)' to match the start of a string,
+  and `(#e)' to match the end.  These require the option
+  EXTENDED_GLOB to be set.
 
 2.6: Shouldn't zsh be more/less like ksh/(t)csh?
 

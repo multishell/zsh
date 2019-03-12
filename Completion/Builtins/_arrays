@@ -1,0 +1,5 @@
+#compdef shift
+
+local expl
+
+_wanted arrays expl array compadd - "${(@k)parameters[(R)*array*]}"

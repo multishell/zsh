@@ -1,0 +1,10 @@
+name=zsh/example
+
+autobins="example"
+
+autoinfixconds="ex"
+autoprefixconds="len"
+autoparams="exint exstr exarr"
+automathfuncs="sum length"
+
+objects="example.o"

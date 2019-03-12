@@ -1,0 +1,19 @@
+#autoload
+
+local gopt=-J
+
+if [[ "$1" = -([12]|)[VJ] ]]; then
+  gopt="$1"
+  shift
+fi
+
+if comptags -R "$1"; then
+  if [[ $# -gt 3 ]]; then
+    _all_labels - "$gopt" "$@" || return 1
+  elif [[ $# -gt 1 ]]; then
+    _description "$gopt" "$@"
+  fi
+  return 0
+else
+  return 1
+fi

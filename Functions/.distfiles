@@ -1,0 +1,3 @@
+DISTFILES_SRC='
+    .cvsignore .distfiles Makefile.in README.zftp
+'
