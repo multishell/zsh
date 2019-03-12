@@ -1,4 +1,4 @@
-.TH "ZSHMODULES" "1" "July 21, 2012" "zsh 5\&.0\&.0"
+.TH "ZSHMODULES" "1" "December 20, 2012" "zsh 5\&.0\&.1"
 .SH "NAME"
 zshmodules \- zsh loadable modules
 .\" Yodl file: Zsh/modules.yo
@@ -53,6 +53,9 @@ An example of how to write a module\&.
 .TP
 \fBzsh/files\fP
 Some basic file manipulation commands as builtins\&.
+.TP
+\fBzsh/langinfo\fP
+Interface to locale information\&.
 .TP
 \fBzsh/mapfile\fP
 Access to external files via a special associative array\&.
@@ -1329,6 +1332,45 @@ Removes empty directories specified\&.
 Calls the system call of the same name (see \fIsync\fP(2)), which
 flushes dirty buffers to disk\&.  It might return before the I/O has
 actually been completed\&.
+.SH "THE ZSH/LANGINFO MODULE"
+.\" Yodl file: Zsh/mod_langinfo.yo
+
+The \fBzsh/langinfo\fP module makes available one parameter:
+.PP
+.PD 0
+.TP
+.PD
+\fBlanginfo\fP
+An associative array that maps langinfo elements to
+their values\&.
+.RS
+.PP
+Your implementation may support a number of the following keys:
+.PP
+\fBCODESET\fP,
+\fBD_T_FMT\fP,
+\fBD_FMT\fP,
+\fBT_FMT\fP,
+\fBRADIXCHAR\fP,
+\fBTHOUSEP\fP,
+\fBYESEXPR\fP,
+\fBNOEXPR\fP,
+\fBCRNCYSTR\fP,
+\fBABDAY_{1\&.\&.7}\fP,
+\fBDAY_{1\&.\&.7}\fP,
+\fBABMON_{1\&.\&.12}\fP,
+\fBMON_{1\&.\&.12}\fP,
+\fBT_FMT_AMPM\fP,
+\fBAM_STR\fP,
+\fBPM_STR\fP,
+\fBERA\fP,
+\fBERA_D_FMT\fP,
+\fBERA_D_T_FMT\fP,
+\fBERA_T_FMT\fP,
+\fBALT_DIGITS\fP
+.PP
+.RE
+.RE
 .SH "THE ZSH/MAPFILE MODULE"
 .\" Yodl file: Zsh/mod_mapfile.yo
 

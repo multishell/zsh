@@ -1,4 +1,4 @@
-.TH "ZSHPARAM" "1" "July 21, 2012" "zsh 5\&.0\&.0"
+.TH "ZSHPARAM" "1" "December 20, 2012" "zsh 5\&.0\&.1"
 .SH "NAME"
 zshparam \- zsh parameters
 .\" Yodl file: Zsh/params.yo
@@ -212,7 +212,10 @@ to the matching closing one is considered to be a list of flags, as in
 The flags \fBs\fP, \fBn\fP and \fBb\fP take an argument; the delimiter
 is shown below as `\fB:\fP\&', but any character, or the matching pairs
 `\fB(\fP\&.\&.\&.\fB)\fP\&', `\fB{\fP\&.\&.\&.\fB}\fP', `\fB[\fP\&.\&.\&.\fB]\fP', or
-`\fB<\fP\&.\&.\&.\fB>\fP\&', may be used\&.
+`\fB<\fP\&.\&.\&.\fB>\fP\&', may be used, but note that `\fB<\fP\&.\&.\&.\fB>\fP' can only be
+used if the subscript is inside a double quoted expression or a
+parameter substitution enclosed in braces as otherwise the expression is
+interpreted as a redirection\&.
 .PP
 The flags currently understood are:
 .PP
@@ -1191,7 +1194,10 @@ is specified with no command\&.  Defaults to \fBmore\fP\&.
 \fBREPORTTIME\fP
 If nonnegative, commands whose combined user and system execution times
 (measured in seconds) are greater than this value have timing
-statistics printed for them\&.
+statistics printed for them\&.  Output is suppressed for commands
+executed within the line editor, including completion; commands
+explicitly marked with the \fBtime\fP keyword still cause the summary
+to be printed in this case\&.
 .TP
 \fBREPLY\fP
 This parameter is reserved by convention to pass string values between

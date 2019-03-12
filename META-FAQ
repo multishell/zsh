@@ -29,24 +29,11 @@ mirroring ftp.cs.elte.hu instead of the primary site.
       Australia
             ftp://ftp.zsh.org/pub/
             http://www.zsh.org/pub/
-
-      Denmark
-            ftp://mirrors.dotsrc.org/zsh/
-
-      Finland
-            ftp://ftp.funet.fi/pub/unix/shells/zsh/
-
-      France
-            ftp://nephtys.lip6.fr/pub/unix/shells/zsh/
-
-      Germany
-            ftp://ftp.fu-berlin.de/pub/unix/shells/zsh/
+            http://mirror.dejanseo.com.au/pub/zsh/
 
       Hungary
-            ftp://ftp.kfki.hu/pub/packages/zsh/
-
-      Poland
-            ftp://sunsite.icm.edu.pl/pub/unix/shells/zsh/
+            ftp://ftp.cs.elte.hu/pub/zsh/
+            http://www.cs.elte.hu/pub/zsh/
 
 The up-to-date source code is available via anonymous CVS and Git from
 Sourceforge.  See http://sourceforge.net/projects/zsh/ for details.

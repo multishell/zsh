@@ -1,4 +1,4 @@
-.TH "ZSHCONTRIB" "1" "July 21, 2012" "zsh 5\&.0\&.0"
+.TH "ZSHCONTRIB" "1" "December 20, 2012" "zsh 5\&.0\&.1"
 .SH "NAME"
 zshcontrib \- user contributions to zsh
 .\" Yodl file: Zsh/contrib.yo
@@ -44,7 +44,7 @@ distribution in your home directory, you would use the commands:
 \fBmkdir ~/zsh_help
 cd ~/zsh_help
 man zshall | colcrt \- | \e 
-perl ~/zsh\-5\&.0\&.0/Util/helpfiles\fP
+perl ~/zsh\-5\&.0\&.1/Util/helpfiles\fP
 .fi
 .RE
 .PP
@@ -179,7 +179,7 @@ Run \fBzkbd\fP either as an autoloaded function, or as a shell script:
 .PP
 .RS
 .nf
-\fBzsh \-f ~/zsh\-5\&.0\&.0/Functions/Misc/zkbd\fP
+\fBzsh \-f ~/zsh\-5\&.0\&.1/Functions/Misc/zkbd\fP
 .fi
 .RE
 .PP
@@ -235,7 +235,7 @@ command and redirect the output into a file:
 .PP
 .RS
 .nf
-\fB\&. ~/zsh\-5\&.0\&.0/Util/reporter > zsh\&.report\fP
+\fB\&. ~/zsh\-5\&.0\&.1/Util/reporter > zsh\&.report\fP
 .fi
 .RE
 .PP
@@ -859,7 +859,10 @@ accomplish that\&.
 \fBhg\fP uses both a hash and a revision number to reference a specific
 changeset in a repository\&. With this style you can format the revision
 string (see \fBbranchformat\fP) to include either or both\&. It\&'s only
-useful when \fBget\-revision\fP is true\&.
+useful when \fBget\-revision\fP is true\&. Note, the full 40\-character revision id
+is not available (except when using the \fBuse\-simple\fP option) because
+executing hg more than once per prompt is too slow; you may customize this
+behavior using hooks\&.
 .TP
 \fBmax\-exports\fP
 Defines the maximum number of
@@ -1154,7 +1157,7 @@ In \fBhgrevformat\fP these replacements are done:
 The current local revision number\&.
 .TP
 \fB%h\fP
-The current 40\-character changeset ID hash identifier\&.
+The current global revision identifier\&.
 .PD
 .PP
 In \fBpatch\-format\fP and \fBnopatch\-format\fP these replacements are done:
@@ -1172,6 +1175,9 @@ The number of applied patches\&.
 .TP
 \fB%c\fP
 The number of unapplied patches\&.
+.TP
+\fB%a\fP
+The number of all patches\&.
 .TP
 \fB%g\fP
 The names of active \fBmq\fP guards (\fBhg\fP backend)\&.

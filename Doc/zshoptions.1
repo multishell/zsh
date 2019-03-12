@@ -1,4 +1,4 @@
-.TH "ZSHOPTIONS" "1" "July 21, 2012" "zsh 5\&.0\&.0"
+.TH "ZSHOPTIONS" "1" "December 20, 2012" "zsh 5\&.0\&.1"
 .SH "NAME"
 zshoptions \- zsh options
 .\" Yodl file: Zsh/options.yo
@@ -1086,6 +1086,16 @@ substrings\&.
 Make the \fBecho\fP builtin compatible with the BSD \fIecho\fP(1) command\&.
 This disables backslashed escape sequences in echo strings unless the
 \fB\-e\fP option is specified\&.
+.TP
+\fBCONTINUE_ON_ERROR\fP
+If a fatal error is encountered (see 
+the section ERRORS in \fIzshmisc\fP(1)), and the code is running
+in a script, the shell will resume execution at the next statement
+in the script at the top level, in other words outside all functions
+or shell constructs such as loops and conditions\&.  This mimics the
+behaviour of interactive shells, where the shell returns to the
+line editor to read a new command; it was the normal behaviour in versions
+of zsh before 5\&.0\&.1\&.
 .TP
 \fBCSH_JUNKIE_HISTORY\fP <C>
 A history reference without an event specifier will always refer to the

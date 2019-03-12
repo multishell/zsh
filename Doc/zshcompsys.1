@@ -1,4 +1,4 @@
-.TH "ZSHCOMPSYS" "1" "July 21, 2012" "zsh 5\&.0\&.0"
+.TH "ZSHCOMPSYS" "1" "December 20, 2012" "zsh 5\&.0\&.1"
 .SH "NAME"
 zshcompsys \- zsh completion system
 .\" Yodl file: Zsh/compsys.yo
@@ -2358,6 +2358,33 @@ found, or \fImax\fP words have been tried\&.
 The default is to complete all words from the history at once\&.
 .RE
 .TP
+\fBrecursive\-files\fP
+If this style is set, its value is an array of patterns to be
+tested against `\fB$PWD/\fP\&': note the trailing slash, which allows
+directories in the pattern to be delimited unambiguously by including
+slashes on both sides\&.  If an ordinary file completion fails
+and the word on the command line does not yet have a directory part to its
+name, the style is retrieved using the same tag as for the completion
+just attempted, then the elements tested against \fB$PWD/\fP in turn\&.
+If one matches, then the shell reattempts completion by prepending the word
+on the command line with each directory in the expansion of \fB**/*(/)\fP
+in turn\&.  Typically the elements of the style will be set to restrict
+the number of directories beneath the current one to a manageable
+number, for example `\fB*/\&.git/*\fP\&'\&.
+.RS
+.PP
+For example,
+.PP
+.RS
+.nf
+\fBzstyle \&':completion:*' recursive\-files '*/zsh/*'\fP
+.fi
+.RE
+.PP
+If the current directory is \fB/home/pws/zsh/Src\fP, then
+\fBzle_tr\fP\fITAB\fP can be completed to \fBZle/zle_tricky\&.c\fP\&.
+.RE
+.TP
 \fBregular\fP
 This style is used by the \fB_expand_alias\fP completer and bindable 
 command\&.  If set to `\fBtrue\fP\&' (the default), regular aliases will be
@@ -3207,7 +3234,9 @@ corresponding value\&.
 \fB_\fP but is not otherwise special to the completion system\&.  The function
 is called with the trial word as an argument\&.  If the word is to be
 expanded, the function should set the array \fBreply\fP to a list of
-expansions\&.  The return status of the function is irrelevant\&.
+expansions\&.  Optionally, it can set \fBREPLY\fP to a word that will
+be used as a description for the set of expansions\&.
+The return status of the function is irrelevant\&.
 .PP
 .PD
 .RE
