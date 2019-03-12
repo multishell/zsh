@@ -201,11 +201,10 @@ runhelp: help.txt
 .PHONY: runhelp
 
 help.txt: zshbuiltins.1
-	@-rm -f $(sdir)/help.txt $(sdir)/help/*
+	@-rm -f $@ help/*
 	perl $(sdir_top)/Util/helpfiles \
-	    $(sdir)/zshbuiltins.1 $(sdir)/help $(sdir)/help.txt \
-	    || rm -f $(sdir)/help.txt $(sdir)/help/*
-	touch $(sdir)/$@
+	    $(sdir)/zshbuiltins.1 help help.txt \
+	    || rm -f help.txt help/*
 
 $(MAN): zmacros.yo zman.yo
 
@@ -338,11 +337,11 @@ install.man: man
 install.runhelp: $(runhelp)
 	if test x"$(runhelpdir)" != x""; then \
 	    ${SHELL} $(sdir_top)/mkinstalldirs $(DESTDIR)$(runhelpdir); \
-	    $(INSTALL_DATA) $(sdir)/help/* $(DESTDIR)$(runhelpdir); \
+	    $(INSTALL_DATA) help/* $(DESTDIR)$(runhelpdir); \
 	    while read from to; do \
 	        rm -f $(DESTDIR)$(runhelpdir)/$$to || : ; \
 	        $(LN_S) $$from $(DESTDIR)$(runhelpdir)/$$to; \
-	    done < $(sdir)/help.txt; \
+	    done < help.txt; \
 	fi
 .PHONY: install.runhelp
 
@@ -419,7 +418,7 @@ distclean-here: clean-here
 realclean-here: distclean-here
 	cd $(sdir) && rm -f Zsh/modlist.yo Zsh/modmenu.yo Zsh/manmodmenu.yo
 	cd $(sdir) && rm -f version.yo ../META-FAQ zsh.texi $(MAN)
-	cd $(sdir) && rm -f help.txt help/*
+	rm -f help.txt help/*
 .PHONY: realclean-here
 
 @CLEAN_MK@
