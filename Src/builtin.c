@@ -3199,7 +3199,7 @@ bin_functions(char *name, char **argv, Options ops, int func)
 	pflags |= PRINT_NAMEONLY;
 
     if (OPT_MINUS(ops,'M') || OPT_PLUS(ops,'M')) {
-	MathFunc p, q;
+	MathFunc p, q, prev;
 	/*
 	 * Add/remove/list function as mathematical.
 	 */
@@ -3331,15 +3331,10 @@ bin_functions(char *name, char **argv, Options ops, int func)
 	    p->maxargs = maxargs;
 
 	    queue_signals();
-	    for (q = mathfuncs; q; q = q->next) {
+	    for (q = mathfuncs, prev = NULL; q; prev = q, q = q->next) {
 		if (!strcmp(q->name, funcname)) {
-		    unqueue_signals();
-		    zwarnnam(name, "-M %s: function already exists",
-			     funcname);
-		    zsfree(p->name);
-		    zsfree(p->module);
-		    zfree(p, sizeof(struct mathfunc));
-		    return 1;
+		    removemathfunc(prev, q);
+		    break;
 		}
 	    }
 
@@ -5234,8 +5229,14 @@ bin_print(char *name, char **args, Options ops, int func)
 			    errflag &= ~ERRFLAG_ERROR;
 			    ret = 1;
 			}
-			print_val(doubleval)
-			    break;
+			/* force consistent form for Inf/NaN output */
+			if (isnan(doubleval))
+			    count += fputs("nan", fout);
+			else if (isinf(doubleval))
+			    count += fputs((doubleval < 0.0) ? "-inf" : "inf", fout);
+		        else
+			    print_val(doubleval)
+			break;
 		    case 3:
 #ifdef ZSH_64_BIT_UTYPE
  		    	*d++ = 'l';
@@ -5317,8 +5318,13 @@ bin_shift(char *name, char **argv, Options ops, UNUSED(int func))
 
     /* optional argument can be either numeric or an array */
     queue_signals();
-    if (*argv && !getaparam(*argv))
+    if (*argv && !getaparam(*argv)) {
         num = mathevali(*argv++);
+	if (errflag) {
+	    unqueue_signals();
+	    return 1;
+	}
+    }
 
     if (num < 0) {
 	unqueue_signals();

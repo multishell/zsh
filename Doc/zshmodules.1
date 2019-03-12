@@ -1,4 +1,4 @@
-.TH "ZSHMODULES" "1" "April 16, 2018" "zsh 5\&.5\&.1"
+.TH "ZSHMODULES" "1" "September 3, 2018" "zsh 5\&.6"
 .SH "NAME"
 zshmodules \- zsh loadable modules
 .\" Yodl file: Zsh/modules.yo
@@ -1584,9 +1584,9 @@ The following functions take a single floating point argument: \fBacos\fP,
 \fBacosh\fP, \fBasin\fP, \fBasinh\fP, \fBatan\fP, \fBatanh\fP, \fBcbrt\fP, \fBceil\fP,
 \fBcos\fP, \fBcosh\fP, \fBerf\fP, \fBerfc\fP, \fBexp\fP, \fBexpm1\fP, \fBfabs\fP,
 \fBfloor\fP, \fBgamma\fP, \fBj0\fP, \fBj1\fP, \fBlgamma\fP, \fBlog\fP, \fBlog10\fP,
-\fBlog1p\fP, \fBlogb\fP, \fBsin\fP, \fBsinh\fP, \fBsqrt\fP, \fBtan\fP, \fBtanh\fP,
-\fBy0\fP, \fBy1\fP\&.  The \fBatan\fP function can optionally take a second
-argument, in which case it behaves like the C function \fBatan2\fP\&.
+\fBlog1p\fP, \fBlog2\fP, \fBlogb\fP, \fBsin\fP, \fBsinh\fP, \fBsqrt\fP, \fBtan\fP,
+\fBtanh\fP, \fBy0\fP, \fBy1\fP\&.  The \fBatan\fP function can optionally take a
+second argument, in which case it behaves like the C function \fBatan2\fP\&.
 The \fBilogb\fP function takes a single floating point argument, but
 returns an integer\&.
 .PP
@@ -2448,7 +2448,10 @@ named files; no list of file names is allowed in this case\&.
 .TP
 \fB\-F\fP \fIfmt\fP
 Supplies a \fBstrftime\fP (see \fIstrftime\fP(3)) string for the
-formatting of the time elements\&.  The \fB\-s\fP option is implied\&.
+formatting of the time elements\&.  The format string supports all of the
+zsh extensions described in
+the section EXPANSION OF PROMPT SEQUENCES in \fIzshmisc\fP(1)\&.
+The \fB\-s\fP option is implied\&.
 .TP
 \fB\-g\fP
 Show the time elements in the GMT time zone\&.  The
@@ -2785,6 +2788,11 @@ Returns the process ID of the current process, even in subshells\&.  Compare
 Returns the process ID of the parent of the current process, even in
 subshells\&.  Compare \fB$PPID\fP, which returns the process ID of the parent
 of the main shell process\&.
+.TP
+\fBprocsubstpid\fP
+Returns the process ID of the last process started for process
+substitution, i\&.e\&. the \fB<(\fP\fI\&.\&.\&.\fP\fB)\fP and
+\fB>(\fP\fI\&.\&.\&.\fP\fB)\fP expansions\&.
 .RE
 .SH "THE ZSH/NET/TCP MODULE"
 .\" Yodl file: Zsh/mod_tcp.yo
@@ -3999,6 +4007,7 @@ printed below each other\&.  All strings without a colon are left
 unchanged and all strings with an empty \fIright\fP string have the
 trailing colon removed\&.  In both cases the lengths of the strings
 are not used to determine how the other strings are to be aligned\&.
+A colon in the \fIleft\fP string can be escaped with a backslash\&.
 The resulting strings are stored in the \fIarray\fP\&.
 .RE
 .TP

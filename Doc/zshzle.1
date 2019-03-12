@@ -1,4 +1,4 @@
-.TH "ZSHZLE" "1" "April 16, 2018" "zsh 5\&.5\&.1"
+.TH "ZSHZLE" "1" "September 3, 2018" "zsh 5\&.6"
 .SH "NAME"
 zshzle \- zsh command line editor
 .\" Yodl file: Zsh/zle.yo
@@ -391,7 +391,7 @@ by `\fBbindkey \-m\fP\&'\&.
 
 .TP
 .PD 0
-\fBvared \fP[ \fB\-Aache\fP ] [ \fB\-p\fP \fIprompt\fP ] [ \fB\-r\fP \fIrprompt\fP ]
+\fBvared \fP[ \fB\-Aacghe\fP ] [ \fB\-p\fP \fIprompt\fP ] [ \fB\-r\fP \fIrprompt\fP ]
 .TP
 .PD 0
 \fB      \fP[ \fB\-M\fP \fImain\-keymap\fP ] [ \fB\-m\fP \fIvicmd\-keymap\fP ]
@@ -408,7 +408,9 @@ When the \fB\-c\fP flag is given, the parameter is created if it doesn\&'t
 already exist\&.  The \fB\-a\fP flag may be given with \fB\-c\fP to create
 an array parameter, or the \fB\-A\fP flag to create an associative array\&.
 If the type of an existing parameter does not match the type to be
-created, the parameter is unset and recreated\&.
+created, the parameter is unset and recreated\&.  The \fB\-g\fP flag may
+be given to suppress warnings from the \fBWARN_CREATE_GLOBAL\fP
+and \fBWARN_NESTED_VAR\fP options\&.
 .RS
 .PP
 If an array or array slice is being edited, separator characters as defined
@@ -1179,6 +1181,14 @@ wrappers of \fBbracketed\-paste\fP\&.  See also \fBzle \-f\fP\&.
 .RS
 .PP
 \fBYANK_ACTIVE\fP is read\-only\&.
+.RE
+.TP
+\fBZLE_RECURSIVE\fP (integer)
+Usually zero, but incremented inside any instance of
+\fBrecursive\-edit\fP\&.  Hence indicates the current recursion level\&.
+.RS
+.PP
+\fBZLE_RECURSIVE\fP is read\-only\&.
 .RE
 .TP
 \fBZLE_STATE\fP (scalar)

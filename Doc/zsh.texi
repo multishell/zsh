@@ -27,8 +27,8 @@
 @end iftex
 @titlepage
 @title The Z Shell Manual
-@subtitle Version 5.5.1
-@subtitle Updated April 16, 2018
+@subtitle Version 5.6
+@subtitle Updated September 3, 2018
 @author Original documentation by Paul Falstad
 @page
 This is a texinfo version of the documentation for the Z Shell, originally by 
@@ -63,7 +63,7 @@ POSIX shells, but its default mode is not POSIX compatible, either.
 
 @noindent
 @cindex version
-Version 5.5.1, last updated April 16, 2018.
+Version 5.6, last updated September 3, 2018.
 @end ifinfo
 
 @menu
@@ -350,8 +350,13 @@ is available from the zsh archive site or its mirrors, in the file
 @cindex introduction
 Zsh is a UNIX command interpreter (shell) usable as an interactive
 login shell and as a shell script command processor.  Of the standard shells,
-zsh most closely resembles @cite{ksh} but includes many enhancements.  Zsh
-has command line editing, builtin spelling correction, programmable
+zsh most closely resembles @cite{ksh} but includes many enhancements.  It
+does not provide compatibility with POSIX or other shells in its
+default operating mode:  see
+the section @ref{Compatibility}.
+
+@noindent
+Zsh has command line editing, builtin spelling correction, programmable
 command completion, shell functions (with autoloading), a history
 mechanism, and a host of other features.
 @c Yodl file: Zsh/metafaq.yo
@@ -379,33 +384,19 @@ the code should generally go to the mailing list.
 
 @section Availability
 @noindent
-Zsh is available from the following anonymous FTP sites.  These mirror
-sites are kept frequently up to date.  The sites marked with @emph{(H)} may be
-mirroring @t{ftp.cs.elte.hu} instead of the primary site.
+Zsh is available from the following HTTP and anonymous FTP site.
 
 @noindent
 @cindex FTP sites for zsh
 @cindex acquiring zsh by FTP
 @cindex availability of zsh
-@table @asis
-@item Primary site
 @t{@uref{ftp://ftp.zsh.org/pub/}}@*
-@t{@uref{http://www.zsh.org/pub/}}
-
-@item Australia
-@t{@uref{ftp://ftp.zsh.org/pub/}}@*
-@t{@uref{http://www.zsh.org/pub/}}@*
-@t{@uref{http://mirror.dejanseo.com.au/pub/zsh/}}
-
-@item Hungary
-@t{@uref{ftp://ftp.cs.elte.hu/pub/zsh/}}@*
-@t{@uref{http://www.cs.elte.hu/pub/zsh/}}
-
-@end table
+@t{@uref{https://www.zsh.org/pub/}}
+)
 
 @noindent
 The up-to-date source code is available via Git from Sourceforge.  See
-@t{@uref{http://sourceforge.net/projects/zsh/}} for details.  A summary of
+@t{@uref{https://sourceforge.net/projects/zsh/}} for details.  A summary of
 instructions for the archive can be found at
 @t{@uref{http://zsh.sourceforge.net/}}.
 
@@ -463,7 +454,7 @@ maintained by Karsten Thygesen @t{<karthy@@kom.auc.dk>}.
 The mailing lists are archived; the archives can be accessed via the
 administrative addresses listed above.  There is also a hypertext
 archive, maintained by Geoff Wing @t{<gcw@@zsh.org>}, available at
-@t{@uref{http://www.zsh.org/mla/}}.
+@t{@uref{https://www.zsh.org/mla/}}.
 @node The Zsh FAQ, The Zsh Web Page, Mailing Lists, Introduction
 
 @section The Zsh FAQ
@@ -478,7 +469,7 @@ is @t{<faqmaster@@zsh.org>}.
 
 @section The Zsh Web Page
 @noindent
-Zsh has a web page which is located at @t{@uref{http://www.zsh.org/}}.  This is
+Zsh has a web page which is located at @t{@uref{https://www.zsh.org/}}.  This is
 maintained by Karsten Thygesen @t{<karthy@@zsh.org>}, of SunSITE Denmark.
 The contact address for web-related matters is @t{<webmaster@@zsh.org>}.
 @node The Zsh Userguide, See Also, The Zsh Web Page, Introduction
@@ -492,12 +483,6 @@ cabbalistic, hierographic, or downright mystifying (for example, the word
 @t{@uref{http://zsh.sourceforge.net/Guide/}}.  At the time of writing, chapters
 dealing with startup files and their contents and the new completion system
 were essentially complete.
-
-@section The Zsh Wiki
-@noindent
-A `wiki' website for zsh has been created at @t{@uref{http://www.zshwiki.org/}}.
-This is a site which can be added to and modified directly by users without
-any special permission.  You can add your own zsh tips and configurations.
 @c (avoiding a yodl bug)
 @c Yodl file: Zsh/seealso.yo
 @node See Also, , The Zsh Userguide, Introduction
@@ -3941,12 +3926,17 @@ the hour of the day on the 12-hour clock
 In addition, if the system supports the POSIX @t{gettimeofday} system
 call, @t{%.} provides decimal fractions of a second since the epoch with
 leading zeroes.  By default three decimal places are provided, but a
-number of digits up to 6 may be given following the @t{%}; hence @t{%6.}
-outputs microseconds.  A typical example of this is the format
-`@t{%D@{%H:%M:%S.%.@}}'.
+number of digits up to 9 may be given following the @t{%}; hence @t{%6.}
+outputs microseconds, and @t{%9.} outputs nanoseconds.  (The latter
+requires a nanosecond-precision @t{clock_gettime}; systems lacking this
+will return a value multiplied by the appropriate power of 10.)  A typical
+example of this is the format `@t{%D@{%H:%M:%S.%.@}}'.
 
 @noindent
-The GNU extension that a `@t{-}' between the @t{%} and the
+The GNU extension @t{%N} is handled as a synonym for @t{%9.}.
+
+@noindent
+Additionally, the GNU extension that a `@t{-}' between the @t{%} and the
 format character causes a leading zero or space to be stripped
 is handled directly by the shell for the format characters @t{d}, @t{f},
 @t{H}, @t{k}, @t{l}, @t{m}, @t{M}, @t{S} and @t{y}; any other format
@@ -6422,7 +6412,7 @@ The character is 7-bit, i.e. is a single-byte character without
 the top bit set.
 
 @item @t{[:blank:]}
-The character is either space or tab
+The character is a blank character
 
 @item @t{[:cntrl:]}
 The character is a control character
@@ -16111,7 +16101,7 @@ by `@t{bindkey -m}'.
 @cindex parameters, editing
 @cindex editing parameters
 
-@item @t{vared }[ @t{-Aache} ] [ @t{-p} @var{prompt} ] [ @t{-r} @var{rprompt} ]
+@item @t{vared }[ @t{-Aacghe} ] [ @t{-p} @var{prompt} ] [ @t{-r} @var{rprompt} ]
 @itemx @t{@ @ @ @ @ @ }[ @t{-M} @var{main-keymap} ] [ @t{-m} @var{vicmd-keymap} ]
 @itemx @t{@ @ @ @ @ @ }[ @t{-i} @var{init-widget} ] [ @t{-f} @var{finish-widget} ]
 @itemx @t{@ @ @ @ @ @ }[ @t{-t} @var{tty} ] @var{name}
@@ -16122,7 +16112,9 @@ When the @t{-c} flag is given, the parameter is created if it doesn't
 already exist.  The @t{-a} flag may be given with @t{-c} to create
 an array parameter, or the @t{-A} flag to create an associative array.
 If the type of an existing parameter does not match the type to be
-created, the parameter is unset and recreated.
+created, the parameter is unset and recreated.  The @t{-g} flag may
+be given to suppress warnings from the @t{WARN_CREATE_GLOBAL}
+and @t{WARN_NESTED_VAR} options.
 
 @noindent
 If an array or array slice is being edited, separator characters as defined
@@ -16928,6 +16920,14 @@ wrappers of @t{bracketed-paste}.  See also @t{zle -f}.
 
 @noindent
 @t{YANK_ACTIVE} is read-only.
+
+@vindex ZLE_RECURSIVE
+@item @t{ZLE_RECURSIVE} (integer)
+Usually zero, but incremented inside any instance of
+@t{recursive-edit}.  Hence indicates the current recursion level.
+
+@noindent
+@t{ZLE_RECURSIVE} is read-only.
 
 @vindex ZLE_STATE
 @item @t{ZLE_STATE} (scalar)
@@ -24894,8 +24894,8 @@ for which completions should be generated (presumably not one of the
 @noindent
 The matches generated will be taken from the value of the style.  These
 should contain the possible values for the combinations in the appropriate
-order (users, hosts, ports in the example above).  The different fields
-the values for the different fields are separated by colons.  This
+order (users, hosts, ports in the example above).
+The values for the different fields are separated by colons.  This
 can be altered with the option @t{-s} to @t{_combination} which specifies a
 pattern.  Typically this is a character class, as for example
 `@t{-s "[:@@]"}' in the case of the @t{users-hosts} style.    Each
@@ -28635,9 +28635,9 @@ The following functions take a single floating point argument: @t{acos},
 @t{acosh}, @t{asin}, @t{asinh}, @t{atan}, @t{atanh}, @t{cbrt}, @t{ceil},
 @t{cos}, @t{cosh}, @t{erf}, @t{erfc}, @t{exp}, @t{expm1}, @t{fabs},
 @t{floor}, @t{gamma}, @t{j0}, @t{j1}, @t{lgamma}, @t{log}, @t{log10},
-@t{log1p}, @t{logb}, @t{sin}, @t{sinh}, @t{sqrt}, @t{tan}, @t{tanh},
-@t{y0}, @t{y1}.  The @t{atan} function can optionally take a second
-argument, in which case it behaves like the C function @t{atan2}.
+@t{log1p}, @t{log2}, @t{logb}, @t{sin}, @t{sinh}, @t{sqrt}, @t{tan},
+@t{tanh}, @t{y0}, @t{y1}.  The @t{atan} function can optionally take a
+second argument, in which case it behaves like the C function @t{atan2}.
 The @t{ilogb} function takes a single floating point argument, but
 returns an integer.
 
@@ -29606,7 +29606,10 @@ named files; no list of file names is allowed in this case.
 
 @item @t{-F} @var{fmt}
 Supplies a @t{strftime} (see man page strftime(3)) string for the
-formatting of the time elements.  The @t{-s} option is implied.
+formatting of the time elements.  The format string supports all of the
+zsh extensions described in
+@ref{Prompt Expansion}.
+The @t{-s} option is implied.
 
 @item @t{-g}
 Show the time elements in the GMT time zone.  The
@@ -29957,6 +29960,11 @@ Returns the process ID of the current process, even in subshells.  Compare
 Returns the process ID of the parent of the current process, even in
 subshells.  Compare @t{$PPID}, which returns the process ID of the parent
 of the main shell process.
+
+@item @t{procsubstpid}
+Returns the process ID of the last process started for process
+substitution, i.e. the @t{<(}@var{...}@t{)} and
+@t{>(}@var{...}@t{)} expansions.
 
 @end table
 
@@ -31289,6 +31297,7 @@ printed below each other.  All strings without a colon are left
 unchanged and all strings with an empty @var{right} string have the
 trailing colon removed.  In both cases the lengths of the strings
 are not used to determine how the other strings are to be aligned.
+A colon in the @var{left} string can be escaped with a backslash.
 The resulting strings are stored in the @var{array}.
 
 @findex zregexparse
@@ -34393,7 +34402,7 @@ distribution in your home directory, you would use the commands:
 @noindent
 @example
 mkdir ~/zsh_help
-perl ~/zsh-5.5.1/Util/helpfiles ~/zsh_help
+perl ~/zsh-5.6/Util/helpfiles ~/zsh_help
 @end example
 
 @noindent
@@ -34554,7 +34563,7 @@ Run @t{zkbd} either as an autoloaded function, or as a shell script:
 
 @noindent
 @example
-zsh -f ~/zsh-5.5.1/Functions/Misc/zkbd
+zsh -f ~/zsh-5.6/Functions/Misc/zkbd
 @end example
 
 @noindent
@@ -34619,7 +34628,7 @@ command and redirect the output into a file:
 
 @noindent
 @example
-. ~/zsh-5.5.1/Util/reporter > zsh.report
+. ~/zsh-5.6/Util/reporter > zsh.report
 @end example
 
 @noindent
@@ -35391,34 +35400,34 @@ The following VCSs are supported, showing the abbreviated name by which
 they are referred to within the system:
 @table @asis
 @item Bazaar (@t{bzr})
-@t{@uref{http://bazaar.canonical.com/}}
+@t{@uref{https://bazaar.canonical.com/}}
 @item Codeville (@t{cdv})
 @t{@uref{http://freecode.com/projects/codeville/}}
 @item Concurrent Versioning System (@t{cvs})
-@t{@uref{http://www.nongnu.org/cvs/}}
+@t{@uref{https://www.nongnu.org/cvs/}}
 @item Darcs (@t{darcs})
 @t{@uref{http://darcs.net/}}
 @item Fossil (@t{fossil})
-@t{@uref{http://fossil-scm.org/}}
+@t{@uref{https://fossil-scm.org/}}
 @item Git (@t{git})
-@t{@uref{http://git-scm.com/}}
+@t{@uref{https://git-scm.com/}}
 @item GNU arch (@t{tla})
-@t{@uref{http://www.gnu.org/software/gnu-arch/}}
+@t{@uref{https://www.gnu.org/software/gnu-arch/}}
 @item Mercurial (@t{hg})
-@t{@uref{http://mercurial.selenic.com/}}
+@t{@uref{https://www.mercurial-scm.org/}}
 @item Monotone (@t{mtn})
-@t{@uref{http://monotone.ca/}}
+@t{@uref{https://monotone.ca/}}
 @item Perforce (@t{p4})
-@t{@uref{http://www.perforce.com/}}
+@t{@uref{https://www.perforce.com/}}
 @item Subversion (@t{svn})
-@t{@uref{http://subversion.apache.org/}}
+@t{@uref{https://subversion.apache.org/}}
 @item SVK (@t{svk})
-@t{@uref{http://svk.bestpractical.com/}}
+@t{@uref{https://svk.bestpractical.com/}}
 @end table
 
 @noindent
 There is also support for the patch management system @t{quilt}
-(@t{@uref{http://savannah.nongnu.org/projects/quilt}}). See
+(@t{@uref{https://savannah.nongnu.org/projects/quilt}}). See
 @ref{vcs_info Quilt Support}
 below for details.
 

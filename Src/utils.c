@@ -375,6 +375,43 @@ zerrmsg(FILE *file, const char *fmt, va_list ap)
     fflush(file);
 }
 
+/*
+ * Wrapper for setupterm() and del_curterm().
+ * These are called from terminfo.c and termcap.c.
+ */
+static int term_count;	/* reference count of cur_term */
+
+/**/
+mod_export void
+zsetupterm(void)
+{
+#ifdef HAVE_SETUPTERM
+    int errret;
+
+    DPUTS(term_count < 0 || (term_count > 0 && !cur_term),
+	    "inconsistent term_count and/or cur_term");
+    /*
+     * Just because we can't set up the terminal doesn't
+     * mean the modules hasn't booted---TERM may change,
+     * and it should be handled dynamically---so ignore errors here.
+     */
+    if (term_count++ == 0)
+	(void)setupterm((char *)0, 1, &errret);
+#endif
+}
+
+/**/
+mod_export void
+zdeleteterm(void)
+{
+#ifdef HAVE_SETUPTERM
+    DPUTS(term_count < 1 || !cur_term,
+	    "inconsistent term_count and/or cur_term");
+    if (--term_count == 0)
+	del_curterm(cur_term);
+#endif
+}
+
 /* Output a single character, for the termcap routines.     *
  * This is used instead of putchar since it can be a macro. */
 
@@ -3224,7 +3261,7 @@ ztrftimebuf(int *bufsizeptr, int decr)
 
 /**/
 mod_export int
-ztrftime(char *buf, int bufsize, char *fmt, struct tm *tm, long usec)
+ztrftime(char *buf, int bufsize, char *fmt, struct tm *tm, long nsec)
 {
     int hr12;
 #ifdef HAVE_STRFTIME
@@ -3299,15 +3336,15 @@ morefmt:
 	    case '.':
 		if (ztrftimebuf(&bufsize, digs))
 		    return -1;
-		if (digs > 6)
-		    digs = 6;
-		if (digs < 6) {
+		if (digs > 9)
+		    digs = 9;
+		if (digs < 9) {
 		    int trunc;
-		    for (trunc = 5 - digs; trunc; trunc--)
-			usec /= 10;
-		    usec  = (usec + 5) / 10;
+		    for (trunc = 8 - digs; trunc; trunc--)
+			nsec /= 10;
+		    nsec = (nsec + 8) / 10;
 		}
-		sprintf(buf, "%0*ld", digs, usec);
+		sprintf(buf, "%0*ld", digs, nsec);
 		buf += digs;
 		break;
 	    case '\0':
@@ -3368,6 +3405,12 @@ morefmt:
 		if (tm->tm_min > 9 || !strip)
 		    *buf++ = '0' + tm->tm_min / 10;
 		*buf++ = '0' + tm->tm_min % 10;
+		break;
+	    case 'N':
+		if (ztrftimebuf(&bufsize, 9))
+		    return -1;
+		sprintf(buf, "%09ld", nsec);
+		buf += 9;
 		break;
 	    case 'S':
 		if (tm->tm_sec > 9 || !strip)

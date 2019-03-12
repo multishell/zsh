@@ -738,11 +738,11 @@ _git-describe () {
     '--all[use any ref found in "$GIT_DIR/refs/"]' \
     '--tags[use any ref found in "$GIT_DIR/refs/tags"]' \
     '(--tags)--contains[find the tag after the commit instead of before]' \
-    '(--long)--abbrev=[set minimum SHA1 display-length]: :__git_guard_number length' \
+    '--abbrev=[set minimum SHA1 display-length]: :__git_guard_number length' \
     '(             --exact-match)--candidates=[consider up to given number of candidates]: :__git_guard_number "number of candidates"' \
     '(--candidates              )--exact-match[only output exact matches, same as --candidates=0]' \
     '--debug[display information about the searching strategy]' \
-    '(--abbrev)--long[always show full format, even for exact matches]' \
+    '--long[always show full format, even for exact matches]' \
     '*--match=[only consider tags matching glob pattern]:pattern' \
     "*--exclude=[don't consider tags matching glob pattern]:pattern" \
     '--always[show uniquely abbreviated commit object as fallback]' \
@@ -871,6 +871,7 @@ _git-fetch () {
     '(-n --no-tags -t --tags)'{-n,--no-tags}'[disable automatic tag following]' \
     '(--all -m --multiple)'{-m,--multiple}'[fetch from multiple remotes]' \
     '(-P --prune-tags)'{-P,--prune-tags}'[prune local tags no longer on remote and clobber changed tags]' \
+    \*{-o+,--server-option=}'[send specified string to the server when using protocol version 2]:option' \
     '--filter=[object filtering]:filter:_git_rev-list_filters' \
     '*:: :->repository-or-group-or-refspec' && ret=0
 
@@ -959,9 +960,10 @@ _git-gc () {
   _arguments -S -s \
     '--aggressive[more aggressively optimize]' \
     '--auto[check whether housekeeping is required]' \
-    '(        --no-prune)--prune=[prune loose objects older than given date]: :__git_datetimes' \
+    '(        --no-prune)--prune=-[prune loose objects older than given date]::date [2 weeks ago]:__git_datetimes' \
     '(--prune           )--no-prune[do not prune any loose objects]' \
-    '(-q --quiet)'{-q,--quiet}'[suppress progress reporting]'
+    '(-q --quiet)'{-q,--quiet}'[suppress progress reporting]' \
+    '--keep-largest-pack[repack all other packs except the largest pack]' \
 }
 
 (( $+functions[_git-grep] )) ||
@@ -1694,6 +1696,9 @@ _git-stash () {
 	    '(-m --message)'{-m,--message}'[specify stash description]' \
             ':: :__git_modified_files' && ret=0
           ;;
+        (--)
+            __git_modified_files
+          ;;
         (list)
           local -a log_options revision_options
           __git_setup_log_options
@@ -1765,7 +1770,10 @@ _git-status () {
     '--ignored=-[show ignored files as well]:mode [traditional]:(traditional matching no)' \
     '(-z --null --column --no-column)'{-z,--null}'[use NUL termination on output]' \
     '(--no-column -z --null)--column=-[display in columns]::column.status option:((always\:"always show in columns" never\:"never show in columns" auto\:"show in columns if the output is to the terminal" column\:"fill columns before rows (default)" row\:"fill rows before columns" plain\:"show in one column" dense\:"make unequal size columns to utilize more space" nodense\:"make equal size columns"))' \
-    '(--column)--no-column[do not display in columns]' \
+    "(--column)--no-column[don't display in columns]" \
+    "(--no-renames -M --find-renames)--no-renames[don't detect renames]" \
+    '(--no-renames -M --find-renames)-M[detect renames]' \
+    '(--no-renames -M --find-renames)--find-renames=-[detect renames, optionally set similarity index]::similarity' \
     '*: :__git_ignore_line_inside_arguments _files'
 }
 
@@ -2152,16 +2160,18 @@ _git-config () {
     '(--global --system         -f --file --blob)--local[use local config file]' \
     '(--global --system --local           --blob)'{-f+,--file=}'[use given config file]:config file:_files' \
     '(--global --system --local -f --file)--blob=[read config from given blob object]:blob:__git_blobs' \
-    '(       --int --bool-or-int --path --expiry-date)--bool[setting is a boolean]' \
-    '(--bool       --bool-or-int --path --expiry-date)--int[setting is an integer]' \
-    '(--bool --int               --path --expiry-date)--bool-or-int[setting is an integer]' \
-    '(--bool --int --bool-or-int        --expiry-date)--path[setting is a path]' \
-    '(--bool --int --bool-or-int --path              )--expiry-date[setting is an expiry date]' \
+    '(-t --type --bool --int --bool-or-int --path --expiry-date)'{-t+,--type=}'[ensure that incoming and outgoing values are canonicalize-able as the given type]:type:(bool int bool-or-int path expiry-date color)' \
+    '(-t --type --int --bool-or-int --path --expiry-date)--bool[setting is a boolean]' \
+    '(-t --type --bool --bool-or-int --path --expiry-date)--int[setting is an integer]' \
+    '(-t --type --bool --int --path --expiry-date)--bool-or-int[setting is an integer]' \
+    '(-t --type --bool --int --bool-or-int --expiry-date)--path[setting is a path]' \
+    '(-t --type --bool --int --bool-or-int --path)--expiry-date[setting is an expiry date]' \
     '(-z --null)'{-z,--null}'[end values with NUL and newline between key and value]' \
     '(--get --get-all --get-urlmatch --replace-all --add --unset --unset-all --rename-section --remove-section -e --edit --get-color --get-colorbool)--name-only[show variable names only]' \
     '(--includes)'--no-includes"[don't respect \"include.*\" directives]" \
     '(--no-includes)'--includes'[respect "include.*" directives in config files when looking up values]' \
     '(--global --system --local -f --file --blob --get-urlmatch --replace-all --add --unset --unset-all --rename-section --remove-section -e --edit --get-color --get-colorbool)--show-origin[show origin of config]' \
+    '(2 --add -e --edit -l --list --name-only --rename-section --remove-section --replace-all --unset --unset-all)--default=[with --get, use specified default value when entry is missing]:default' \
     $name_arg \
     $value_arg \
     '::value regex' \
@@ -3597,15 +3607,7 @@ _git-remote () {
             '(-m --master)'{-m,--master=}'[set HEAD of remote to point to given master branch]: :__git_branch_names' \
 	    '--mirror[do not use separate remotes]::mirror type:(fetch pull)' \
             ':name:__git_remotes' \
-            ':repository:->repository' && ret=0
-	  case $state in
-	    (repository)
-            _alternative \
-              'local-repositories::__git_local_repositories' \
-              'remote-repositories::__git_remote_repositories' \
-	      'urls::_urls' && ret=0
-	    ;;
-	  esac
+            ':repository:__git_repositories_or_urls' && ret=0
           ;;
         (get-url)
           _arguments -S -s \
@@ -3634,14 +3636,13 @@ _git-remote () {
             '*: :__git_branch_names' && ret=0
           ;;
         (set-url)
-          # TODO: Old URL should be one of those defined for the remote.
-          _arguments -S -s \
-            '(3)--push[manipulate push URLs instead of fetch URLs]' \
-            '--add[add URL to those already defined]' \
-            '(3)--delete[delete all matching URLs]' \
-            ': :__git_remotes' \
-            ':new url:_urls' \
-            ':old url:_urls' && ret=0
+          _arguments -S \
+            '--push[manipulate push URLs instead of fetch URLs]' \
+            '(3)--add[add URL to those already defined]' \
+            '(2)--delete[delete all matching URLs]' \
+            '1: :__git_remotes' \
+            '2:new url:__git_repositories_or_urls' \
+            '3:old url: __git_current_remote_urls ${(k)opt_args[--push]} $line[1]' && ret=0
           ;;
         (show)
           _arguments -S \
@@ -3705,10 +3706,16 @@ _git-replace () {
     '(: * --raw -f --force)'{-l,--list}'[list replace refs]:pattern' \
     {-d,--delete}'[delete existing replace refs]:*:replacement:__git_objects' \
     '(* 2 --format)'{-e,--edit}'[edit existing object and replace it with the new one]' \
-    '(--raw --format)'{-g,--graft}'[rewrite the parents of a commit]'
+    '(--raw --format)'{-g,--graft}'[rewrite the parents of a commit]' \
+    '--convert-graft-file[convert existing graft file]'
 }
 
 # Ancillary Commands (Interrogators)
+
+(( $+functions[_git-annotate] )) ||
+_git-annotate() {
+  _git-blame "$@"
+}
 
 (( $+functions[_git-blame] )) ||
 _git-blame () {
@@ -3741,6 +3748,8 @@ _git-blame () {
     '(-n --show-number)'{-n,--show-number}'[show the line number in the original commit]' \
     '-s[suppress author name and timestamp]' \
     '-w[ignore whitespace when finding lines]' \
+    '(--color-by-age)--color-lines[color redundant metadata from previous line differently]' \
+    '(--color-lines)--color-by-age[color lines by age]' \
     '--indent-heuristic[use indent-based heuristic to improve diffs]' \
     $revision_options \
     ':: :__git_revisions' \
@@ -3828,10 +3837,11 @@ _git-get-tar-commit-id () {
 _git-help () {
   _arguments -S -s \
     '(         -g --guides -i --info -m --man -w --web)'{-a,--all}'[show all available commands]' \
-    '(-a --all -g --guides           -m --man -w --web)'{-i,--info}'[show all available commands]' \
-    '(-a --all -g --guides -i --info          -w --web)'{-m,--man}'[show all available commands]' \
-    '(-a --all -g --guides -i --info -m --man         )'{-w,--web}'[show all available commands]' \
+    '(-a --all -g --guides           -m --man -w --web)'{-i,--info}'[display manual for the command in info format]' \
+    '(-a --all -g --guides -i --info          -w --web)'{-m,--man}'[display manual for the command in man format]' \
+    '(-a --all -g --guides -i --info -m --man         )'{-w,--web}'[display manual for the command in HTML format]' \
     '(-g --guides)'{-g,--guides}'[prints a list of useful guides on the standard output]' \
+    '(-v --verbose)'{-v,--verbose}'[print command descriptions]' \
     ': : _alternative commands:command:_git_commands "guides:git guides:(attributes glossary ignore modules revisions tutorial workflows)"'
 }
 
@@ -4700,6 +4710,7 @@ _git-pack-objects () {
     $thin_opt \
     '--shallow[create packs suitable for shallow fetches]' \
     '--honor-pack-keep[ignore objects in local pack with .keep file]' \
+    '--keep-pack=[ignore named pack]:pack' \
     '--compression=-[specify compression level]: :__git_compression_levels' \
     '--keep-true-parents[pack parents hidden by grafts]' \
     '--use-bitmap-index[use a bitmap index if available to speed up counting objects]' \
@@ -5034,7 +5045,9 @@ _git-ls-remote () {
     "--refs[don't show peeled tags]" \
     '--exit-code[exit with status 2 when no matching refs are found in the remote repository]' \
     '--get-url[expand the URL of the given repository taking into account any "url.<base>.insteadOf" config setting]' \
+    '*--sort=[specify field name to sort on]:field:__git_ref_sort_keys' \
     '--symref[show underlying ref in addition to the object pointed by it]' \
+    \*{-o+,--server-option=}'[send specified string to the server when using protocol version 2]:option' \
     ': :__git_any_repositories' \
     '*: :__git_references'
 }
@@ -5615,7 +5628,7 @@ __git_describe_branch () {
 
 (( $+functions[__git_describe_commit] )) ||
 __git_describe_commit () {
-  __git_describe_branch $1 $2 $3 -M 'r:|/=**' "${(@)argv[4,-1]}"
+  __git_describe_branch $1 $2 $3 -M 'r:|/=* r:|=*' "${(@)argv[4,-1]}"
 }
 
 # Completion Wrappers
@@ -6404,7 +6417,7 @@ __git_heads () {
 
 (( $+functions[__git_heads_local] )) ||
 __git_heads_local () {
-  local gitdir
+  local f gitdir
   declare -a heads
 
   heads=(${(f)"$(_call_program headrefs git for-each-ref --format='"%(refname:short)"' refs/heads 2>/dev/null)"})
@@ -6532,7 +6545,7 @@ __git_recent_commits () {
   expl=()
   _wanted commit-tags expl 'commit tag' compadd "$@" -a - tags && ret=0
   expl=()
-  _wanted heads expl 'head' compadd "$@" -a - heads && ret=0
+  _wanted heads expl 'head' compadd -M "r:|/=* r:|=*" "$@" -a - heads && ret=0
   return $ret
 }
 
@@ -6657,7 +6670,7 @@ __git_tags () {
   tags=(${${(f)"$(_call_program tagrefs git for-each-ref --format='"%(refname)"' refs/tags 2>/dev/null)"}#refs/tags/})
   __git_command_successful $pipestatus || return 1
 
-  _wanted tags expl tag compadd -M 'r:|/=**' "$@" -a - tags
+  _wanted tags expl tag compadd -M 'r:|/=* r:|=*' "$@" -a - tags
 }
 
 (( $+functions[__git_commit_tags] )) ||
@@ -6680,7 +6693,7 @@ __git_tags_of_type () {
   tags=(${${(M)${(f)"$(_call_program ${(q)type}-tag-refs "git for-each-ref --format='%(*objecttype)%(objecttype) %(refname)' refs/tags 2>/dev/null")"}:#$type(tag|) *}#$type(tag|) refs/tags/})
   __git_command_successful $pipestatus || return 1
 
-  _wanted $type-tags expl "$type tag" compadd -M 'r:|/=**' "$@" -a - tags
+  _wanted $type-tags expl "$type tag" compadd -M 'r:|/=* r:|=*' "$@" -a - tags
 }
 
 # Reference Argument Types
@@ -6703,7 +6716,7 @@ __git_references () {
     _git_refs_cache_pwd=$PWD
   fi
 
-  _wanted references expl 'reference' compadd -M 'r:|/=**' -a - _git_refs_cache
+  _wanted references expl 'reference' compadd -M 'r:|/=* r:|=*' -a - _git_refs_cache
 }
 
 # ### currently unused; are some callers of __git_references supposed to call this function?
@@ -6717,7 +6730,7 @@ __git_local_references () {
     _git_local_refs_cache_pwd=$PWD
   fi
 
-  _wanted references expl 'reference' compadd -M 'r:|/=**' -a - _git_local_refs_cache
+  _wanted references expl 'reference' compadd -M 'r:|/=* r:|=*' -a - _git_local_refs_cache
 }
 
 (( $+functions[__git_remote_references] )) ||
@@ -6790,7 +6803,7 @@ __git_files () {
   local pref=$gitcdup$gitprefix$PREFIX
 
   # First allow ls-files to pattern-match in case of remote repository
-  files=(${(0)"$(_call_program files git ls-files -z --exclude-standard ${(q)opts} -- ${(q)${pref:+$pref\\\*}:-.} 2>/dev/null)"})
+  files=(${(0)"$(_call_program files git ls-files -z --exclude-standard ${(q)opts} -- ${(q)${pref:+$pref\*}:-.} 2>/dev/null)"})
   __git_command_successful $pipestatus || return
 
   # If ls-files succeeded but returned nothing, try again with no pattern
@@ -6947,6 +6960,21 @@ __git_local_repositories () {
   local expl
 
   _wanted local-repositories expl 'local repositories' _directories
+}
+
+(( $+functions[__git_repositories_or_urls] )) ||
+__git_repositories_or_urls () {
+  _alternative \
+    'repositories::__git_repositories' \
+    'urls::_urls'
+}
+
+(( $+functions[__git_current_remote_urls] )) ||
+__git_current_remote_urls () {
+  local expl
+  _description remote-urls expl 'current url'
+  compadd "$expl[@]" -M 'r:|/=* r:|=*' - ${(f)"$(_call_program remote-urls
+      git remote get-url "$@" --all)"}
 }
 
 (( $+functions[__git_any_repositories] )) ||
@@ -7739,8 +7767,8 @@ _git() {
       '(: -)--man-path[print the manpath for the man pages for this version of Git and exit]' \
       '(: -)--info-path[print the path where the info files are installed and exit]' \
       '(: -)--html-path[display path to HTML documentation and exit]' \
-      '(-p --paginate)'{-p,--paginate}'[pipe output into $PAGER]' \
-      '--no-pager[do not pipe git output into a pager]' \
+      '(-p --paginate -P --no-pager)'{-p,--paginate}'[pipe output into a pager]' \
+      '(-p --paginate -P --no-pager)'{-P,--no-pager}"[don't pipe git output into a pager]" \
       '--git-dir=-[path to repository]: :_directories' \
       '--work-tree=-[path to working tree]: :_directories' \
       '--namespace=-[set the Git namespace]: :_directories' \
@@ -7758,7 +7786,10 @@ _git() {
         curcontext=${curcontext%:*:*}:git-$words[1]:
 	(( $+opt_args[--git-dir] )) && local -x GIT_DIR=$opt_args[--git-dir]
 	if ! _call_function ret _git-$words[1]; then
-	  if zstyle -T :completion:$curcontext: use-fallback; then
+	  if [[ $words[1] = \!* ]]; then
+	    words[1]=${words[1]##\!}
+	    _normal && ret=0
+	  elif zstyle -T :completion:$curcontext: use-fallback; then
 	    _default && ret=0
 	  else
 	    _message "unknown sub-command: $words[1]"

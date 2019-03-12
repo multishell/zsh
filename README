@@ -5,13 +5,12 @@ THE Z SHELL (ZSH)
 Version
 -------
 
-This is version 5.5.1 of the shell.  This is a stable release.  There
-are some significant bug fixes and a few user visible additions since
-5.4.2 and minor fixes since 5.5.  All zsh installations are encouraged
-to upgrade.
+This is version 5.6 of the shell.  This is a security and feature release.
+There are some significant bug fixes and a few user visible additions since
+5.5.1.  All zsh installations are encouraged to upgrade as soon as possible.
 
 Note in particular the changes highlighted under "Incompatibilities since
-5.4.2" below.  See NEWS for more information.
+5.5.1" below.  See NEWS for more information.
 
 Installing Zsh
 --------------
@@ -32,8 +31,16 @@ Zsh is a shell with lots of features.  For a list of some of these, see the
 file FEATURES, and for the latest changes see NEWS.  For more
 details, see the documentation.
 
-Incompatibilities since 5.4.2
+Incompatibilities since 5.5.1
 -----------------------------
+
+The completion helper _remote_files, typically used after a hostname
+with scp-style completion, now uses remote-files instead of files as a
+tag.  This makes it easier to restrict completions with the tag-order
+style.
+
+Incompatibilities between 5.4.2 and 5.5.1
+-----------------------------------------
 
 1) The default build-time maximum nested function depth has been
 decreased from 1000 to 500 based on user experience.  However,

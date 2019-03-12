@@ -31,7 +31,7 @@ args=(
   '*-G+[select processes by real group]:group:_sequence -s , _groups'
   '*-g+[select processes by effective group or session]:group:_sequence -s , _groups'
   '*-s+[select processes by session leaders]:session leader:_sequence -s , _pids'
-  '*-t+[select processes by attached terminal]:tty:_sequence -s , _ttys -D'
+  '*-t+[select processes by attached terminal]:tty:_sequence -s , _ttys -Do'
   '*-u+[select processes by effective user]:user:_sequence -s , _users'
   '*-U+[select processes by real user]:user:_sequence -s , _users'
   '-o+[specify output format]:property:_sequence -s , _ps_props -'
@@ -110,9 +110,15 @@ case $OSTYPE in
     bsdarg+=( '*G[select processes by real group]' )
   ;|
   freebsd*|dragonfly*)
-    bsd+=( 'f[show command and environment for swapped out processes]' ) ;|
+    bsd+=( 'f[show command and environment for swapped out processes]' )
+  ;|
   netbsd*|openbsd*)
     bsdarg+=( 'W[extract swap information from specified file]' )
+  ;|
+  freebsd*|netbsd*)
+    bsd+=(
+      'd[show process hierarchy]'
+    )
   ;|
   darwin*)
     bsd+=(
@@ -140,7 +146,6 @@ case $OSTYPE in
   ;;
   freebsd*)
     bsd+=(
-      'd[show process hierarchy]'
       '*J[select processes by jail ID]'
       'Z[show mac label]'
     )
@@ -211,7 +216,7 @@ if (( CURRENT > 1 )) && [[ $OSTYPE != (solaris*|linux-gnu) ||
     *J) _sequence _jails -0 && return ;;
     *[MNW]) _files && return ;;
     *t)
-      _wanted -C option-t-1 ttys expl tty _sequence -s , _ttys -D && return
+      _wanted -C option-t-1 ttys expl tty _sequence -s , _ttys -Do && return
     ;;
     *[pq]) _wanted -C "option-${words[CURRENT-1][-1]}-1" processes \
 	expl 'process ID' _sequence -s , _pids && return ;;

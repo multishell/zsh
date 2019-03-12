@@ -13,6 +13,14 @@
     zpty_input() {
       zpty -w zsh "${(F)@}" $'\n'
     }
+    zpty_line() {
+      local REPLY
+      integer i
+      for (( i = 0; i < ${1:-1}; ++i )); do
+        zpty -r zsh REPLY
+        print -r -- ${REPLY%%($'\r\n'|$'\n')}
+      done
+    }
     zpty_stop() {
       # exit twice in case of check_jobs
       zpty -w zsh $'exit\nexit\n'
@@ -161,15 +169,17 @@
 
   zpty_start
   zpty_input 'sleep 10 & sleep 9 & sleep 8 & sleep 7 &'
-  sleep 0.1
+  zpty_line 4
   zpty_input 'kill %4'
+  # Dunno why we need this when checking input...
   sleep 0.1
+  zpty_line
   zpty_input 'kill -HUP %3'
-  sleep 0.1
+  zpty_line
   zpty_input 'kill -INT %2'
-  sleep 0.1
+  zpty_line
   zpty_input 'kill -KILL %1'
-  sleep 0.1
+  zpty_line
   zpty_stop
 0:various `kill` signals with multiple running jobs
 *>\[1] [0-9]##

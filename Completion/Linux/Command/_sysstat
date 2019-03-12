@@ -8,8 +8,9 @@ _mpstat() {
     '(-A)-I[report interrupt statistics]:interrupt:(SUM CPU SCPU ALL)' \
     '(-A)-N[specify NUMA nodes]:NUMA node' \
     '(-A)-n[report summary CPU statistics based on NUMA node placement]' \
+    '--dec=-[specify the number of decimal places to use]:decimal places [2]:(0 1 2)' \
     '-o[display statistics in JSON]:format:(JSON)' \
-    '(-A)-P[specify processor number]:processor: _values -s "," processor ON ALL {0..$(_call_program processors getconf _NPROCESSORS_ONLN)}' \
+    '(-A)-P[specify processor number]:processor: _values -s "," processor ALL {0..$(_call_program processors getconf _NPROCESSORS_ONLN)}' \
     '-u[report CPU utilization]' \
     '(- 1 2)-V[display version information]' \
     '1: : _guard "^-*" interval' \
@@ -18,6 +19,7 @@ _mpstat() {
 
 _cifsiostat() {
   _arguments : \
+    '--dec=-[specify the number of decimal places to use]:decimal places [2]:(0 1 2)' \
     '-h[human readable]' \
     '(-m)-k[display statistics in kB/s]' \
     '(-k)-m[display statistics in MB/s]' \
@@ -49,6 +51,9 @@ _sadf() {
       '-O[specify output options]: : _values -s , option
         autoscale height\:value oneday packed showidle showinfo skipempty showhints' \
       '-P[restrict processor dependant statistics]:processor number(zero indexed) or ALL:(ALL)' \
+      '--dev=-[specify block devices for which statistics are to be displayed]:block device:_files -g "*(-%)"' \
+      '--fs=-[specify filesystems for which statistics are to be displayed]:file system:_dir_list -s ,' \
+      '--iface=-[specify network interfaces for which statistics are to be displayed]:network interface:_sequence _net_interfaces' \
       '-s[set starting time of report]:starting time (HH\:MM\:SS)"' \
       '(-t -U)-T[display timestamp in local time]' \
       '(-T -U)-t[display timestamp in file\''s original localtime]' \
@@ -81,33 +86,39 @@ _sar() {
     '-C[display comments from sadc]' \
     '-D[use saYYYYMMDD instead of saDD as the standard system activity daily data file name]' \
     '-d[report activity for each block device]' \
+    '--dec=-[specify the number of decimal places to use]:decimal places [2]:(0 1 2)' \
+    '--dev=-[specify block devices for which statistics are to be displayed]:block device:_files -g "*(-%)"' \
     '-e[set ending time of report]:ending time (HH\:MM\:SS)' \
     '-F[display statistics for mounted filesystems]' \
     '-f[extract records from file]:record:_files' \
+    '--fs=-[specify filesystems for which statistics are to be displayed]:file system:_dir_list -s ,' \
     '-H[report hugepages utilization]' \
-    '-h[display help]' \
+    '(--human -p)-h[make output easier to read: implies --human and -p]' \
+    '(- 1 2)--help[display usage information]' \
     '--human[print sizes in human readable format]' \
     '*-I[report statistics for interrupts]:interrupts: _values -s "," interrupts 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 SUM ALL XALL' \
     '-i[select records as close as possible to interval]:interval' \
+    '--iface=-[specify network interfaces for which statistics are to be displayed]:network interface:_sequence _net_interfaces' \
     '-j[display persistent device names]:type:(ID LABEL PATH UUID)' \
     '-m[report power management statistics]:keywords: _values -s "," keywords CPU FAN FREQ IN TEMP USB ALL' \
-    '-n[report network statistics]:keywords: _values -s "," keywords DEV EDEV NFS NFSD SOCK IP EIP ICMP EICMP TCP ETCP UDP SOCK6 IP6 EIP6 ICMP6 EICMP6 UDP6 ALL' \
+    '-n[report network statistics]:keywords: _values -s "," keywords DEV EDEV NFS NFSD SOCK IP EIP ICMP EICMP TCP ETCP UDP SOCK6 IP6 EIP6 ICMP6 EICMP6 UDP6 FC SOFT ALL' \
     '-o[save readings to file in binary form]:file:_files' \
     '-P[report per-processor statistics]:processor: _values -s "," processors ALL' \
     '-p[pretty-print device names]' \
     '-q[report queue length and load averages]' \
     '-R[report memory statistics]' \
-    '-r[report memory utilization statistics]' \
+    '-r[report memory utilization statistics]:: :(ALL)' \
     '-S[report swap space utilization]' \
     '-s[set starting time of report]:start time (HH\:MM\:SS)' \
     '--sadc[print name of data collector]' \
     '-t[display timestamps in original local time of file creator]' \
-    '-u[report CPU utilization]: :(ALL)' \
+    '-u[report CPU utilization]:: :(ALL)' \
     '(- 1 2)-V[display version information]' \
     '-v[report status of kernel tables]' \
     '-W[report swapping statistics]' \
     '-w[report task creation and system switching activity]' \
     '-y[report TTY device activity]' \
+    '-z[omit output for any devices lacking activity during sample period]' \
     '1: : _guard "^-*" interval' \
     '2: : _guard "^-*" count'
 }
@@ -133,6 +144,7 @@ _pidstat() {
     '-v[display values from kernel table]' \
     '-w[report task switching activity]' \
     '-G[include only processes with specified name]:process name' \
+    '--dec=-[specify the number of decimal places to use]:decimal places [2]:(0 1 2)' \
     '--human[print sizes in human readable format]' \
     '1: : _guard "^-*" interval' \
     '2: : _guard "^-*" count'

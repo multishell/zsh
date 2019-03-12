@@ -1,8 +1,9 @@
 #compdef cryptsetup
 
-local curcontext="$curcontext" ret=1
+local curcontext="$curcontext" ign ret=1
 local -a actions state line expl
 
+(( $#words > 2 )) && ign='!'
 _arguments -s \
   '(-v --verbose)'{-v,--verbose}'[enable verbose mode]' \
   '--debug[enable debug mode]' \
@@ -33,7 +34,7 @@ _arguments -s \
   '(--use-random)--use-urandom[use /dev/urandom to generate volume key]' \
   '--shared[share device with another non-overlapping crypt segment]' \
   '--uuid=[set device UUID]:uuid' \
-  '--allow-discards[allow discards (aka TRIM) requests for device]' \
+  '--allow-discards[allow discard (aka TRIM) requests for device]' \
   '--header=[device or file with separated LUKS header]:file:_files' \
   '--test-passphrase[do not activate device, just check passphrase]' \
   '--tcrypt-hidden[use hidden header (hidden TCRYPT device)]' \
@@ -64,9 +65,11 @@ _arguments -s \
   '--persistent[set activation flags persistent for device]' \
   '--label=[set label for the LUKS2 device]:label' \
   '--subsystem=[set subsystem label for the LUKS2 device]:subsystem' \
-  '(- : *)--version[show version information]' \
-  '(- : *)'{-\?,--help}'[display help information]' \
-  '(- : *)--usage[display brief usage]' \
+  '--unbound[create unbound (no assigned data segment) LUKS2 keyslot]' \
+  '--json-file=[read or write token to json file]:json file:_files -g "*.json(-.)"' \
+  "${ign}(- : *)--version[show version information]" \
+  "${ign}(- : *)"{-\?,--help}'[display help information]' \
+  "${ign}(- : *)--usage[display brief usage]" \
   ':action:->actions' \
   '*::arguments:->action-arguments' && ret=0
 
@@ -86,6 +89,7 @@ case $state in
       'luksAddKey:add a new key'
       'luksRemoveKey:remove a key'
       'luksChangeKey:change a key'
+      'luksConvertKey:convert a key to new pbkdf parameters'
       'luksKillSlot:wipe key from slot'
       'luksUUID:print/change device UUID'
       'isLuks:check if device is a LUKS partition'
@@ -95,6 +99,7 @@ case $state in
       'luksResume:resume suspended LUKS device'
       'luksHeaderBackup:store binary backup of headers'
       'luksHeaderRestore:restore header backup'
+      'token:manipulate auto-activation token of the device'
     )
     _describe action actions && ret=0
   ;;
@@ -112,10 +117,21 @@ case $state in
       erase|convert|config|repair|(luks(AddKey|Erase|RemoveKey|DelKey|UUID|Dump)|isLuks))
 	args=( $device )
       ;;
-      luks(Format|AddKey|RemoveKey|ChangeKey))
+      luks(Format|AddKey|RemoveKey|ChangeKey|ConvertKey))
 	args=( $device ':key file:_files' )
       ;;
       luksHeader*) args=( $device '--header-backup-file:file:_files' );;
+      token)
+	args=(
+	  ':action:((
+	    add\:create\ a\ new\ keyring
+	    remove\:remove\ any\ token\ from\ slot
+	    import\:store\ arbitrary\ valid\ token\ json\ in\ LUKS2\ header
+	    export\:write\ requested\ token\ json\ to\ a\ file
+	  ))'
+	  $device
+	)
+      ;;
       *)
         _default && ret=0
       ;;

@@ -36,6 +36,8 @@
 #else
 #include "patchlevel.h"
 
+#include <math.h>
+
 /* If removed from the ChangeLog for some reason */
 #ifndef ZSH_PATCHLEVEL
 #define ZSH_PATCHLEVEL "unknown"
@@ -1425,7 +1427,7 @@ getarg(char **str, int *inv, Value v, int a2, zlong *w,
 	    HashTable ht = v->pm->gsu.h->getfn(v->pm);
 	    if (!ht) {
 		if (flags & SCANPM_CHECKING)
-		    return isset(KSHARRAYS) ? 1 : 0;
+		    return 0;
 		ht = newparamtable(17, v->pm->node.nam);
 		v->pm->gsu.h->setfn(v->pm, ht);
 	    }
@@ -1513,7 +1515,7 @@ getarg(char **str, int *inv, Value v, int a2, zlong *w,
 	    }
 	}
     } else {
-	if (!v->isarr && !word) {
+	if (!v->isarr && !word && !quote_arg) {
 	    l = strlen(s);
 	    if (a2) {
 		if (!l || *s != '*') {
@@ -1532,9 +1534,23 @@ getarg(char **str, int *inv, Value v, int a2, zlong *w,
 	    }
 	}
 	if (!keymatch) {
-	    if (quote_arg)
+	    if (quote_arg) {
 		untokenize(s);
-	    else
+		/* Scalar (e) needs implicit asterisk tokens */
+		if (!v->isarr && !word) {
+		    l = strlen(s);
+		    d = (char *) hcalloc(l + 2);
+		    if (a2) {
+			*d = Star;
+			strcpy(d + 1, s);
+		    } else {
+			strcpy(d, s);
+			d[l] = Star;
+			d[l + 1] = '\0';
+		    }
+		    s = d;
+		}
+	    } else
 		tokenize(s);
 	    remnulargs(s);
 	    pprog = patcompile(s, 0, NULL);
@@ -5431,10 +5447,16 @@ convfloat(double dval, int digits, int flags, FILE *fout)
 	ret = NULL;
     } else {
 	VARARR(char, buf, 512 + digits);
-	sprintf(buf, fmt, digits, dval);
-	if (!strchr(buf, 'e') && !strchr(buf, '.'))
-	    strcat(buf, ".");
-	ret = dupstring(buf);
+	if (isinf(dval))
+	    ret = dupstring((dval < 0.0) ? "-Inf" : "Inf");
+	else if (isnan(dval))
+	    ret = dupstring("NaN");
+	else {
+	    sprintf(buf, fmt, digits, dval);
+	    if (!strchr(buf, 'e') && !strchr(buf, '.'))
+		strcat(buf, ".");
+	    ret = dupstring(buf);
+	}
     }
 #ifdef USE_LOCALE
     if (prev_locale) setlocale(LC_NUMERIC, prev_locale);

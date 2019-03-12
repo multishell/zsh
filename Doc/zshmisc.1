@@ -1,4 +1,4 @@
-.TH "ZSHMISC" "1" "April 16, 2018" "zsh 5\&.5\&.1"
+.TH "ZSHMISC" "1" "September 3, 2018" "zsh 5\&.6"
 .SH "NAME"
 zshmisc \- everything and then some
 .\" Yodl file: Zsh/grammar.yo
@@ -2538,11 +2538,15 @@ the hour of the day on the 12\-hour clock
 In addition, if the system supports the POSIX \fBgettimeofday\fP system
 call, \fB%\&.\fP provides decimal fractions of a second since the epoch with
 leading zeroes\&.  By default three decimal places are provided, but a
-number of digits up to 6 may be given following the \fB%\fP; hence \fB%6\&.\fP
-outputs microseconds\&.  A typical example of this is the format
-`\fB%D{%H:%M:%S\&.%\&.}\fP\&'\&.
+number of digits up to 9 may be given following the \fB%\fP; hence \fB%6\&.\fP
+outputs microseconds, and \fB%9\&.\fP outputs nanoseconds\&.  (The latter
+requires a nanosecond\-precision \fBclock_gettime\fP; systems lacking this
+will return a value multiplied by the appropriate power of 10\&.)  A typical
+example of this is the format `\fB%D{%H:%M:%S\&.%\&.}\fP\&'\&.
 .PP
-The GNU extension that a `\fB\-\fP\&' between the \fB%\fP and the
+The GNU extension \fB%N\fP is handled as a synonym for \fB%9\&.\fP\&.
+.PP
+Additionally, the GNU extension that a `\fB\-\fP\&' between the \fB%\fP and the
 format character causes a leading zero or space to be stripped
 is handled directly by the shell for the format characters \fBd\fP, \fBf\fP,
 \fBH\fP, \fBk\fP, \fBl\fP, \fBm\fP, \fBM\fP, \fBS\fP and \fBy\fP; any other format

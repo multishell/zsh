@@ -174,6 +174,11 @@ mod_export int zleactive;
 /**/
 pid_t cmdoutpid;
 
+/* pid of last process started by <(...),  >(...) */
+
+/**/
+mod_export pid_t procsubstpid;
+
 /* exit status of process undergoing 'process substitution' */
 
 /**/
@@ -453,7 +458,7 @@ execcursh(Estate state, int do_exec)
 
 /* execve after handling $_ and #! */
 
-#define POUNDBANGLIMIT 64
+#define POUNDBANGLIMIT 128
 
 /**/
 static int
@@ -494,18 +499,20 @@ zexecve(char *pth, char **argv, char **newenvp)
 	if ((fd = open(pth, O_RDONLY|O_NOCTTY)) >= 0) {
 	    argv0 = *argv;
 	    *argv = pth;
-	    execvebuf[0] = '\0';
+	    memset(execvebuf, '\0', POUNDBANGLIMIT + 1);
 	    ct = read(fd, execvebuf, POUNDBANGLIMIT);
 	    close(fd);
 	    if (ct >= 0) {
-		if (execvebuf[0] == '#') {
-		    if (execvebuf[1] == '!') {
-			for (t0 = 0; t0 != ct; t0++)
-			    if (execvebuf[t0] == '\n')
-				break;
+		if (ct >= 2 && execvebuf[0] == '#' && execvebuf[1] == '!') {
+		    for (t0 = 0; t0 != ct; t0++)
+			if (execvebuf[t0] == '\n')
+			    break;
+		    if (t0 == ct)
+			zerr("%s: bad interpreter: %s: %e", pth,
+			     execvebuf + 2, eno);
+		    else {
 			while (inblank(execvebuf[t0]))
 			    execvebuf[t0--] = '\0';
-			execvebuf[POUNDBANGLIMIT] = '\0';
 			for (ptr = execvebuf + 2; *ptr && *ptr == ' '; ptr++);
 			for (ptr2 = ptr; *ptr && *ptr != ' '; ptr++);
 			if (eno == ENOENT) {
@@ -514,10 +521,16 @@ zexecve(char *pth, char **argv, char **newenvp)
 				*ptr = '\0';
 			    if (*ptr2 != '/' &&
 				(pprog = pathprog(ptr2, NULL))) {
-				argv[-2] = ptr2;
-				argv[-1] = ptr + 1;
-				winch_unblock();
-				execve(pprog, argv - 2, newenvp);
+				if (ptr == execvebuf + t0 + 1) {
+				    argv[-1] = ptr2;
+				    winch_unblock();
+				    execve(pprog, argv - 1, newenvp);
+				} else {
+				    argv[-2] = ptr2;
+				    argv[-1] = ptr + 1;
+				    winch_unblock();
+				    execve(pprog, argv - 2, newenvp);
+				}
 			    }
 			    zerr("%s: bad interpreter: %s: %e", pth, ptr2,
 				 eno);
@@ -532,10 +545,6 @@ zexecve(char *pth, char **argv, char **newenvp)
 			    winch_unblock();
 			    execve(ptr2, argv - 1, newenvp);
 			}
-		    } else if (eno == ENOEXEC) {
-			argv[-1] = "sh";
-			winch_unblock();
-			execve("/bin/sh", argv - 1, newenvp);
 		    }
 		} else if (eno == ENOEXEC) {
 		    for (t0 = 0; t0 != ct; t0++)
@@ -698,7 +707,7 @@ execute(LinkList args, int flags, int defpath)
      * Note that we don't close fd's attached to process substitution
      * here, which should be visible to external processes.
      */
-    closem(FDT_XTRACE);
+    closem(FDT_XTRACE, 0);
 #ifndef FD_CLOEXEC
     if (SHTTY != -1) {
 	close(SHTTY);
@@ -1878,8 +1887,6 @@ static void
 execpline2(Estate state, wordcode pcode,
 	   int how, int input, int output, int last1)
 {
-    pid_t pid;
-    int pipes[2];
     struct execcmd_params eparams;
 
     if (breaks || retflag)
@@ -1900,65 +1907,21 @@ execpline2(Estate state, wordcode pcode,
     }
     if (WC_PIPE_TYPE(pcode) == WC_PIPE_END) {
 	execcmd_analyse(state, &eparams);
-	execcmd_exec(state, &eparams, input, output, how, last1 ? 1 : 2);
+	execcmd_exec(state, &eparams, input, output, how, last1 ? 1 : 2, -1);
     } else {
+	int pipes[2];
 	int old_list_pipe = list_pipe;
-	int subsh_close = -1;
-	Wordcode next = state->pc + (*state->pc), start_pc;
+	Wordcode next = state->pc + (*state->pc);
 
-	start_pc = ++state->pc;
+	++state->pc;
 	execcmd_analyse(state, &eparams);
 
 	if (mpipe(pipes) < 0) {
 	    /* FIXME */
 	}
 
-	/* if we are doing "foo | bar" where foo is a current *
-	 * shell command, do foo in a subshell and do the     *
-	 * rest of the pipeline in the current shell.         */
-	if ((eparams.type >= WC_CURSH || !eparams.args)
-	    && (how & Z_SYNC)) {
-	    int synch[2];
-	    struct timeval bgtime;
-
-	    if (pipe(synch) < 0) {
-		zerr("pipe failed: %e", errno);
-		lastval = 1;
-		errflag |= ERRFLAG_ERROR;
-		return;
-	    } else if ((pid = zfork(&bgtime)) == -1) {
-		close(synch[0]);
-		close(synch[1]);
-		lastval = 1;
-		errflag |= ERRFLAG_ERROR;
-		return;
-	    } else if (pid) {
-		char dummy, *text;
-
-		text = getjobtext(state->prog, start_pc);
-		addproc(pid, text, 0, &bgtime);
-		close(synch[1]);
-		read_loop(synch[0], &dummy, 1);
-		close(synch[0]);
-	    } else {
-		zclose(pipes[0]);
-		close(synch[0]);
-		entersubsh(((how & Z_ASYNC) ? ESUB_ASYNC : 0)
-			   | ESUB_PGRP | ESUB_KEEPTRAP);
-		close(synch[1]);
-		if (sigtrapped[SIGEXIT])
-		{
-		    unsettrap(SIGEXIT);
-		}
-		execcmd_exec(state, &eparams, input, pipes[1], how, 1);
-		_exit(lastval);
-	    }
-	} else {
-	    /* otherwise just do the pipeline normally. */
-	    addfilelist(NULL, pipes[0]);
-	    subsh_close = pipes[0];
-	    execcmd_exec(state, &eparams, input, pipes[1], how, 0);
-	}
+	addfilelist(NULL, pipes[0]);
+	execcmd_exec(state, &eparams, input, pipes[1], how, 0, pipes[0]);
 	zclose(pipes[1]);
 	state->pc = next;
 
@@ -1969,8 +1932,6 @@ execpline2(Estate state, wordcode pcode,
 	execpline2(state, *state->pc++, how, pipes[0], output, last1);
 	list_pipe = old_list_pipe;
 	cmdpop();
-	if (subsh_close != pipes[0])
-	    zclose(pipes[0]);
     }
 }
 
@@ -2707,6 +2668,85 @@ static void execcmd_getargs(LinkList preargs, LinkList args, int expand)
     }
 }
 
+/**/
+static int
+execcmd_fork(Estate state, int how, int type, Wordcode varspc,
+	     LinkList *filelistp, char *text, int oautocont,
+	     int close_if_forked)
+{
+    pid_t pid;
+    int synch[2], flags;
+    char dummy;
+    struct timeval bgtime;
+
+    child_block();
+
+    if (pipe(synch) < 0) {
+	zerr("pipe failed: %e", errno);
+	return -1;
+    } else if ((pid = zfork(&bgtime)) == -1) {
+	close(synch[0]);
+	close(synch[1]);
+	lastval = 1;
+	errflag |= ERRFLAG_ERROR;
+	return -1;
+    }
+    if (pid) {
+	close(synch[1]);
+	read_loop(synch[0], &dummy, 1);
+	close(synch[0]);
+	if (how & Z_ASYNC) {
+	    lastpid = (zlong) pid;
+	} else if (!jobtab[thisjob].stty_in_env && varspc) {
+	    /* search for STTY=... */
+	    Wordcode p = varspc;
+	    wordcode ac;
+
+	    while (wc_code(ac = *p) == WC_ASSIGN) {
+		if (!strcmp(ecrawstr(state->prog, p + 1, NULL), "STTY")) {
+		    jobtab[thisjob].stty_in_env = 1;
+		    break;
+		}
+		p += (WC_ASSIGN_TYPE(ac) == WC_ASSIGN_SCALAR ?
+		      3 : WC_ASSIGN_NUM(ac) + 2);
+	    }
+	}
+	addproc(pid, text, 0, &bgtime);
+	if (oautocont >= 0)
+	    opts[AUTOCONTINUE] = oautocont;
+	pipecleanfilelist(jobtab[thisjob].filelist, 1);
+	return pid;
+    }
+
+    /* pid == 0 */
+    close(synch[0]);
+    flags = ((how & Z_ASYNC) ? ESUB_ASYNC : 0) | ESUB_PGRP;
+    if ((type != WC_SUBSH) && !(how & Z_ASYNC))
+	flags |= ESUB_KEEPTRAP;
+    if (type == WC_SUBSH && !(how & Z_ASYNC))
+	flags |= ESUB_JOB_CONTROL;
+    *filelistp = jobtab[thisjob].filelist;
+    entersubsh(flags);
+    close(synch[1]);
+    zclose(close_if_forked);
+
+    if (sigtrapped[SIGINT] & ZSIG_IGNORED)
+	holdintr();
+    /*
+     * EXIT traps shouldn't be called even if we forked to run
+     * shell code as this isn't the main shell.
+     */
+    sigtrapped[SIGEXIT] = 0;
+#ifdef HAVE_NICE
+    /* Check if we should run background jobs at a lower priority. */
+    if ((how & Z_ASYNC) && isset(BGNICE))
+	if (nice(5) < 0)
+	    zwarn("nice(5) failed: %e", errno);
+#endif /* HAVE_NICE */
+
+    return 0;
+}
+
 /*
  * Execute a command at the lowest level of the hierarchy.
  */
@@ -2714,7 +2754,7 @@ static void execcmd_getargs(LinkList preargs, LinkList args, int expand)
 /**/
 static void
 execcmd_exec(Estate state, Execcmd_params eparams,
-	     int input, int output, int how, int last1)
+	     int input, int output, int how, int last1, int close_if_forked)
 {
     HashNode hn = NULL;
     LinkList filelist = NULL;
@@ -2724,7 +2764,7 @@ execcmd_exec(Estate state, Execcmd_params eparams,
     char *text;
     int save[10];
     int fil, dfil, is_cursh, do_exec = 0, redir_err = 0, i;
-    int nullexec = 0, magic_assign = 0, forked = 0;
+    int nullexec = 0, magic_assign = 0, forked = 0, old_lastval;
     int is_shfunc = 0, is_builtin = 0, is_exec = 0, use_defpath = 0;
     /* Various flags to the command. */
     int cflags = 0, orig_cflags = 0, checked = 0, oautocont = -1;
@@ -2749,6 +2789,7 @@ execcmd_exec(Estate state, Execcmd_params eparams,
      * If assignment but no command get the status from variable
      * assignment.
      */
+    old_lastval = lastval;
     if (!args && varspc)
 	lastval = errflag ? errflag : cmdoutval;
     /*
@@ -2791,6 +2832,29 @@ execcmd_exec(Estate state, Execcmd_params eparams,
 	    pushnode(args, dupstring("fg"));
     }
 
+    if ((how & Z_ASYNC) || output) {
+	/*
+	 * If running in the background, or not the last command in a
+	 * pipeline, we don't need any of the rest of this function to
+	 * affect the state in the main shell, so fork immediately.
+	 *
+	 * In other cases we may need to process the command line
+	 * a bit further before we make the decision.
+	 */
+	text = getjobtext(state->prog, eparams->beg);
+	switch (execcmd_fork(state, how, type, varspc, &filelist,
+			     text, oautocont, close_if_forked)) {
+	case -1:
+	    goto fatal;
+	case 0:
+	    break;
+	default:
+	    return;
+	}
+	last1 = forked = 1;
+    } else
+	text = NULL;
+
     /* Check if it's a builtin needing automatic MAGIC_EQUALS_SUBST      *
      * handling.  Things like typeset need this.  We can't detect the    *
      * command if it contains some tokens (e.g. x=ex; ${x}port), so this *
@@ -2799,7 +2863,7 @@ execcmd_exec(Estate state, Execcmd_params eparams,
     if ((type == WC_SIMPLE || type == WC_TYPESET) && args) {
 	/*
 	 * preargs contains args that have been expanded by prefork.
-	 * Running execcmd_getargs() causes the any argument available
+	 * Running execcmd_getargs() causes any argument available
 	 * in args to be exanded where necessary and transferred to
 	 * preargs.  We call execcmd_getargs() every time we need to
 	 * analyse an argument not available in preargs, though there is
@@ -2846,8 +2910,11 @@ execcmd_exec(Estate state, Execcmd_params eparams,
 		is_builtin = 1;
 
 		/* autoload the builtin if necessary */
-		if (!(hn = resolvebuiltin(cmdarg, hn)))
+		if (!(hn = resolvebuiltin(cmdarg, hn))) {
+		    if (forked)
+			_exit(lastval);
 		    return;
+		}
 		if (type != WC_TYPESET)
 		    magic_assign = (hn->flags & BINF_MAGICEQUALS);
 		break;
@@ -3025,6 +3092,8 @@ execcmd_exec(Estate state, Execcmd_params eparams,
 			    zerr("unknown exec flag -%c", *cmdopt);
 			    lastval = 1;
 			    errflag |= ERRFLAG_ERROR;
+			    if (forked)
+				_exit(lastval);
 			    return;
 			}
 		    }
@@ -3074,6 +3143,7 @@ execcmd_exec(Estate state, Execcmd_params eparams,
     esprefork = (magic_assign ||
 		 (isset(MAGICEQUALSUBST) && type != WC_TYPESET)) ?
 		 PREFORK_TYPESET : 0;
+
     if (args) {
 	if (eparams->htok)
 	    prefork(args, esprefork, NULL);
@@ -3117,6 +3187,8 @@ execcmd_exec(Estate state, Execcmd_params eparams,
 			zerr("redirection with no command");
 			lastval = 1;
 			errflag |= ERRFLAG_ERROR;
+			if (forked)
+			    _exit(lastval);
 			return;
 		    } else if (!nullcmd || !*nullcmd || opts[SHNULLCMD]) {
 			if (!args)
@@ -3135,6 +3207,8 @@ execcmd_exec(Estate state, Execcmd_params eparams,
 		    }
 		} else if ((cflags & BINF_PREFIX) && (cflags & BINF_COMMAND)) {
 		    lastval = 0;
+		    if (forked)
+			_exit(lastval);
 		    return;
 		} else {
 		    /*
@@ -3145,11 +3219,16 @@ execcmd_exec(Estate state, Execcmd_params eparams,
 		    if (badcshglob == 1) {
 			zerr("no match");
 			lastval = 1;
+			if (forked)
+			    _exit(lastval);
 			return;
 		    }
 		    cmdoutval = use_cmdoutval ? lastval : 0;
-		    if (varspc)
+		    if (varspc) {
+			/* Make sure $? is still correct for assignment */
+			lastval = old_lastval;
 			addvars(state, varspc, 0);
+		    }
 		    if (errflag)
 			lastval = 1;
 		    else
@@ -3158,12 +3237,16 @@ execcmd_exec(Estate state, Execcmd_params eparams,
 			fputc('\n', xtrerr);
 			fflush(xtrerr);
 		    }
+		    if (forked)
+			_exit(lastval);
 		    return;
 		}
 	    } else if (isset(RESTRICTED) && (cflags & BINF_EXEC) && do_exec) {
 		zerrnam("exec", "%s: restricted",
 			(char *) getdata(firstnode(args)));
 		lastval = 1;
+		if (forked)
+		    _exit(lastval);
 		return;
 	    }
 
@@ -3198,6 +3281,8 @@ execcmd_exec(Estate state, Execcmd_params eparams,
 		    lastval = 1;
 		    if (oautocont >= 0)
 			opts[AUTOCONTINUE] = oautocont;
+		    if (forked)
+			_exit(lastval);
 		    return;
 		}
 		break;
@@ -3206,8 +3291,11 @@ execcmd_exec(Estate state, Execcmd_params eparams,
 		is_builtin = 1;
 
 		/* autoload the builtin if necessary */
-		if (!(hn = resolvebuiltin(cmdarg, hn)))
+		if (!(hn = resolvebuiltin(cmdarg, hn))) {
+		    if (forked)
+			_exit(lastval);
 		    return;
+		}
 		break;
 	    }
 	    cflags &= ~BINF_BUILTIN & ~BINF_COMMAND;
@@ -3222,15 +3310,15 @@ execcmd_exec(Estate state, Execcmd_params eparams,
 	    lastval = 1;
 	if (oautocont >= 0)
 	    opts[AUTOCONTINUE] = oautocont;
+	if (forked)
+	    _exit(lastval);
 	return;
     }
 
     /* Get the text associated with this command. */
-    if ((how & Z_ASYNC) ||
+    if (!text &&
 	(!sfcontext && (jobbing || (how & Z_TIMED))))
 	text = getjobtext(state->prog, eparams->beg);
-    else
-	text = NULL;
 
     /*
      * Set up special parameter $_
@@ -3301,6 +3389,8 @@ execcmd_exec(Estate state, Execcmd_params eparams,
 		lastval = 1;
 		if (oautocont >= 0)
 		    opts[AUTOCONTINUE] = oautocont;
+		if (forked)
+		    _exit(lastval);
 		return;
 	    }
 	}
@@ -3329,6 +3419,8 @@ execcmd_exec(Estate state, Execcmd_params eparams,
 	lastval = 1;
 	if (oautocont >= 0)
 	    opts[AUTOCONTINUE] = oautocont;
+	if (forked)
+	    _exit(lastval);
 	return;
     }
 
@@ -3378,7 +3470,8 @@ execcmd_exec(Estate state, Execcmd_params eparams,
 
     /**************************************************************************
      * Do we need to fork?  We need to fork if:                               *
-     * 1) The command is supposed to run in the background. (or)              *
+     * 1) The command is supposed to run in the background.  This             *
+     *    case is now handled above (forked = 1 here). (or)                   *
      * 2) There is no `exec' flag, and either:                                *
      *    a) This is a builtin or shell function with output piped somewhere. *
      *    b) This is an external command and we can't do a `fake exec'.       *
@@ -3397,99 +3490,45 @@ execcmd_exec(Estate state, Execcmd_params eparams,
      * current shell.                                                         *
      **************************************************************************/
 
-    if ((how & Z_ASYNC) ||
-	(!do_exec &&
-	 (((is_builtin || is_shfunc) && output) ||
-	  (!is_cursh && (last1 != 1 || nsigtrapped || havefiles() ||
-			 fdtable_flocks))))) {
-
-	pid_t pid;
-	int synch[2], flags;
-	char dummy;
-	struct timeval bgtime;
-
-	child_block();
-
-	if (pipe(synch) < 0) {
-	    zerr("pipe failed: %e", errno);
-	    goto fatal;
-	} else if ((pid = zfork(&bgtime)) == -1) {
-	    close(synch[0]);
-	    close(synch[1]);
-	    lastval = 1;
-	    errflag |= ERRFLAG_ERROR;
-	    goto fatal;
-	}
-	if (pid) {
-
-	    close(synch[1]);
-	    read_loop(synch[0], &dummy, 1);
-	    close(synch[0]);
-	    if (how & Z_ASYNC) {
-		lastpid = (zlong) pid;
-	    } else if (!jobtab[thisjob].stty_in_env && varspc) {
-		/* search for STTY=... */
-		Wordcode p = varspc;
-		wordcode ac;
-
-		while (wc_code(ac = *p) == WC_ASSIGN) {
-		    if (!strcmp(ecrawstr(state->prog, p + 1, NULL), "STTY")) {
-			jobtab[thisjob].stty_in_env = 1;
-			break;
-		    }
-		    p += (WC_ASSIGN_TYPE(ac) == WC_ASSIGN_SCALAR ?
-			  3 : WC_ASSIGN_NUM(ac) + 2);
-		}
+    if (!forked) {
+	if (!do_exec &&
+	    (((is_builtin || is_shfunc) && output) ||
+	     (!is_cursh && (last1 != 1 || nsigtrapped || havefiles() ||
+			    fdtable_flocks)))) {
+	    switch (execcmd_fork(state, how, type, varspc, &filelist,
+				 text, oautocont, close_if_forked)) {
+	    case -1:
+		goto fatal;
+	    case 0:
+		break;
+	    default:
+		return;
 	    }
-	    addproc(pid, text, 0, &bgtime);
-	    if (oautocont >= 0)
-		opts[AUTOCONTINUE] = oautocont;
-	    pipecleanfilelist(jobtab[thisjob].filelist, 1);
-	    return;
-	}
-	/* pid == 0 */
-	close(synch[0]);
-	flags = ((how & Z_ASYNC) ? ESUB_ASYNC : 0) | ESUB_PGRP;
-	if ((type != WC_SUBSH) && !(how & Z_ASYNC))
-	    flags |= ESUB_KEEPTRAP;
-	if (type == WC_SUBSH && !(how & Z_ASYNC))
-	    flags |= ESUB_JOB_CONTROL;
-	filelist = jobtab[thisjob].filelist;
-	entersubsh(flags);
-	close(synch[1]);
-	forked = 1;
-	if (sigtrapped[SIGINT] & ZSIG_IGNORED)
-	    holdintr();
-#ifdef HAVE_NICE
-	/* Check if we should run background jobs at a lower priority. */
-	if ((how & Z_ASYNC) && isset(BGNICE))
-	    if (nice(5) < 0)
-		zwarn("nice(5) failed: %e", errno);
-#endif /* HAVE_NICE */
-
-    } else if (is_cursh) {
-	/* This is a current shell procedure that didn't need to fork.    *
-	 * This includes current shell procedures that are being exec'ed, *
-	 * as well as null execs.                                         */
-	jobtab[thisjob].stat |= STAT_CURSH;
-	if (!jobtab[thisjob].procs)
-	    jobtab[thisjob].stat |= STAT_NOPRINT;
-	if (is_builtin)
-	  jobtab[thisjob].stat |= STAT_BUILTIN;
-    } else {
-	/* This is an exec (real or fake) for an external command.    *
-	 * Note that any form of exec means that the subshell is fake *
-	 * (but we may be in a subshell already).                     */
-	is_exec = 1;
-	/*
-	 * If we are in a subshell environment anyway, say we're forked,
-	 * even if we're actually not forked because we know the
-	 * subshell is exiting.  This ensures SHLVL reflects the current
-	 * shell, and also optimises out any save/restore we'd need to
-	 * do if we were returning to the main shell.
-	 */
-	if (type == WC_SUBSH)
 	    forked = 1;
+	} else if (is_cursh) {
+	    /* This is a current shell procedure that didn't need to fork.    *
+	     * This includes current shell procedures that are being exec'ed, *
+	     * as well as null execs.                                         */
+	    jobtab[thisjob].stat |= STAT_CURSH;
+	    if (!jobtab[thisjob].procs)
+		jobtab[thisjob].stat |= STAT_NOPRINT;
+	    if (is_builtin)
+		jobtab[thisjob].stat |= STAT_BUILTIN;
+	} else {
+	    /* This is an exec (real or fake) for an external command.    *
+	     * Note that any form of exec means that the subshell is fake *
+	     * (but we may be in a subshell already).                     */
+	    is_exec = 1;
+	    /*
+	     * If we are in a subshell environment anyway, say we're forked,
+	     * even if we're actually not forked because we know the
+	     * subshell is exiting.  This ensures SHLVL reflects the current
+	     * shell, and also optimises out any save/restore we'd need to
+	     * do if we were returning to the main shell.
+	     */
+	    if (type == WC_SUBSH)
+		forked = 1;
+	}
     }
 
     if ((esglob = !(cflags & BINF_NOGLOB)) && args && eparams->htok) {
@@ -3903,7 +3942,7 @@ execcmd_exec(Estate state, Execcmd_params eparams,
 		LinkList assigns = (LinkList)0;
 		int postassigns = eparams->postassigns;
 		if (forked)
-		    closem(FDT_INTERNAL);
+		    closem(FDT_INTERNAL, 0);
 		if (postassigns) {
 		    Wordcode opc = state->pc;
 		    state->pc = eparams->assignspc;
@@ -4089,7 +4128,7 @@ execcmd_exec(Estate state, Execcmd_params eparams,
 		    if (errflag)
 			_exit(1);
 		}
-		closem(FDT_INTERNAL);
+		closem(FDT_INTERNAL, 0);
 		if (coprocin != -1) {
 		    zclose(coprocin);
 		    coprocin = -1;
@@ -4151,7 +4190,7 @@ execcmd_exec(Estate state, Execcmd_params eparams,
 	for (i = 0; i < 10; i++)
 	    if (fdtable[i] != FDT_UNUSED)
 		close(i);
-	closem(FDT_UNUSED);
+	closem(FDT_UNUSED, 1);
 	if (thisjob != -1)
 	    waitjobs();
 	_exit(lastval);
@@ -4327,16 +4366,24 @@ fixfds(int *save)
  *
  * Close any that are marked as used if "how" is FDT_UNUSED, else
  * close any with the value "how".
+ *
+ * If "all" is zero, we'll skip cases where we need the file
+ * descriptor to be visible externally.
  */
 
 /**/
 mod_export void
-closem(int how)
+closem(int how, int all)
 {
     int i;
 
     for (i = 10; i <= max_zsh_fd; i++)
 	if (fdtable[i] != FDT_UNUSED &&
+	    /*
+	     * Process substitution needs to be visible to user;
+	     * fd's are explicitly cleaned up by filelist handling.
+	     */
+	    (all || fdtable[i] != FDT_PROC_SUBST) &&
 	    (how == FDT_UNUSED || (fdtable[i] & FDT_TYPE_MASK) == how)) {
 	    if (i == SHTTY)
 		SHTTY = -1;
@@ -4375,7 +4422,9 @@ gethere(char **strp, int typ)
 	while ((c = hgetc()) == '\t' && strip)
 	    ;
 	for (;;) {
-	    if (bptr == buf + bsiz) {
+	    if (bptr >= buf + bsiz - 2) {
+		ptrdiff_t toff = t - buf;
+		ptrdiff_t bptroff = bptr - buf;
 		char *newbuf = realloc(buf, 2 * bsiz);
 		if (!newbuf) {
 		    /* out of memory */
@@ -4383,20 +4432,20 @@ gethere(char **strp, int typ)
 		    return NULL;
 		}
 		buf = newbuf;
-		t = buf + bsiz - (bptr - t);
-		bptr = buf + bsiz;
+		t = buf + toff;
+		bptr = buf + bptroff;
 		bsiz *= 2;
 	    }
-	    if (lexstop)
+	    if (lexstop || c == '\n')
 		break;
-	    if (c == '\n') {
-		if (!qt && bptr > t && *(bptr - 1) == '\\') {
-		    /* line continuation */
+	    if (!qt && c == '\\') {
+		*bptr++ = c;
+		c = hgetc();
+		if (c == '\n') {
 		    bptr--;
 		    c = hgetc();
 		    continue;
-		} else
-		    break;
+		}
 	    }
 	    *bptr++ = c;
 	    c = hgetc();
@@ -4576,10 +4625,20 @@ readoutput(int in, int qt, int *readerror)
     char *buf, *ptr;
     int bsiz, c, cnt = 0;
     FILE *fin;
+    int q = queue_signal_level();
 
     fin = fdopen(in, "r");
     ret = newlinklist();
     ptr = buf = (char *) hcalloc(bsiz = 64);
+    /*
+     * We need to be sensitive to SIGCHLD else we can be
+     * stuck forever with important processes unreaped.
+     * The case that triggered this was where the exiting
+     * process is group leader of the foreground process and we need
+     * to reclaim the terminal else ^C doesn't work.
+     */
+    dont_queue_signals();
+    child_unblock();
     while ((c = fgetc(fin)) != EOF || errno == EINTR) {
 	if (c == EOF) {
 	    errno = 0;
@@ -4592,13 +4651,18 @@ readoutput(int in, int qt, int *readerror)
 	    cnt++;
 	}
 	if (++cnt >= bsiz) {
-	    char *pp = (char *) hcalloc(bsiz *= 2);
+	    char *pp;
+	    queue_signals();
+	    pp = (char *) hcalloc(bsiz *= 2);
+	    dont_queue_signals();
 
 	    memcpy(pp, buf, cnt - 1);
 	    ptr = (buf = pp) + cnt - 1;
 	}
 	*ptr++ = c;
     }
+    child_block();
+    restore_queue_signals(q);
     if (readerror)
 	*readerror = ferror(fin) ? errno : 0;
     fclose(fin);
@@ -4802,9 +4866,10 @@ getproc(char *cmd, char **eptr)
 	    return NULL;
 	if (!out)
 	    addproc(pid, NULL, 1, &bgtime);
+	procsubstpid = pid;
 	return pnam;
     }
-    closem(FDT_UNUSED);
+    closem(FDT_UNUSED, 0);
     fd = open(pnam, out ? O_WRONLY | O_NOCTTY : O_RDONLY | O_NOCTTY);
     if (fd == -1) {
 	zerr("can't open %s: %e", pnam, errno);
@@ -4819,7 +4884,7 @@ getproc(char *cmd, char **eptr)
 	zerr("process substitution %s cannot be used here", cmd);
 	return NULL;
     }
-    pnam = hcalloc(strlen(PATH_DEV_FD) + 6);
+    pnam = zhalloc(strlen(PATH_DEV_FD) + 1 + DIGBUFSIZE);
     if (!(prog = parsecmd(cmd, eptr)))
 	return NULL;
     if (mpipe(pipes) < 0)
@@ -4839,11 +4904,12 @@ getproc(char *cmd, char **eptr)
 	{
 	    addproc(pid, NULL, 1, &bgtime);
 	}
+	procsubstpid = pid;
 	return pnam;
     }
     entersubsh(ESUB_ASYNC|ESUB_PGRP);
     redup(pipes[out], out);
-    closem(FDT_UNUSED);   /* this closes pipes[!out] as well */
+    closem(FDT_UNUSED, 0);   /* this closes pipes[!out] as well */
 #endif /* PATH_DEV_FD */
 
     cmdpush(CS_CMDSUBST);
@@ -4889,11 +4955,12 @@ getpipe(char *cmd, int nullexec)
 	}
 	if (!nullexec)
 	    addproc(pid, NULL, 1, &bgtime);
+	procsubstpid = pid;
 	return pipes[!out];
     }
     entersubsh(ESUB_PGRP);
     redup(pipes[out], out);
-    closem(FDT_UNUSED);	/* this closes pipes[!out] as well */
+    closem(FDT_UNUSED, 0);	/* this closes pipes[!out] as well */
     cmdpush(CS_CMDSUBST);
     execode(prog, 0, 1, out ? "outsubst" : "insubst");
     cmdpop();
@@ -5736,7 +5803,19 @@ doshfunc(Shfunc shfunc, LinkList doshargs, int noreturnval)
     undoshfunc:
 	--funcdepth;
 	if (retflag) {
+	    /*
+	     * This function is forced to return.
+	     */
 	    retflag = 0;
+	    /*
+	     * The calling function isn't necessarily forced to return,
+	     * but it should be made sensitive to ERR_EXIT and
+	     * ERR_RETURN as the assumptions we made at the end of
+	     * constructs within this function no longer apply.  If
+	     * there are cases where this is not true, they need adding
+	     * to C03traps.ztst.
+	     */
+	    this_noerrexit = 0;
 	    breaks = funcsave->breaks;
 	}
 	freearray(pparams);
@@ -6124,6 +6203,7 @@ execsave(void)
     es->cmdoutpid = cmdoutpid;
     es->cmdoutval = cmdoutval;
     es->use_cmdoutval = use_cmdoutval;
+    es->procsubstpid = procsubstpid;
     es->trap_return = trap_return;
     es->trap_state = trap_state;
     es->trapisfunc = trapisfunc;
@@ -6159,6 +6239,7 @@ execrestore(void)
     cmdoutpid = en->cmdoutpid;
     cmdoutval = en->cmdoutval;
     use_cmdoutval = en->use_cmdoutval;
+    procsubstpid = en->procsubstpid;
     trap_return = en->trap_return;
     trap_state = en->trap_state;
     trapisfunc = en->trapisfunc;

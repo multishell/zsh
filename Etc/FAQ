@@ -250,7 +250,7 @@ To get it to work, retrieve the source distribution (see question
 1.5: What's the latest version?
 
 
-Zsh 5.5.1 is the latest production version.  For details of all the
+Zsh 5.6 is the latest production version.  For details of all the
   changes, see the NEWS file in the source distribution.
 
 A beta of the next version is sometimes available.  Development of zsh is
@@ -276,30 +276,11 @@ Note also that as the shell changes, it may become incompatible with
 
 The coordinator of development is currently me; the alias
   coordinator@zsh.org <coordinator@zsh.org> can be used to contact whoever is in the hot
-  seat.  The following are known mirrors (kept frequently up to date); the
-  first is the official archive site, currently in Australia.  All are
-  available by anonymous FTP.  The major sites keep test versions in the
+  seat.  https://www.zsh.org/ is the official
+  archive site, currently in Australia.  Test versions are kept in the
   `testing' subdirectory: such up-to-the-minute development versions should
   only be retrieved if you actually plan to help test the latest version of
-  the shell.  The following list also appears on the WWW at
-  http://www.zsh.org/ .
-
-
-
-Primary site: 
-ftp://ftp.zsh.org/pub/
-http://www.zsh.org/pub/
-
-
-Australia: 
-ftp://ftp.zsh.org/pub/
-http://www.zsh.org/pub/
-http://mirror.dejanseo.com.au/pub/zsh/
-
-
-Hungary: 
-ftp://ftp.cs.elte.hu/pub/zsh/
-http://www.cs.elte.hu/pub/zsh/
+  the shell.
 
 A Windows port was created by Amol Deshpandem based on 3.0.5 (which
   is now rather old).  This has now been restored and can be found at
