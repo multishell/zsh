@@ -34,8 +34,9 @@ comptestinit () {
 "fpath=( $fpath )" \
 "bindkey -$comptest_keymap" \
 'LISTMAX=10000000
-stty 38400 columns 80 rows 24
+stty 38400 columns 80 rows 24 tabs -icanon -iexten
 TERM=vt100
+KEYTIMEOUT=1
 setopt zle
 autoload -U compinit
 compinit -u
@@ -159,13 +160,18 @@ comptest () {
 }
 
 zletest () {
-  input="$*"
-  # zpty_flush Before zletest
-  zpty -n -w zsh "$input"$'\C-X'
+  local first=0
+  for input; do
+    # zpty_flush Before zletest
+    # sleep for $KEYTIMEOUT
+    (( first++ )) && { sleep 2 & } | read -t 0.011 -u 0 -k 1
+    zpty -n -w zsh "$input"
+  done
+  zpty -n -w zsh $'\C-X'
   zpty -r -m zsh log "*<WIDGET><finish>*<PROMPT>*" || {
     print "failed to invoke finish widget."
     return 1
   }
   # zpty_flush After zletest
-  print -lr "${(@)${(ps:\r\n:)log##*<WIDGET><finish>}[1,-2]}"
+  print -lr "${(@)${(@ps:\r\n:)log##*<WIDGET><finish>}[2,-2]}"
 }

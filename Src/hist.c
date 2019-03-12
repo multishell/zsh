@@ -134,6 +134,8 @@ mod_export int hist_skip_flags;
 /* Bits of histactive variable */
 #define HA_ACTIVE	(1<<0)	/* History mechanism is active */
 #define HA_NOINC	(1<<1)	/* Don't store, curhist not incremented */
+#define HA_INWORD       (1<<2)  /* We're inside a word, don't add
+				   start and end markers */
 
 /* Array of word beginnings and endings in current history line. */
 
@@ -222,13 +224,119 @@ static int histsave_stack_pos = 0;
 
 static zlong histfile_linect;
 
+/* save history context */
+
+/**/
+void
+hist_context_save(struct hist_stack *hs, int toplevel)
+{
+    if (toplevel) {
+	/* top level, make this version visible to ZLE */
+	zle_chline = chline;
+	/* ensure line stored is NULL-terminated */
+	if (hptr)
+	    *hptr = '\0';
+    }
+    hs->histactive = histactive;
+    hs->histdone = histdone;
+    hs->stophist = stophist;
+    hs->hline = chline;
+    hs->hptr = hptr;
+    hs->chwords = chwords;
+    hs->chwordlen = chwordlen;
+    hs->chwordpos = chwordpos;
+    hs->hgetc = hgetc;
+    hs->hungetc = hungetc;
+    hs->hwaddc = hwaddc;
+    hs->hwbegin = hwbegin;
+    hs->hwend = hwend;
+    hs->addtoline = addtoline;
+    hs->hlinesz = hlinesz;
+    /*
+     * We save and restore the command stack with history
+     * as it's visible to the user interactively, so if
+     * we're preserving history state we'll continue to
+     * show the current set of commands from input.
+     */
+    hs->cstack = cmdstack;
+    hs->csp = cmdsp;
+
+    stophist = 0;
+    chline = NULL;
+    hptr = NULL;
+    histactive = 0;
+    cmdstack = (unsigned char *)zalloc(CMDSTACKSZ);
+    cmdsp = 0;
+}
+
+/* restore history context */
+
+/**/
+void
+hist_context_restore(const struct hist_stack *hs, int toplevel)
+{
+    if (toplevel) {
+	/* Back to top level: don't need special ZLE value */
+	DPUTS(hs->hline != zle_chline, "BUG: Ouch, wrong chline for ZLE");
+	zle_chline = NULL;
+    }
+    histactive = hs->histactive;
+    histdone = hs->histdone;
+    stophist = hs->stophist;
+    chline = hs->hline;
+    hptr = hs->hptr;
+    chwords = hs->chwords;
+    chwordlen = hs->chwordlen;
+    chwordpos = hs->chwordpos;
+    hgetc = hs->hgetc;
+    hungetc = hs->hungetc;
+    hwaddc = hs->hwaddc;
+    hwbegin = hs->hwbegin;
+    hwend = hs->hwend;
+    addtoline = hs->addtoline;
+    hlinesz = hs->hlinesz;
+    if (cmdstack)
+	zfree(cmdstack, CMDSTACKSZ);
+    cmdstack = hs->cstack;
+    cmdsp = hs->csp;
+}
+
+/*
+ * Mark that the current level of history is within a word whatever
+ * characters turn up, or turn that mode off.  This is used for nested
+ * parsing of substitutions.
+ *
+ * The caller takes care only to turn this on or off at the start
+ * or end of recursive use of the same mode, so a single flag is
+ * good enough here.
+ */
+
+/**/
+void
+hist_in_word(int yesno)
+{
+    if (yesno)
+	histactive |= HA_INWORD;
+    else
+	histactive &= ~HA_INWORD;
+}
+
 /* add a character to the current history word */
 
 static void
 ihwaddc(int c)
 {
     /* Only if history line exists and lexing has not finished. */
-    if (chline && !(errflag || lexstop)) {
+    if (chline && !(errflag || lexstop) &&
+	/*
+	 * If we're reading inside a word for command substitution
+	 * we allow the lexer to expand aliases but don't deal
+	 * with them here.  Note matching code in ihungetc().
+	 * TBD: it might be neater to deal with all aliases in this
+	 * fashion as we never need the expansion in the history
+	 * line, only in the lexer and above.
+	 */
+	(inbufflags & (INP_ALIAS|INP_HIST)) != INP_ALIAS) {
 	/* Quote un-expanded bangs in the history line. */
 	if (c == bangchar && stophist < 2 && qbang)
 	    /* If qbang is not set, we do not escape this bangchar as it's *
@@ -287,7 +395,8 @@ ihgetc(void)
 	c = histsubchar(c);
 	if (c < 0) {
 	    /* bad expansion */
-	    errflag = lexstop = 1;
+	    lexstop = 1;
+	    errflag |= ERRFLAG_ERROR;
 	    return ' ';
 	}
     }
@@ -366,6 +475,7 @@ getsubsargs(char *subline, int *gbalp, int *cflagp)
 	zsfree(hsubl);
 	hsubl = ptr1;
     } else if (!hsubl) {		/* fail silently on this */
+	zsfree(ptr1);
 	zsfree(ptr2);
 	return 0;
     }
@@ -415,8 +525,19 @@ histsubchar(int c)
     static zlong mev = -1;
     char *buf, *ptr;
     char *sline;
+    int lexraw_mark;
     Histent ehist;
     size_t buflen;
+
+    /*
+     * If accumulating raw input for use in command substitution,
+     * we don't want the history text, so mark it for later removal.
+     * It would be better to do this at a level above the history
+     * and below the lexer --- but there isn't one.
+     *
+     * Include the character we are attempting to substitute.
+     */
+    lexraw_mark = zshlex_raw_mark(-1); 
 
     /* look, no goto's */
     if (isfirstch && c == hatchar) {
@@ -721,7 +842,7 @@ histsubchar(int c)
 		    noerrs = 1;
 		    parse_subst_string(sline);
 		    noerrs = one;
-		    errflag = oef;
+		    errflag = oef | (errflag & ERRFLAG_INT);
 		    remnulargs(sline);
 		    untokenize(sline);
 		}
@@ -750,6 +871,8 @@ histsubchar(int c)
 	    break;
 	}
     }
+
+    zshlex_raw_back_to_mark(lexraw_mark);
 
     /*
      * Push the expanded value onto the input stack,
@@ -789,11 +912,16 @@ ihungetc(int c)
 	    zlemetall--;
 	    exlast++;
 	}
-	DPUTS(hptr <= chline, "BUG: hungetc attempted at buffer start");
-	hptr--;
-	DPUTS(*hptr != (char) c, "BUG: wrong character in hungetc() ");
-	qbang = (c == bangchar && stophist < 2 &&
-		 hptr > chline && hptr[-1] == '\\');
+	if ((inbufflags & (INP_ALIAS|INP_HIST)) != INP_ALIAS) {
+	    DPUTS(hptr <= chline, "BUG: hungetc attempted at buffer start");
+	    hptr--;
+	    DPUTS(*hptr != (char) c, "BUG: wrong character in hungetc() ");
+	    qbang = (c == bangchar && stophist < 2 &&
+		     hptr > chline && hptr[-1] == '\\');
+	} else {
+	    /* No active bangs in aliases */
+	    qbang = 0;
+	}
 	if (doit)
 	    inungetc(c);
 	if (!qbang)
@@ -813,6 +941,11 @@ strinbeg(int dohist)
     strin++;
     hbegin(dohist);
     lexinit();
+    /*
+     * Also initialise some variables owned by the parser but
+     * used for communication between the parser and lexer.
+     */
+    init_parse_status();
 }
 
 /* done reading a string */
@@ -880,7 +1013,8 @@ hbegin(int dohist)
     char *hf;
 
     isfirstln = isfirstch = 1;
-    errflag = histdone = 0;
+    errflag &= ~ERRFLAG_ERROR;
+    histdone = 0;
     if (!dohist)
 	stophist = 2;
     else if (dohist != 2)
@@ -1110,8 +1244,11 @@ static void
 putoldhistentryontop(short keep_going)
 {
     static Histent next = NULL;
-    Histent he = keep_going? next : hist_ring->down;
-    next = he->down;
+    Histent he = (keep_going || !hist_ring) ? next : hist_ring->down;
+    if (he)
+	next = he->down;
+    else
+	return;
     if (isset(HISTEXPIREDUPSFIRST) && !(he->node.flags & HIST_DUP)) {
 	static zlong max_unique_ct = 0;
 	if (!keep_going)
@@ -1151,7 +1288,7 @@ prepnexthistent(void)
 	freehistnode(&hist_ring->node);
     }
 
-    if (histlinect < histsiz) {
+    if (histlinect < histsiz || !hist_ring) {
 	he = (Histent)zshcalloc(sizeof *he);
 	if (!hist_ring)
 	    hist_ring = he->up = he->down = he;
@@ -1395,28 +1532,17 @@ hend(Eprog prog)
     return !(flag & HISTFLAG_NOEXEC || errflag);
 }
 
-/* Gives current expansion word if not last word before chwordpos. */
-
-/**/
-int hwgetword = -1;
-
 /* begin a word */
 
 /**/
 void
 ihwbegin(int offset)
 {
-    if (stophist == 2)
+    if (stophist == 2 || (histactive & HA_INWORD) ||
+	(inbufflags & (INP_ALIAS|INP_HIST)) == INP_ALIAS)
 	return;
     if (chwordpos%2)
 	chwordpos--;	/* make sure we're on a word start, not end */
-    /* If we're expanding an alias, we should overwrite the expansion
-     * in the history.
-     */
-    if ((inbufflags & INP_ALIAS) && !(inbufflags & INP_HIST))
-	hwgetword = chwordpos;
-    else
-	hwgetword = -1;
     chwords[chwordpos++] = hptr - chline + offset;
 }
 
@@ -1426,7 +1552,8 @@ ihwbegin(int offset)
 void
 ihwend(void)
 {
-    if (stophist == 2)
+    if (stophist == 2 || (histactive & HA_INWORD) ||
+	(inbufflags & (INP_ALIAS|INP_HIST)) == INP_ALIAS)
 	return;
     if (chwordpos%2 && chline) {
 	/* end of word reached and we've already begun a word */
@@ -1436,13 +1563,6 @@ ihwend(void)
 		chwords = (short *) realloc(chwords,
 					    (chwordlen += 32) * 
 					    sizeof(short));
-	    }
-	    if (hwgetword > -1 &&
-		(inbufflags & INP_ALIAS) && !(inbufflags & INP_HIST)) {
-		/* We want to reuse the current word position */
-		chwordpos = hwgetword;
-		/* Start from where previous word ended, if possible */
-		hptr = chline + chwords[chwordpos ? chwordpos - 1 : 0];
 	    }
 	} else {
 	    /* scrub that last word, it doesn't exist */
@@ -1467,17 +1587,17 @@ histbackword(void)
 static void
 hwget(char **startptr)
 {
-    int pos = hwgetword > -1 ? hwgetword : chwordpos - 2;
+    int pos = chwordpos - 2;
 
 #ifdef DEBUG
     /* debugging only */
-    if (hwgetword == -1 && !chwordpos) {
+    if (!chwordpos) {
 	/* no words available */
 	DPUTS(1, "BUG: hwget() called with no words");
 	*startptr = "";
 	return;
-    } 
-    else if (hwgetword == -1 && chwordpos%2) {
+    }
+    else if (chwordpos%2) {
 	DPUTS(1, "BUG: hwget() called in middle of word");
 	*startptr = "";
 	return;
@@ -1499,9 +1619,9 @@ hwrep(char *rep)
 
     if (!strcmp(rep, start))
 	return;
-    
+
     hptr = start;
-    chwordpos = (hwgetword > -1) ? hwgetword : chwordpos - 2;
+    chwordpos = chwordpos - 2;
     hwbegin(0);
     qbang = 1;
     while (*rep)
@@ -1529,7 +1649,6 @@ hgetline(void)
     /* reset line */
     hptr = chline;
     chwordpos = 0;
-    hwgetword = -1;
 
     return ret;
 }
@@ -1699,11 +1818,12 @@ int
 chrealpath(char **junkptr)
 {
     char *str;
-#ifdef HAVE_CANONICALIZE_FILE_NAME
+#ifdef HAVE_REALPATH
+# ifdef REALPATH_ACCEPTS_NULL
     char *lastpos, *nonreal, *real;
-#else
-# ifdef HAVE_REALPATH
-    char *lastpos, *nonreal, real[PATH_MAX];
+# else
+    char *lastpos, *nonreal, pathbuf[PATH_MAX];
+    char *real = pathbuf;
 # endif
 #endif
 
@@ -1714,7 +1834,7 @@ chrealpath(char **junkptr)
     if (!chabspath(junkptr))
 	return 0;
 
-#if !defined(HAVE_REALPATH) && !defined(HAVE_CANONICALIZE_FILE_NAME)
+#ifndef HAVE_REALPATH
     return 1;
 #else
     /*
@@ -1730,29 +1850,21 @@ chrealpath(char **junkptr)
     nonreal = lastpos + 1;
 
     while (!
-#ifdef HAVE_CANONICALIZE_FILE_NAME
-	   /*
-	    * This is a GNU extension to realpath(); it's the
-	    * same as calling realpath() with a NULL second argument
-	    * which uses malloc() to get memory.  The alternative
-	    * interface is easier to test for, however.
-	    */
-	   (real = canonicalize_file_name(*junkptr))
+#ifdef REALPATH_ACCEPTS_NULL
+	   /* realpath() with a NULL second argument uses malloc() to get
+	    * memory so we don't need to worry about overflowing PATH_MAX */
+	   (real = realpath(*junkptr, NULL))
 #else
 	   realpath(*junkptr, real)
 #endif
 	) {
-	if (errno == EINVAL || errno == ELOOP ||
-	    errno == ENAMETOOLONG || errno == ENOMEM)
+	if (errno == EINVAL || errno == ENOMEM)
 	    return 0;
-
-#ifdef HAVE_CANONICALIZE_FILE_NAME
-	if (!real)
-	    return 0;
-#endif
 
 	if (nonreal == *junkptr) {
-	    *real = '\0';
+#ifndef REALPATH_ACCEPTS_NULL
+	    real = NULL;
+#endif
 	    break;
 	}
 
@@ -1768,11 +1880,15 @@ chrealpath(char **junkptr)
 	str++;
     }
 
-    *junkptr = metafy(str = bicat(real, nonreal), -1, META_HEAPDUP);
-    zsfree(str);
-#ifdef HAVE_CANONICALIZE_FILE_NAME
-    free(real);
+    if (real) {
+	*junkptr = metafy(str = bicat(real, nonreal), -1, META_HEAPDUP);
+	zsfree(str);
+#ifdef REALPATH_ACCEPTS_NULL
+	free(real);
 #endif
+    } else {
+	*junkptr = metafy(nonreal, lastpos - nonreal + 1, META_HEAPDUP);
+    }
 #endif
 
     return 1;
@@ -2139,10 +2255,10 @@ getargs(Histent elist, int arg1, int arg2)
 }
 
 /**/
-int
+static int
 quote(char **tr)
 {
-    char *ptr, *rptr, **str = (char **)tr;
+    char *ptr, *rptr, **str = tr;
     int len = 3;
     int inquotes = 0;
 
@@ -2176,7 +2292,6 @@ quote(char **tr)
 	    *rptr++ = *ptr;
     *rptr++ = '\'';
     *rptr++ = 0;
-    str[1] = NULL;
     return 0;
 }
 
@@ -2184,7 +2299,7 @@ quote(char **tr)
 static int
 quotebreak(char **tr)
 {
-    char *ptr, *rptr, **str = (char **)tr;
+    char *ptr, *rptr, **str = tr;
     int len = 3;
 
     for (ptr = *str; *ptr; ptr++, len++)
@@ -2378,12 +2493,40 @@ readhistfile(char *fn, int err, int readflags)
 	 || (hist_ignore_all_dups && newflags & hist_skip_flags))
 	    newflags |= HIST_MAKEUNIQUE;
 	while (fpos = ftell(in), (l = readhistline(0, &buf, &bufsiz, in))) {
-	    char *pt = buf;
+	    char *pt;
+	    int remeta = 0;
 
 	    if (l < 0) {
 		zerr("corrupt history file %s", fn);
 		break;
 	    }
+
+	    /*
+	     * Handle the special case that we're reading from an
+	     * old shell with fewer meta characters, so we need to
+	     * metafy some more.  (It's not clear why the history
+	     * file is metafied at all; some would say this is plain
+	     * stupid.  But we're stuck with it now without some
+	     * hairy workarounds for compatibility).
+	     *
+	     * This is rare so doesn't need to be that efficient; just
+	     * allocate space off the heap.
+	     */
+	    for (pt = buf; *pt; pt++) {
+		if (*pt == Meta && pt[1])
+		    pt++;
+		else if (imeta(*pt)) {
+		    remeta = 1;
+		    break;
+		}
+	    }
+	    if (remeta) {
+		unmetafy(buf, &remeta);
+		pt = metafy(buf, remeta, META_USEHEAP);
+	    } else {
+		pt = buf;
+	    }
+
 	    if (*pt == ':') {
 		pt++;
 		stim = zstrtol(pt, NULL, 0);
@@ -2443,8 +2586,6 @@ readhistfile(char *fn, int err, int readflags)
 	    start = pt;
 	    uselex = isset(HISTLEXWORDS) && !(readflags & HFILE_FAST);
 	    histsplitwords(pt, &words, &nwords, &nwordpos, uselex);
-	    if (uselex)
-		freeheap();
 
 	    he->nwords = nwordpos/2;
 	    if (he->nwords) {
@@ -2457,6 +2598,14 @@ readhistfile(char *fn, int err, int readflags)
 		freehistnode(&he->node);
 		curhist--;
 	    }
+	    /*
+	     * Do this last out of paranoia in case use of
+	     * heap is disguised...
+	     */
+	    if (uselex || remeta)
+		freeheap();
+	    if (errflag & ERRFLAG_INT)
+		break;
 	}
 	if (start && readflags & HFILE_USE_OPTIONS) {
 	    zsfree(lasthist.text);
@@ -2488,7 +2637,8 @@ static int
 flockhistfile(char *fn, int keep_trying)
 {
     struct flock lck;
-    int ctr = keep_trying ? 9 : 0;
+    long sleep_us = 0x10000; /* about 67 ms */
+    time_t end_time;
 
     if (flock_fd >= 0)
 	return 0; /* already locked */
@@ -2501,13 +2651,22 @@ flockhistfile(char *fn, int keep_trying)
     lck.l_start = 0;
     lck.l_len = 0;  /* lock the whole file */
 
+    /*
+     * Timeout is ten seconds.
+     */
+    end_time = time(NULL) + (time_t)10;
     while (fcntl(flock_fd, F_SETLKW, &lck) == -1) {
-	if (--ctr < 0) {
+	if (!keep_trying || time(NULL) >= end_time ||
+	    /*
+	     * Randomise wait to minimise clashes with shells exiting at
+	     * the same time.
+	     */
+	    !zsleep_random(sleep_us, end_time)) {
 	    close(flock_fd);
 	    flock_fd = -1;
 	    return 1;
 	}
-	sleep(1);
+	sleep_us <<= 1;
     }
 
     return 0;
@@ -2743,7 +2902,7 @@ savehistfile(char *fn, int err, int writeflags)
 static int lockhistct;
 
 static int
-checklocktime(char *lockfile, time_t then)
+checklocktime(char *lockfile, long *sleep_usp, time_t then)
 {
     time_t now = time(NULL);
 
@@ -2753,9 +2912,19 @@ checklocktime(char *lockfile, time_t then)
 	return -1;
     }
 
-    if (now - then < 10)
-	sleep(1);
-    else
+    if (now - then < 10) {
+	/*
+	 * To give the effect of a gradually increasing backoff,
+	 * we'll sleep a period based on the time we've spent so far.
+	 */
+	DPUTS(now < then, "time flowing backwards through history");
+	/*
+	 * Randomise to minimise clashes with shells exiting at the same
+	 * time.
+	 */
+	(void)zsleep_random(*sleep_usp, then + 10);
+	*sleep_usp <<= 1;
+    } else
 	unlink(lockfile);
 
     return 0;
@@ -2772,6 +2941,7 @@ lockhistfile(char *fn, int keep_trying)
 {
     int ct = lockhistct;
     int ret = 0;
+    long sleep_us = 0x10000; /* about 67 ms */
 
     if (!fn && !(fn = getsparam("HISTFILE")))
 	return 1;
@@ -2799,7 +2969,8 @@ lockhistfile(char *fn, int keep_trying)
 #ifdef HAVE_LINK
 # ifdef HAVE_SYMLINK
 	sprintf(pidbuf, "/pid-%ld/host-", (long)mypid);
-	lnk = bicat(pidbuf, getsparam("HOST"));
+	lnk = getsparam("HOST");
+	lnk = bicat(pidbuf, lnk ? lnk : "");
 	/* We'll abuse fd as our success flag. */
 	while ((fd = symlink(lnk, lockfile)) < 0) {
 	    if (errno != EEXIST) {
@@ -2814,7 +2985,7 @@ lockhistfile(char *fn, int keep_trying)
 		    continue;
 		break;
 	    }
-	    if (checklocktime(lockfile, sb.st_mtime) < 0) {
+	    if (checklocktime(lockfile, &sleep_us, sb.st_mtime) < 0) {
 		ret = 1;
 		break;
 	    }
@@ -2842,7 +3013,7 @@ lockhistfile(char *fn, int keep_trying)
 			continue;
 		    ret = 2;
 		} else {
-		    if (checklocktime(lockfile, sb.st_mtime) < 0) {
+		    if (checklocktime(lockfile, &sleep_us, sb.st_mtime) < 0) {
 			ret = 1;
 			break;
 		    }
@@ -2870,7 +3041,7 @@ lockhistfile(char *fn, int keep_trying)
 		ret = 2;
 		break;
 	    }
-	    if (checklocktime(lockfile, sb.st_mtime) < 0) {
+	    if (checklocktime(lockfile, &sleep_us, sb.st_mtime) < 0) {
 		ret = 1;
 		break;
 	    }
@@ -2988,7 +3159,7 @@ bufferwords(LinkList list, char *buf, int *index, int flags)
     opts[RCQUOTES] = 0;
     addedx = 0;
     noerrs = 1;
-    lexsave();
+    zcontext_save();
     lexflags = flags | LEXFLAGS_ACTIVE;
     /*
      * Are we handling comments?
@@ -3108,7 +3279,7 @@ bufferwords(LinkList list, char *buf, int *index, int flags)
 		     * double quotes.  Whitespace in the middle is
 		     * similarly retained, so just add the parentheses back.
 		     */
-		    p = tricat("((", tokstr, "))");
+		    p = zhtricat("((", tokstr, "))");
 		}
 		break;
 
@@ -3162,7 +3333,7 @@ bufferwords(LinkList list, char *buf, int *index, int flags)
 	    got = 1;
 	    cur = num - 1;
 	}
-    } while (tok != ENDINPUT && tok != LEXERR);
+    } while (tok != ENDINPUT && tok != LEXERR && !(errflag & ERRFLAG_INT));
     if (buf && tok == LEXERR && tokstr && *tokstr) {
 	int plen;
 	untokenize((p = dupstring(tokstr)));
@@ -3182,10 +3353,10 @@ bufferwords(LinkList list, char *buf, int *index, int flags)
     noaliases = ona;
     strinend();
     inpop();
-    errflag = 0;
+    errflag &= ~ERRFLAG_ERROR;
     nocomments = onc;
     noerrs = ne;
-    lexrestore();
+    zcontext_restore();
     zlemetacs = ocs;
     zlemetall = oll;
     wb = owb;
@@ -3233,11 +3404,14 @@ histsplitwords(char *lineptr, short **wordsp, int *nwordsp, int *nwordposp,
     char *start = lineptr;
 
     if (uselex) {
-	LinkList wordlist = bufferwords(NULL, lineptr, NULL,
-					LEXFLAGS_COMMENTS_KEEP);
+	LinkList wordlist;
 	LinkNode wordnode;
 	int nwords_max;
 
+	wordlist = bufferwords(NULL, lineptr, NULL,
+			       LEXFLAGS_COMMENTS_KEEP);
+	if (errflag)
+	    return;
 	nwords_max = 2 * countlinknodes(wordlist);
 	if (nwords_max > nwords) {
 	    *nwordsp = nwords = nwords_max;
@@ -3329,7 +3503,8 @@ histsplitwords(char *lineptr, short **wordsp, int *nwordsp, int *nwordposp,
 			if (*lptr == *wptr ||
 			    (*lptr == '!' && *wptr == '|')) {
 			    lptr++;
-			    wptr++;
+			    if (!*++wptr)
+				break;
 			} else if (lptr[0] == '\\' &&
 				   lptr[1] == '\n') {
 			    /*

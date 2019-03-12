@@ -107,7 +107,7 @@ loop(int toplevel, int justonce)
 
     pushheap();
     if (!toplevel)
-	lexsave();
+	zcontext_save();
     for (;;) {
 	freeheap();
 	if (stophist == 3)	/* re-entry via preprompt() */
@@ -118,18 +118,32 @@ loop(int toplevel, int justonce)
 	    if (interact && toplevel) {
 	        int hstop = stophist;
 		stophist = 3;
+		/*
+		 * Reset all errors including the interrupt error status
+		 * immediately, so preprompt runs regardless of what
+		 * just happened.  We'll reset again below as a
+		 * precaution to ensure we get back to the command line
+		 * no matter what.
+		 */
+		errflag = 0;
 		preprompt();
 		if (stophist != 3)
 		    hbegin(1);
 		else
 		    stophist = hstop;
+		/*
+		 * Reset all errors, including user interupts.
+		 * This is what allows ^C in an interactive shell
+		 * to return us to the command line.
+		 */
 		errflag = 0;
 	    }
 	}
 	use_exit_printed = 0;
 	intr();			/* interrupts on            */
 	lexinit();              /* initialize lexical state */
-	if (!(prog = parse_event())) {	/* if we couldn't parse a list */
+	if (!(prog = parse_event(ENDINPUT))) {
+	    /* if we couldn't parse a list */
 	    hend(NULL);
 	    if ((tok == ENDINPUT && !errflag) ||
 		(tok == LEXERR && (!isset(SHINSTDIN) || !toplevel)) ||
@@ -178,7 +192,15 @@ loop(int toplevel, int justonce)
 
 		/* The only permanent storage is from getpermtext() */
 		zsfree(cmdstr);
-		errflag = 0;
+		/*
+		 * Note this does *not* remove a user interrupt error
+		 * condition, even though we're at the top level loop:
+		 * that would be inconsistent with the case where
+		 * we didn't execute a preexec function.  This is
+		 * an implementation detail that an interrupting user
+		 * does't care about.
+		 */
+		errflag &= ~ERRFLAG_ERROR;
 	    }
 	    if (stopmsg)	/* unset 'you have stopped jobs' flag */
 		stopmsg--;
@@ -205,7 +227,7 @@ loop(int toplevel, int justonce)
     }
     err = errflag;
     if (!toplevel)
-	lexrestore();
+	zcontext_restore();
     popheap();
 
     if (err)
@@ -243,11 +265,23 @@ parseargs(char **argv, char **runscript)
      */
     opts[MONITOR] = 2;   /* may be unset in init_io() */
     opts[HASHDIRS] = 2;  /* same relationship to INTERACTIVE */
+    opts[USEZLE] = 1;    /* see below, related to SHINSTDIN */
     opts[SHINSTDIN] = 0;
     opts[SINGLECOMMAND] = 0;
 
     if (parseopts(NULL, &argv, opts, &cmd, NULL))
 	exit(1);
+
+    /*
+     * USEZLE remains set if the shell has access to a terminal and
+     * is not reading from some other source as indicated by SHINSTDIN.
+     * SHINSTDIN becomes set below if there is no command argument,
+     * but it is the explicit setting (or not) that matters to USEZLE.
+     * USEZLE may also become unset in init_io() if the shell is not
+     * interactive or the terminal cannot be re-opened read/write.
+     */
+    if (opts[SHINSTDIN])
+	opts[USEZLE] = (opts[USEZLE] && isatty(0));
 
     paramlist = znewlinklist();
     if (*argv) {
@@ -603,7 +637,7 @@ init_shout(void)
 
     if (SHTTY == -1)
     {
-	/* Since we're interative, it's nice to have somewhere to write. */
+	/* Since we're interactive, it's nice to have somewhere to write. */
 	shout = stderr;
 	return;
     }
@@ -616,7 +650,8 @@ init_shout(void)
     /* Associate terminal file descriptor with a FILE pointer */
     shout = fdopen(SHTTY, "w");
 #ifdef _IOFBF
-    setvbuf(shout, shoutbuf, _IOFBF, BUFSIZ);
+    if (shout)
+	setvbuf(shout, shoutbuf, _IOFBF, BUFSIZ);
 #endif
   
     gettyinfo(&shttyinfo);	/* get tty state */
@@ -676,7 +711,7 @@ init_term(void)
     {
 	if (isset(INTERACTIVE))
 	    zerr("can't find terminal definition for %s", term);
-	errflag = 0;
+	errflag &= ~ERRFLAG_ERROR;
 	termflags |= TERM_BAD;
 	return 0;
     } else {
@@ -1036,7 +1071,6 @@ setupvals(void)
     bufstack = znewlinklist();
     hsubl = hsubr = NULL;
     lastpid = 0;
-    lastpid_status = -1L;
 
     get_usage();
 
@@ -1163,10 +1197,13 @@ run_init_scripts(void)
 	    if (islogin)
 		sourcehome(".profile");
 	    noerrs = 2;
-	    if (s && !parsestr(s)) {
-		singsub(&s);
-		noerrs = 0;
-		source(s);
+	    if (s) {
+		s = dupstring(s);
+		if (!parsestr(&s)) {
+		    singsub(&s);
+		    noerrs = 0;
+		    source(s);
+		}
 	    }
 	    noerrs = 0;
 	} else
@@ -1324,7 +1361,7 @@ source(char *s)
 
     if (prog) {
 	pushheap();
-	errflag = 0;
+	errflag &= ~ERRFLAG_ERROR;
 	execode(prog, 1, 0, "filecode");
 	popheap();
 	if (errflag)
@@ -1367,12 +1404,12 @@ source(char *s)
     lineno = oldlineno;              /* our current lineno                   */
     loops = oloops;                  /* the # of nested loops we are in      */
     dosetopt(SHINSTDIN, oldshst, 1, opts); /* SHINSTDIN option               */
-    errflag = 0;
+    errflag &= ~ERRFLAG_ERROR;
     if (!exit_pending)
 	retflag = 0;
     scriptname = old_scriptname;
     scriptfilename = old_scriptfilename;
-    free(cmdstack);
+    zfree(cmdstack, CMDSTACKSZ);
     cmdstack = ocs;
     cmdsp = ocsp;
 
@@ -1608,8 +1645,7 @@ zsh_main(UNUSED(int argc), char **argv)
     emulate(zsh_name, 1, &emulation, opts);   /* initialises most options */
     opts[LOGINSHELL] = (**argv == '-');
     opts[PRIVILEGED] = (getuid() != geteuid() || getgid() != getegid());
-    opts[USEZLE] = 1;   /* may be unset in init_io() */
-    /* sets INTERACTIVE, SHINSTDIN and SINGLECOMMAND */
+    /* sets ZLE, INTERACTIVE, SHINSTDIN and SINGLECOMMAND */
     parseargs(argv, &runscript);
 
     SHTTY = -1;

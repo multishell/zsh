@@ -1405,7 +1405,16 @@ patcomppiece(int *flagp, int paren)
 		starter = patnode(P_ANYBUT);
 	    } else
 		starter = patnode(P_ANYOF);
-	    if (*patparse == Outbrack) {
+	    /*
+	     * []...] means match a "]" or other included characters.
+	     * However, to be a bit helpful and for compatibility
+	     * with other shells, don't take in that sense if
+	     * there's no further "]".  That's still imperfect,
+	     * but it's all we can do --- we're required to
+	     * treat [$var]*[$var]with empty var as [ ... ]
+	     * containing "]*[".
+	     */
+	    if (*patparse == Outbrack && strchr(patparse+1, Outbrack)) {
 		patparse++;
 		patadd(NULL, ']', 1, PA_NOALIGN);
 	    }
@@ -3622,7 +3631,7 @@ patmatchrange(char *range, int ch, int *indptr, int *mtp)
 		    return 1;
 		break;
 	    case PP_PRINT:
-		if (isprint(ch))
+		if (ZISPRINT(ch))
 		    return 1;
 		break;
 	    case PP_PUNCT:

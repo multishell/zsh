@@ -102,6 +102,7 @@ Src/tags
 Src/TAGS
 Src/version.h
 Src/zsh
+Src/zsh.exe
 Src/zshcurses.h
 Src/zshpaths.h
 Src/zshterm.h
@@ -149,3 +150,4 @@ Src/Zle/zle_things.h
 Src/Zle/zle_widget.h
 
 Test/*.tmp
+/.project

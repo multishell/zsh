@@ -1,10 +1,12 @@
 %prep
 
-  if ! zmodload zsh/pcre 2>/dev/null
+  if ! zmodload -F zsh/pcre C:pcre-match 2>/dev/null
   then
     ZTST_unimplemented="the zsh/pcre module is not available"
     return 0
   fi
+# Load the rest of the builtins
+  zmodload zsh/pcre
   setopt rematch_pcre
 # Find a UTF-8 locale.
   setopt multibyte

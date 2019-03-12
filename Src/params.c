@@ -331,6 +331,7 @@ IPDEF5("SHLVL", &shlvl, varinteger_gsu),
 #define IPDEF6(A,B,F) {{NULL,A,PM_INTEGER|PM_SPECIAL|PM_DONTIMPORT},BR((void *)B),GSU(F),10,0,NULL,NULL,NULL,0}
 IPDEF6("OPTIND", &zoptind, varinteger_gsu),
 IPDEF6("TRY_BLOCK_ERROR", &try_errflag, varinteger_gsu),
+IPDEF6("TRY_BLOCK_INTERRUPT", &try_interrupt, varinteger_gsu),
 
 #define IPDEF7(A,B) {{NULL,A,PM_SCALAR|PM_SPECIAL},BR((void *)B),GSU(varscalar_gsu),0,0,NULL,NULL,NULL,0}
 #define IPDEF7U(A,B) {{NULL,A,PM_SCALAR|PM_SPECIAL|PM_UNSET},BR((void *)B),GSU(varscalar_gsu),0,0,NULL,NULL,NULL,0}
@@ -641,8 +642,16 @@ split_env_string(char *env, char **name, char **value)
 	return 0;
 
     tenv = strcpy(zhalloc(strlen(env) + 1), env);
-    for (str = tenv; *str && *str != '='; str++)
-	;
+    for (str = tenv; *str && *str != '='; str++) {
+	if (STOUC(*str) >= 128) {
+	    /*
+	     * We'll ignore environment variables with names not
+	     * from the portable character set since we don't
+	     * know of a good reason to accept them.
+	     */
+	    return 0;
+	}
+    }
     if (str != tenv && *str == '=') {
 	*str = '\0';
 	*name = tenv;
@@ -865,10 +874,14 @@ createparam(char *name, int flags)
 	DPUTS(oldpm && oldpm->level > locallevel,
 	      "BUG: old local parameter not deleted");
 	if (oldpm && (oldpm->level == locallevel || !(flags & PM_LOCAL))) {
+	    if (isset(POSIXBUILTINS) && (oldpm->node.flags & PM_READONLY)) {
+		zerr("read-only variable: %s", name);
+		return NULL;
+	    }
 	    if (!(oldpm->node.flags & PM_UNSET) || (oldpm->node.flags & PM_SPECIAL)) {
 		oldpm->node.flags &= ~PM_UNSET;
 		if ((oldpm->node.flags & PM_SPECIAL) && oldpm->ename) {
-		    Param altpm = 
+		    Param altpm =
 			(Param) paramtab->getnode(paramtab, oldpm->ename);
 		    if (altpm)
 			altpm->node.flags &= ~PM_UNSET;
@@ -918,7 +931,15 @@ shempty(void)
 {
 }
 
-/* Create a simple special hash parameter. */
+/*
+ * Create a simple special hash parameter.
+ *
+ * This is for hashes added internally --- it's not possible to add
+ * special hashes from shell commands.  It's currently used
+ * - by addparamdef() for special parameters in the zsh/parameter
+ *   module
+ * - by ztie for special parameters tied to databases.
+ */
 
 /**/
 mod_export Param
@@ -930,7 +951,22 @@ createspecialhash(char *name, GetNodeFunc get, ScanTabFunc scan, int flags)
     if (!(pm = createparam(name, PM_SPECIAL|PM_HASHED|flags)))
 	return NULL;
 
-    pm->level = pm->old ? locallevel : 0;
+    /*
+     * If there's an old parameter, we'll put the new one at
+     * the current locallevel, so that the old parameter is
+     * exposed again after leaving the function.  Otherwise,
+     * we'll leave it alone.  Usually this means the parameter
+     * will stay in place until explicitly unloaded, however
+     * if the parameter was previously unset within a function
+     * we'll inherit the level of that function and follow the
+     * standard convention that the parameter remains local
+     * even if unset.
+     *
+     * These semantics are similar to those of a normal parameter set
+     * within a function without a local definition.
+     */
+    if (pm->old)
+	pm->level = locallevel;
     pm->gsu.h = (flags & PM_READONLY) ? &stdhash_gsu :
 	&nullsethash_gsu;
     pm->u.hash = ht = newhashtable(0, name, NULL);
@@ -1251,7 +1287,8 @@ getarg(char **str, int *inv, Value v, int a2, zlong *w,
     if (ishash && (keymatch || !rev))
 	remnulargs(s);
     if (needtok) {
-	if (parsestr(s))
+	s = dupstring(s);
+	if (parsestr(&s))
 	    return 0;
 	singsub(&s);
     } else if (rev)
@@ -2654,7 +2691,7 @@ assignsparam(char *s, char *val, int flags)
     if (!isident(s)) {
 	zerr("not an identifier: %s", s);
 	zsfree(val);
-	errflag = 1;
+	errflag |= ERRFLAG_ERROR;
 	return NULL;
     }
     queue_signals();
@@ -2783,7 +2820,7 @@ assignaparam(char *s, char **val, int flags)
     if (!isident(s)) {
 	zerr("not an identifier: %s", s);
 	freearray(val);
-	errflag = 1;
+	errflag |= ERRFLAG_ERROR;
 	return NULL;
     }
     queue_signals();
@@ -2799,7 +2836,7 @@ assignaparam(char *s, char **val, int flags)
 	    zerr("%s: attempt to set slice of associative array",
 		 v->pm->node.nam);
 	    freearray(val);
-	    errflag = 1;
+	    errflag |= ERRFLAG_ERROR;
 	    return NULL;
 	}
 	v = NULL;
@@ -2870,13 +2907,13 @@ sethparam(char *s, char **val)
     if (!isident(s)) {
 	zerr("not an identifier: %s", s);
 	freearray(val);
-	errflag = 1;
+	errflag |= ERRFLAG_ERROR;
 	return NULL;
     }
     if (strchr(s, '[')) {
 	freearray(val);
 	zerr("nested associative arrays not yet supported");
-	errflag = 1;
+	errflag |= ERRFLAG_ERROR;
 	return NULL;
     }
     if (unset(EXECOPT))
@@ -2916,7 +2953,7 @@ setnparam(char *s, mnumber val)
 
     if (!isident(s)) {
 	zerr("not an identifier: %s", s);
-	errflag = 1;
+	errflag |= ERRFLAG_ERROR;
 	return NULL;
     }
     if (unset(EXECOPT))
@@ -4368,9 +4405,18 @@ zputenv(char *str)
     char *ptr;
     int ret;
 
-    for (ptr = str; *ptr && *ptr != '='; ptr++)
+    for (ptr = str; *ptr && STOUC(*ptr) < 128 && *ptr != '='; ptr++)
 	;
-    if (*ptr) {
+    if (STOUC(*ptr) >= 128) {
+	/*
+	 * Environment variables not in the portable character
+	 * set are non-standard and we don't really know of
+	 * a use for them.
+	 *
+	 * We'll disable until someone complains.
+	 */
+	return 1;
+    } else if (*ptr) {
 	*ptr = '\0';
 	ret = setenv(str, ptr+1, 1);
 	*ptr = '=';
@@ -4534,17 +4580,21 @@ addenv(Param pm, char *value)
 static char *
 mkenvstr(char *name, char *value, int flags)
 {
-    char *str, *s;
-    int len_name, len_value;
+    char *str, *s = value;
+    int len_name, len_value = 0;
 
     len_name = strlen(name);
-    for (len_value = 0, s = value;
-	 *s && (*s++ != Meta || *s++ != 32); len_value++);
+    if (s)
+	while (*s && (*s++ != Meta || *s++ != 32))
+	    len_value++;
     s = str = (char *) zalloc(len_name + len_value + 2);
     strcpy(s, name);
     s += len_name;
     *s = '=';
-    copyenvstr(s, value, flags);
+    if (value)
+	copyenvstr(s, value, flags);
+    else
+	*++s = '\0';
     return str;
 }
 
@@ -4986,66 +5036,10 @@ static const struct paramtypes pmtypes[] = {
 
 #define PMTYPES_SIZE ((int)(sizeof(pmtypes)/sizeof(struct paramtypes)))
 
-/**/
-mod_export void
-printparamnode(HashNode hn, int printflags)
+static void
+printparamvalue(Param p, int printflags)
 {
-    Param p = (Param) hn;
     char *t, **u;
-
-    if (p->node.flags & PM_UNSET)
-	return;
-
-    if (printflags & PRINT_TYPESET)
-	printf("typeset ");
-
-    /* Print the attributes of the parameter */
-    if (printflags & (PRINT_TYPE|PRINT_TYPESET)) {
-	int doneminus = 0, i;
-	const struct paramtypes *pmptr;
-
-	for (pmptr = pmtypes, i = 0; i < PMTYPES_SIZE; i++, pmptr++) {
-	    int doprint = 0;
-	    if (pmptr->flags & PMTF_TEST_LEVEL) {
-		if (p->level)
-		    doprint = 1;
-	    } else if (p->node.flags & pmptr->binflag)
-		doprint = 1;
-
-	    if (doprint) {
-		if (printflags & PRINT_TYPESET) {
-		    if (pmptr->typeflag) {
-			if (!doneminus) {
-			    putchar('-');
-			    doneminus = 1;
-			}
-			putchar(pmptr->typeflag);
-		    }
-		} else {
-		    printf("%s ", pmptr->string);
-		}
-		if ((pmptr->flags & PMTF_USE_BASE) && p->base) {
-		    printf("%d ", p->base);
-		    doneminus = 0;
-		}
-		if ((pmptr->flags & PMTF_USE_WIDTH) && p->width) {
-		    printf("%d ", p->width);
-		    doneminus = 0;
-		}
-	    }
-	}
-	if (doneminus)
-	    putchar(' ');
-    }
-
-    if ((printflags & PRINT_NAMEONLY) ||
-	((p->node.flags & PM_HIDEVAL) && !(printflags & PRINT_INCLUDEVALUE))) {
-	zputs(p->node.nam, stdout);
-	putchar('\n');
-	return;
-    }
-
-    quotedzputs(p->node.nam, stdout);
 
     if (p->node.flags & PM_AUTOLOAD) {
 	putchar('\n');
@@ -5055,7 +5049,7 @@ printparamnode(HashNode hn, int printflags)
 	putchar(' ');
     else if ((printflags & PRINT_TYPESET) &&
 	     (PM_TYPE(p->node.flags) == PM_ARRAY || PM_TYPE(p->node.flags) == PM_HASHED))
-	printf("\n%s=", p->node.nam);
+	printf("%s=", p->node.nam);
     else
 	putchar('=');
 
@@ -5113,4 +5107,109 @@ printparamnode(HashNode hn, int printflags)
 	putchar(' ');
     else
 	putchar('\n');
+}
+
+/**/
+mod_export void
+printparamnode(HashNode hn, int printflags)
+{
+    Param p = (Param) hn;
+    int array_typeset;
+
+    if (p->node.flags & PM_UNSET) {
+	if (isset(POSIXBUILTINS) && (p->node.flags & PM_READONLY) &&
+	    (printflags & PRINT_TYPESET))
+	{
+	    /*
+	     * Special POSIX rules: show the parameter as readonly
+	     * even though it's unset, but with no value.
+	     */
+	    printflags |= PRINT_NAMEONLY;
+	}
+	else
+	    return;
+    }
+
+    if (printflags & PRINT_TYPESET) {
+	if ((p->node.flags & (PM_READONLY|PM_SPECIAL)) ==
+	    (PM_READONLY|PM_SPECIAL)) {
+	    /*
+	     * It's not possible to restore the state of
+	     * these, so don't output.
+	     */
+	    return;
+	}
+	/*
+	 * Printing the value of array: this needs to be on
+	 * a separate line so more care is required.
+	 */
+	array_typeset = (PM_TYPE(p->node.flags) == PM_ARRAY ||
+			 PM_TYPE(p->node.flags) == PM_HASHED) &&
+	    !(printflags & PRINT_NAMEONLY);
+	if (array_typeset && (p->node.flags & PM_READONLY)) {
+	    /*
+	     * We need to create the array before making it
+	     * readonly.
+	     */
+	    printf("typeset -a ");
+	    zputs(p->node.nam, stdout);
+	    putchar('\n');
+	    printparamvalue(p, printflags);
+	    printflags |= PRINT_NAMEONLY;
+	}
+	printf("typeset ");
+    }
+    else
+	array_typeset = 0;
+
+    /* Print the attributes of the parameter */
+    if (printflags & (PRINT_TYPE|PRINT_TYPESET)) {
+	int doneminus = 0, i;
+	const struct paramtypes *pmptr;
+
+	for (pmptr = pmtypes, i = 0; i < PMTYPES_SIZE; i++, pmptr++) {
+	    int doprint = 0;
+	    if (pmptr->flags & PMTF_TEST_LEVEL) {
+		if (p->level)
+		    doprint = 1;
+	    } else if (p->node.flags & pmptr->binflag)
+		doprint = 1;
+
+	    if (doprint) {
+		if (printflags & PRINT_TYPESET) {
+		    if (pmptr->typeflag) {
+			if (!doneminus) {
+			    putchar('-');
+			    doneminus = 1;
+			}
+			putchar(pmptr->typeflag);
+		    }
+		} else {
+		    printf("%s ", pmptr->string);
+		}
+		if ((pmptr->flags & PMTF_USE_BASE) && p->base) {
+		    printf("%d ", p->base);
+		    doneminus = 0;
+		}
+		if ((pmptr->flags & PMTF_USE_WIDTH) && p->width) {
+		    printf("%d ", p->width);
+		    doneminus = 0;
+		}
+	    }
+	}
+	if (doneminus)
+	    putchar(' ');
+    }
+
+    if ((printflags & PRINT_NAMEONLY) ||
+	((p->node.flags & PM_HIDEVAL) && !(printflags & PRINT_INCLUDEVALUE))) {
+	zputs(p->node.nam, stdout);
+	putchar('\n');
+    } else {
+	quotedzputs(p->node.nam, stdout);
+
+	if (array_typeset)
+	    putchar('\n');
+	printparamvalue(p, printflags);
+    }
 }

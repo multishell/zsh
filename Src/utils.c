@@ -112,7 +112,20 @@ set_widearray(char *mb_array, Widechar_array wca)
 #endif
 
 
-/* Print an error */
+/* Print an error
+
+   The following functions use the following printf-like format codes
+   (implemented by zerrmsg()):
+
+   Code	Argument types		Prints
+   %s	const char *		C string (null terminated)
+   %l	const char *, int	C string of given length (null not required)
+   %L	long			decimal value
+   %d	int			decimal value
+   %%	(none)			literal '%'
+   %c	int			character at that codepoint
+   %e	int			strerror() message (argument is typically 'errno')
+ */
 
 static void
 zwarning(const char *cmd, const char *fmt, va_list ap)
@@ -153,7 +166,7 @@ VA_DCL
 
     if (errflag || noerrs) {
 	if (noerrs < 2)
-	    errflag = 1;
+	    errflag |= ERRFLAG_ERROR;
 	return;
     }
 
@@ -161,7 +174,7 @@ VA_DCL
     VA_GET_ARG(ap, fmt, const char *);
     zwarning(NULL, fmt, ap);
     va_end(ap);
-    errflag = 1;
+    errflag |= ERRFLAG_ERROR;
 }
 
 /**/
@@ -181,7 +194,7 @@ VA_DCL
     VA_GET_ARG(ap, fmt, const char *);
     zwarning(cmd, fmt, ap);
     va_end(ap);
-    errflag = 1;
+    errflag |= ERRFLAG_ERROR;
 }
 
 /**/
@@ -330,7 +343,7 @@ zerrmsg(FILE *file, const char *fmt, va_list ap)
 		num = va_arg(ap, int);
 		if (num == EINTR) {
 		    fputs("interrupt\n", file);
-		    errflag = 1;
+		    errflag |= ERRFLAG_ERROR;
 		    return;
 		}
 		errmsg = strerror(num);
@@ -343,6 +356,7 @@ zerrmsg(FILE *file, const char *fmt, va_list ap)
 		    fputs(errmsg + 1, file);
 		}
 		break;
+	    /* When adding format codes, update the comment above zwarning(). */
 	    }
 	} else {
 	    putc(*fmt == Meta ? *++fmt ^ 32 : *fmt, file);
@@ -400,7 +414,7 @@ nicechar(int c)
     static char buf[6];
     char *s = buf;
     c &= 0xff;
-    if (isprint(c))
+    if (ZISPRINT(c))
 	goto done;
     if (c & 0x80) {
 	if (isset(PRINTEIGHTBIT))
@@ -409,7 +423,7 @@ nicechar(int c)
 	*s++ = 'M';
 	*s++ = '-';
 	c &= 0x7f;
-	if(isprint(c))
+	if(ZISPRINT(c))
 	    goto done;
     }
     if (c == 0x7f) {
@@ -566,7 +580,7 @@ wcs_nicechar(wchar_t c, size_t *widthp, char **swidep)
 	    return buf;
 	}
 	if (swidep)
-	    *swidep = buf + *widthp;
+	    *swidep = widthp ? buf + *widthp : buf;
 	return buf;
     }
 
@@ -693,12 +707,12 @@ slashsplit(char *s)
     int t0;
 
     if (!*s)
-	return (char **) zshcalloc(sizeof(char **));
+	return (char **) zshcalloc(sizeof(char *));
 
     for (t = s, t0 = 0; *t; t++)
 	if (*t == '/')
 	    t0++;
-    q = r = (char **) zalloc(sizeof(char **) * (t0 + 2));
+    q = r = (char **) zalloc(sizeof(char *) * (t0 + 2));
 
     while ((t = strchr(s, '/'))) {
 	*q++ = ztrduppfx(s, t - s);
@@ -719,7 +733,7 @@ slashsplit(char *s)
 
 /**/
 static int
-xsymlinks(char *s)
+xsymlinks(char *s, int full)
 {
     char **pp, **opp;
     char xbuf2[PATH_MAX*3], xbuf3[PATH_MAX*2];
@@ -727,7 +741,7 @@ xsymlinks(char *s)
     zulong xbuflen = strlen(xbuf);
 
     opp = pp = slashsplit(s);
-    for (; xbuflen < sizeof(xbuf) && *pp; pp++) {
+    for (; xbuflen < sizeof(xbuf) && *pp && ret >= 0; pp++) {
 	if (!strcmp(*pp, "."))
 	    continue;
 	if (!strcmp(*pp, "..")) {
@@ -741,6 +755,8 @@ xsymlinks(char *s)
 	    while (*--p != '/')
 		xbuflen--;
 	    *p = '\0';
+	    /* The \0 isn't included in the length */
+	    xbuflen--;
 	    continue;
 	}
 	sprintf(xbuf2, "%s/%s", xbuf, *pp);
@@ -758,13 +774,52 @@ xsymlinks(char *s)
 	} else {
 	    ret = 1;
 	    metafy(xbuf3, t0, META_NOALLOC);
+	    if (!full) {
+		/*
+		 * If only one expansion requested, ensure the
+		 * full path is in xbuf.
+		 */
+		zulong len = xbuflen;
+		if (*xbuf3 == '/')
+		    strcpy(xbuf, xbuf3);
+		else if ((len += strlen(xbuf3) + 1) < sizeof(xbuf)) {
+		    strcpy(xbuf + xbuflen, "/");
+		    strcpy(xbuf + xbuflen + 1, xbuf3);
+		} else {
+		    *xbuf = 0;
+		    ret = -1;
+		    break;
+		}
+
+		while (*++pp) {
+		    zulong newlen = len + strlen(*pp) + 1;
+		    if (newlen < sizeof(xbuf)) {
+			strcpy(xbuf + len, "/");
+			strcpy(xbuf + len + 1, *pp);
+			len = newlen;
+		    } else {
+			*xbuf = 01;
+			ret = -1;
+			break;
+		    }
+		}
+		/*
+		 * No need to update xbuflen, we're finished
+		 * the expansion (for now).
+		 */
+		break;
+	    }
 	    if (*xbuf3 == '/') {
 		strcpy(xbuf, "");
-		if (xsymlinks(xbuf3 + 1) < 0)
+		if (xsymlinks(xbuf3 + 1, 1) < 0)
 		    ret = -1;
+		else
+		    xbuflen = strlen(xbuf);
 	    } else
-		if (xsymlinks(xbuf3) < 0)
+		if (xsymlinks(xbuf3, 1) < 0)
 		    ret = -1;
+		else
+		    xbuflen = strlen(xbuf);
 	}
     }
     freearray(opp);
@@ -783,7 +838,7 @@ xsymlink(char *s)
     if (*s != '/')
 	return NULL;
     *xbuf = '\0';
-    if (xsymlinks(s + 1) < 0)
+    if (xsymlinks(s + 1, 1) < 0)
 	zwarn("path expansion failed, using root directory");
     if (!*xbuf)
 	return ztrdup("/");
@@ -792,12 +847,30 @@ xsymlink(char *s)
 
 /**/
 void
-print_if_link(char *s)
+print_if_link(char *s, int all)
 {
     if (*s == '/') {
 	*xbuf = '\0';
-	if (xsymlinks(s + 1) > 0)
-	    printf(" -> "), zputs(*xbuf ? xbuf : "/", stdout);
+	if (all) {
+	    char *start = s + 1;
+	    char xbuflink[PATH_MAX];
+	    for (;;) {
+		if (xsymlinks(start, 0) > 0) {
+		    printf(" -> ");
+		    zputs(*xbuf ? xbuf : "/", stdout);
+		    if (!*xbuf)
+			break;
+		    strcpy(xbuflink, xbuf);
+		    start = xbuflink + 1;
+		    *xbuf = '\0';
+		} else {
+		    break;
+		}
+	    }
+	} else {
+	    if (xsymlinks(s + 1, 1) > 0)
+		printf(" -> "), zputs(*xbuf ? xbuf : "/", stdout);
+	}
     }
 }
 
@@ -1049,10 +1122,13 @@ getnameddir(char *name)
 	if ((pw = getpwnam(name))) {
 	    char *dir = isset(CHASELINKS) ? xsymlink(pw->pw_dir)
 		: ztrdup(pw->pw_dir);
-	    adduserdir(name, dir, ND_USERNAME, 1);
-	    str = dupstring(dir);
-	    zsfree(dir);
-	    return str;
+	    if (dir) {
+		adduserdir(name, dir, ND_USERNAME, 1);
+		str = dupstring(dir);
+		zsfree(dir);
+		return str;
+	    } else
+		return dupstring(pw->pw_dir);
 	}
     }
 #endif /* HAVE_GETPWNAM */
@@ -1456,7 +1532,7 @@ checkmailpath(char **s)
 		    setunderscore(*s);
 
 		    u = dupstring(u);
-		    if (! parsestr(u)) {
+		    if (!parsestr(&u)) {
 			singsub(&u);
 			zputs(u, shout);
 			fputc('\n', shout);
@@ -2078,6 +2154,8 @@ zstrtol_underscore(const char *s, char **t, int base, int underscore)
 	    base = 10;
 	else if (*++s == 'x' || *s == 'X')
 	    base = 16, s++;
+	else if (*s == 'b' || *s == 'B')
+	    base = 2, s++;
 	else
 	    base = 8;
     }
@@ -2197,6 +2275,10 @@ setblock_stdin(void)
  * Note that apart from setting (and restoring) non-blocking input,
  * this function does not change the input mode.  The calling function
  * should have set cbreak mode if necessary.
+ *
+ * fd may be -1 to sleep until the timeout in microseconds.  This is a
+ * fallback for old systems that don't have nanosleep().  Some very old
+ * systems might not have select: get with it, daddy-o.
  */
 
 /**/
@@ -2218,6 +2300,8 @@ read_poll(int fd, int *readchar, int polltty, zlong microseconds)
     struct ttyinfo ti;
 #endif
 
+    if (fd < 0 || (polltty && !isatty(fd)))
+	polltty = 0;		/* no tty to poll */
 
 #if defined(HAS_TIO) && !defined(__CYGWIN__)
     /*
@@ -2239,7 +2323,7 @@ read_poll(int fd, int *readchar, int polltty, zlong microseconds)
      * as plausible as it sounds, but it seems the right way to guess.
      *		pws 2000/06/26
      */
-    if (polltty) {
+    if (polltty && fd >= 0) {
 	gettyinfo(&ti);
 	if ((polltty = ti.tio.c_cc[VMIN])) {
 	    ti.tio.c_cc[VMIN] = 0;
@@ -2255,16 +2339,24 @@ read_poll(int fd, int *readchar, int polltty, zlong microseconds)
     expire_tv.tv_sec = (int) (microseconds / (zlong)1000000);
     expire_tv.tv_usec = microseconds % (zlong)1000000;
     FD_ZERO(&foofd);
-    FD_SET(fd, &foofd);
-    ret = select(fd+1, (SELECT_ARG_2_T) &foofd, NULL, NULL, &expire_tv);
+    if (fd > -1) {
+	FD_SET(fd, &foofd);
+	ret = select(fd+1, (SELECT_ARG_2_T) &foofd, NULL, NULL, &expire_tv);
+    } else
+	ret = select(0, NULL, NULL, NULL, &expire_tv);
 #else
+    if (fd < 0) {
+	/* OK, can't do that.  Just quietly sleep for a second. */
+	sleep(1);
+	return 1;
+    }
 #ifdef FIONREAD
     if (ioctl(fd, FIONREAD, (char *) &val) == 0)
 	ret = (val > 0);
 #endif
 #endif
 
-    if (ret < 0) {
+    if (fd >= 0 && ret < 0) {
 	/*
 	 * Final attempt: set non-blocking read and try to read a character.
 	 * Praise Bill, this works under Cygwin (nothing else seems to).
@@ -2286,6 +2378,80 @@ read_poll(int fd, int *readchar, int polltty, zlong microseconds)
     return (ret > 0);
 }
 
+/*
+ * Sleep for the given number of microseconds --- must be within
+ * range of a long at the moment, but this is only used for
+ * limited internal purposes.
+ */
+
+/**/
+int
+zsleep(long us)
+{
+#ifdef HAVE_NANOSLEEP
+    struct timespec sleeptime;
+
+    sleeptime.tv_sec = (time_t)us / (time_t)1000000;
+    sleeptime.tv_nsec = (us % 1000000L) * 1000L;
+    for (;;) {
+	struct timespec rem;
+	int ret = nanosleep(&sleeptime, &rem);
+
+	if (ret == 0)
+	    return 1;
+	else if (errno != EINTR)
+	    return 0;
+	sleeptime = rem;
+    }
+#else
+    int dummy;
+    return read_poll(-1, &dummy, 0, us);
+#endif
+}
+
+/**
+ * Sleep for time (fairly) randomly up to max_us microseconds.
+ * Don't let the wallclock time extend beyond end_time.
+ * Return 1 if that seemed to work, else 0.
+ *
+ * For best results max_us should be a multiple of 2**16 or large
+ * enough that it doesn't matter.
+ */
+
+/**/
+int
+zsleep_random(long max_us, time_t end_time)
+{
+    long r;
+    time_t now = time(NULL);
+
+    /*
+     * Randomish backoff.  Doesn't need to be fundamentally
+     * unpredictable, just probably unlike the value another
+     * exiting shell is using.  On some systems the bottom 16
+     * bits aren't that random but the use here doesn't
+     * really care.
+     */
+    r = (long)(rand() & 0xFFFF);
+    /*
+     * Turn this into a fraction of sleep_us.  Again, this
+     * doesn't need to be particularly accurate and the base time
+     * is sufficient that we can do the division first and not
+     * worry about the range.
+     */
+    r = (max_us >> 16) * r;
+    /*
+     * Don't sleep beyond timeout.
+     * Not that important as timeout is ridiculously long, but
+     * if there's an interface, interface to it...
+     */
+    while (r && now + (time_t)(r / 1000000) > end_time)
+	r >>= 1;
+    if (r) /* pedantry */
+	return zsleep(r);
+    return 0;
+}
+
 /**/
 int
 checkrmall(char *s)
@@ -2294,7 +2460,7 @@ checkrmall(char *s)
 	return 1;
     fprintf(shout, "zsh: sure you want to delete all the files in ");
     if (*s != '/') {
-	nicezputs(pwd[1] ? unmeta(pwd) : "", shout);
+	nicezputs(pwd[1] ? pwd : "", shout);
 	fputc('/', shout);
     }
     nicezputs(s, shout);
@@ -2949,7 +3115,7 @@ colonsplit(char *s, int uniq)
     for (t = s, ct = 0; *t; t++) /* count number of colons */
 	if (*t == ':')
 	    ct++;
-    ptr = ret = (char **) zalloc(sizeof(char **) * (ct + 2));
+    ptr = ret = (char **) zalloc(sizeof(char *) * (ct + 2));
 
     t = s;
     do {
@@ -3482,7 +3648,7 @@ inittyptab(void)
     for (t0 = (int)STOUC(Snull); t0 <= (int)STOUC(Nularg); t0++)
 	typtab[t0] |= ITOK | IMETA | INULL;
     for (s = ifs ? ifs : EMULATION(EMULATE_KSH|EMULATE_SH) ?
-	ztrdup(DEFAULT_IFS_SH) : ztrdup(DEFAULT_IFS); *s; s++) {
+	DEFAULT_IFS_SH : DEFAULT_IFS; *s; s++) {
 	int c = STOUC(*s == Meta ? *++s ^ 32 : *s);
 #ifdef MULTIBYTE_SUPPORT
 	if (!isascii(c)) {
@@ -3517,7 +3683,7 @@ inittyptab(void)
 #ifdef MULTIBYTE_SUPPORT
     set_widearray(wordchars, &wordchars_wide);
     set_widearray(ifs ? ifs : EMULATION(EMULATE_KSH|EMULATE_SH) ?
-	ztrdup(DEFAULT_IFS_SH) : ztrdup(DEFAULT_IFS), &ifs_wide);
+	DEFAULT_IFS_SH : DEFAULT_IFS, &ifs_wide);
 #endif
     for (s = SPECCHARS; *s; s++)
 	typtab[STOUC(*s)] |= ISPECIAL;
@@ -3528,6 +3694,8 @@ inittyptab(void)
 	typtab[bangchar] |= ISPECIAL;
     } else
 	typtab_flags &= ~ZTF_BANGCHAR;
+    for (s = PATCHARS; *s; s++)
+	typtab[STOUC(*s)] |= IPATTERN;
 
     unqueue_signals();
 }
@@ -4158,7 +4326,7 @@ unmetafy(char *s, int *len)
 
     for (p = s; *p && *p != Meta; p++);
     for (t = p; (*t = *p++);)
-	if (*t++ == Meta)
+	if (*t++ == Meta && *p)
 	    t[-1] = *p++ ^ 32;
     if (len)
 	*len = t - s;
@@ -4242,7 +4410,7 @@ unmeta(const char *file_name)
     }
 
     for (t = file_name, p = fn; *t; p++)
-	if ((*p = *t++) == Meta)
+	if ((*p = *t++) == Meta && *t)
 	    *p = *t++ ^ 32;
     *p = '\0';
     return fn;
@@ -4631,6 +4799,14 @@ mb_metacharlenconv_r(const char *s, wint_t *wcp, mbstate_t *mbsp)
 	    inchar = *++ptr ^ 32;
 	    DPUTS(!*ptr,
 		  "BUG: unexpected end of string in mb_metacharlen()\n");
+	} else if (imeta(*ptr)) {
+	    /*
+	     * As this is metafied input, this is a token --- this
+	     * can't be a part of the string.  It might be
+	     * something on the end of an unbracketed parameter
+	     * reference, for example.
+	     */
+	    break;
 	} else
 	    inchar = *ptr;
 	ptr++;
@@ -4901,6 +5077,10 @@ quotestring(const char *s, char **e, int instring)
 	alloclen = slen * 7 + 1;
 	break;
 
+    case QT_BACKSLASH_PATTERN:
+	alloclen = slen * 2  + 1;
+	break;
+
     case QT_SINGLE_OPTIONAL:
 	/*
 	 * Here, we may need to add single quotes.
@@ -4920,7 +5100,7 @@ quotestring(const char *s, char **e, int instring)
     quotestart = v = buf = zshcalloc(alloclen);
 
     DPUTS(instring < QT_BACKSLASH || instring == QT_BACKTICK ||
-	  instring > QT_SINGLE_OPTIONAL,
+	  instring > QT_BACKSLASH_PATTERN,
 	  "BUG: bad quote type in quotestring");
     u = s;
     if (instring == QT_DOLLARS) {
@@ -4960,9 +5140,18 @@ quotestring(const char *s, char **e, int instring)
 		u = uend;
 	    }
 	}
-    }
-    else
-    {
+    } else if (instring == QT_BACKSLASH_PATTERN) {
+	while (*u) {
+	    if (e && !sf && *e == u) {
+		*e = v;
+		sf = 1;
+	    }
+
+	    if (ipattern(*u))
+		*v++ = '\\';
+	    *v++ = *u++;
+	}
+    } else {
 	if (shownull) {
 	    /* We can't show an empty string with just backslash quoting. */
 	    if (!*u) {

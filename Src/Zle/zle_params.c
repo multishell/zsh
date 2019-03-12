@@ -173,7 +173,7 @@ makezleparams(int ro)
 		pm->base = 10;
 		break;
 	}
-	if ((zp->type & PM_UNSET) && (zmod.flags & MOD_MULT))
+	if ((zp->type & PM_UNSET) && (zmod.flags & (MOD_MULT|MOD_TMULT)))
 	    pm->node.flags &= ~PM_UNSET;
     }
 }
@@ -198,7 +198,7 @@ set_buffer(UNUSED(Param pm), char *x)
 	setline(x, 0);
 	zsfree(x);
     } else
-	zlecs = zlell = 0;
+	viinsbegin = zlecs = zlell = 0;
     fixsuffix();
     menucmp = 0;
 }

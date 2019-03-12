@@ -318,7 +318,8 @@ fi], [sitefndir=${datadir}/${tzsh_name}/site-functions])
 dnl Add /usr/local/share/zsh/site-functions if not yet present
 dnl owing to $sitefndir, whether or not explicitly given.
 dnl If not explicitly given, it hasn't been expanded yet.
-if test X$sitefndir = X/usr/local/share/zsh/site-functions
+if test X$sitefndir = X/usr/local/share/zsh/site-functions || \
+   test X$sitefndir = Xno
 then fixed_sitefndir=''
 elif test X$prefix != X/usr/local; then
   if test X$prefix = XNONE && test X$ac_default_prefix = X/usr/local; then
@@ -633,7 +634,12 @@ AC_SUBST(YODL_OPTIONS)
 
 AC_CHECK_PROGS([PDFETEX], [pdfetex], [: pdfetex])
 AC_CHECK_PROGS([TEXI2PDF], [texi2pdf], [])
-AC_CHECK_PROGS([TEXI2HTML], [texi2html], [])
+AC_CHECK_PROGS([TEXI2HTML], [texi2any texi2html], [: texi2html])
+
+if test x"$TEXI2HTML" = xtexi2any; then
+  TEXI2HTML='texi2any -c TEXI2HTML=1'
+fi
+
 AC_CHECK_PROGS([ANSI2KNR], [ansi2knr], [: ansi2knr])
 
 if test x"$ansi2knr" = xyes && test x"$ANSI2KNR" = x": ansi2knr"; then
@@ -1291,6 +1297,7 @@ AC_CHECK_FUNCS(strftime strptime mktime timelocal \
 	       pcre_compile pcre_study pcre_exec \
 	       nl_langinfo \
 	       erand48 open_memstream \
+	       posix_openpt \
 	       wctomb iconv \
 	       grantpt unlockpt ptsname \
 	       htons ntohs \
@@ -1298,8 +1305,26 @@ AC_CHECK_FUNCS(strftime strptime mktime timelocal \
 	       gdbm_open getxattr \
 	       realpath canonicalize_file_name \
 	       symlink getcwd \
-	       cygwin_conv_path)
+	       cygwin_conv_path \
+	       nanosleep)
 AC_FUNC_STRCOLL
+
+AH_TEMPLATE([REALPATH_ACCEPTS_NULL],
+[Define if realpath() accepts NULL as its second argument.])
+AC_CACHE_CHECK([if realpath accepts NULL],
+zsh_cv_func_realpath_accepts_null,
+[AC_RUN_IFELSE([AC_LANG_PROGRAM([
+#include <stdlib.h>
+#include <limits.h>
+],[
+exit(!realpath("/", (char*)0));
+])],
+[zsh_cv_func_realpath_accepts_null=yes],
+[zsh_cv_func_realpath_accepts_null=no],
+[zsh_cv_func_realpath_accepts_null=$ac_cv_func_canonicalize_file_name])])
+if test x$zsh_cv_func_realpath_accepts_null = xyes; then
+  AC_DEFINE(REALPATH_ACCEPTS_NULL)
+fi
 
 if test x$enable_cap = xyes; then
   AC_CHECK_FUNCS(cap_get_proc)
@@ -2548,6 +2573,8 @@ AH_TEMPLATE([MULTIBYTE_SUPPORT],
 [Define to 1 if you want support for multibyte character sets.])
 AH_TEMPLATE([BROKEN_WCWIDTH],
 [Define to 1 if the wcwidth() function is present but broken.])
+AH_TEMPLATE([BROKEN_ISPRINT],
+[Define to 1 if the isprint() function is broken under UTF-8 locale.])
 if test x$zsh_cv_c_unicode_support = xyes; then
   AC_DEFINE(MULTIBYTE_SUPPORT)
 
@@ -2602,6 +2629,38 @@ if test x$zsh_cv_c_unicode_support = xyes; then
   zsh_cv_c_broken_wcwidth=no)])
   if test x$zsh_cv_c_broken_wcwidth = xyes; then
     AC_DEFINE(BROKEN_WCWIDTH)
+  fi
+
+  dnl Check if isprint() behaves correctly under UTF-8 locale.
+  dnl On some platform (maybe only on Mac OS X), isprint() returns
+  dnl true for all characters in the range from 0xa0 to 0xff if
+  dnl called under UTF-8 locale.
+  [locale_prog='char *my_locales[] = {
+  "en_US.UTF-8", "en_GB.UTF-8", "en.UTF-8", '
+  locale_prog="$locale_prog"`locale -a 2>/dev/null | \
+    sed -e 's/utf8/UTF-8/' | grep UTF-8 | \
+    while read line; do echo " \"$line\","; done;`
+  locale_prog="$locale_prog 0 };
+  #include <locale.h>
+  #include <ctype.h>
+
+  int main() {
+    char **localep;
+    for (localep = my_locales; *localep; localep++)
+      if (setlocale(LC_ALL, *localep) && isprint(0xa0))
+	return 0;
+    return 1;
+  }
+  "]
+
+  AC_CACHE_CHECK(if the isprint() function is broken,
+  zsh_cv_c_broken_isprint,
+  [AC_TRY_RUN([$locale_prog],
+  zsh_cv_c_broken_isprint=yes,
+  zsh_cv_c_broken_isprint=no,
+  zsh_cv_c_broken_isprint=no)])
+  if test x$zsh_cv_c_broken_isprint = xyes; then
+    AC_DEFINE(BROKEN_ISPRINT)
   fi
 fi
 

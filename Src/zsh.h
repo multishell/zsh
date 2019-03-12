@@ -163,40 +163,42 @@ struct mathfunc {
 #define Hat		((char) 0x86)
 #define Star		((char) 0x87)
 #define Inpar		((char) 0x88)
-#define Outpar		((char) 0x89)
-#define Qstring	        ((char) 0x8a)
-#define Equals		((char) 0x8b)
-#define Bar	      	((char) 0x8c)
-#define Inbrace	        ((char) 0x8d)
-#define Outbrace	((char) 0x8e)
-#define Inbrack	        ((char) 0x8f)
-#define Outbrack	((char) 0x90)
-#define Tick		((char) 0x91)
-#define Inang		((char) 0x92)
-#define Outang		((char) 0x93)
-#define OutangProc	((char) 0x94)
-#define Quest		((char) 0x95)
-#define Tilde		((char) 0x96)
-#define Qtick		((char) 0x97)
-#define Comma		((char) 0x98)
+#define Inparmath	((char) 0x89)
+#define Outpar		((char) 0x8a)
+#define Outparmath	((char) 0x8b)
+#define Qstring	        ((char) 0x8c)
+#define Equals		((char) 0x8d)
+#define Bar	      	((char) 0x8e)
+#define Inbrace	        ((char) 0x8f)
+#define Outbrace	((char) 0x90)
+#define Inbrack	        ((char) 0x91)
+#define Outbrack	((char) 0x92)
+#define Tick		((char) 0x93)
+#define Inang		((char) 0x94)
+#define Outang		((char) 0x95)
+#define OutangProc	((char) 0x96)
+#define Quest		((char) 0x97)
+#define Tilde		((char) 0x98)
+#define Qtick		((char) 0x99)
+#define Comma		((char) 0x9a)
 /*
  * Null arguments: placeholders for single and double quotes
  * and backslashes.
  */
-#define Snull		((char) 0x99)
-#define Dnull		((char) 0x9a)
-#define Bnull		((char) 0x9b)
+#define Snull		((char) 0x9b)
+#define Dnull		((char) 0x9c)
+#define Bnull		((char) 0x9d)
 /*
  * Backslash which will be returned to "\" instead of being stripped
  * when we turn the string into a printable format.
  */
-#define Bnullkeep       ((char) 0x9c)
+#define Bnullkeep       ((char) 0x9e)
 /*
  * Null argument that does not correspond to any character.
  * This should be last as it does not appear in ztokens and
  * is used to initialise the IMETA type in inittyptab().
  */
-#define Nularg		((char) 0x9d)
+#define Nularg		((char) 0x9f)
 
 /*
  * Take care to update the use of IMETA appropriately when adding
@@ -212,6 +214,10 @@ struct mathfunc {
 /* chars that need to be quoted if meant literally */
 
 #define SPECCHARS "#$^*()=|{}[]`<>?~;&\n\t \\\'\""
+
+/* chars that need to be quoted for pattern matching */
+
+#define PATCHARS "#^*()|[]<>?~\\"
 
 /*
  * Types of quote.  This is used in various places, so care needs
@@ -246,6 +252,12 @@ enum {
      * This is only useful as an argument to quotestring().
      */
     QT_SINGLE_OPTIONAL,
+    /*
+     * Only quote pattern characters.
+     * ${(b)foo} guarantees that ${~foo} matches the string
+     * contained in foo.
+     */
+    QT_BACKSLASH_PATTERN,
     /*
      * As QT_BACKSLASH, but a NULL string is shown as ''.
      */
@@ -409,7 +421,9 @@ enum {
 #define INP_HIST      (1<<2)	/* expanding history                       */
 #define INP_CONT      (1<<3)	/* continue onto previously stacked input  */
 #define INP_ALCONT    (1<<4)	/* stack is continued from alias expn.     */
-#define INP_LINENO    (1<<5)    /* update line number                      */
+#define INP_HISTCONT  (1<<5)	/* stack is continued from history expn.   */
+#define INP_LINENO    (1<<6)    /* update line number                      */
+#define INP_APPEND    (1<<7)    /* Append new lines to allow backup        */
 
 /* Flags for metafy */
 #define META_REALLOC	0
@@ -421,6 +435,15 @@ enum {
 #define META_HEAPDUP	6
 #define META_HREALLOC	7
 
+/* Context to save and restore (bit fields) */
+enum {
+    /* History mechanism */
+    ZCONTEXT_HIST       = (1<<0),
+    /* Lexical analyser */
+    ZCONTEXT_LEX        = (1<<1),
+    /* Parser */
+    ZCONTEXT_PARSE      = (1<<2)
+};
 
 /**************************/
 /* Abstract types for zsh */
@@ -1865,9 +1888,9 @@ typedef groupset *Groupset;
 #define PRINT_TYPESET		(1<<5)
 
 /* flags for printing for the whence builtin */
-#define PRINT_WHENCE_CSH	(1<<5)
-#define PRINT_WHENCE_VERBOSE	(1<<6)
-#define PRINT_WHENCE_SIMPLE	(1<<7)
+#define PRINT_WHENCE_CSH	(1<<6)
+#define PRINT_WHENCE_VERBOSE	(1<<7)
+#define PRINT_WHENCE_SIMPLE	(1<<8)
 #define PRINT_WHENCE_FUNCDEF	(1<<9)
 #define PRINT_WHENCE_WORD	(1<<10)
 
@@ -2623,6 +2646,20 @@ enum trap_state {
 #define IN_EVAL_TRAP() \
     (intrap && !trapisfunc && traplocallevel == locallevel)
 
+/*
+ * Bits in the errflag variable.
+ */
+enum errflag_bits {
+    /*
+     * Standard internal error bit.
+     */
+    ERRFLAG_ERROR = 1,
+    /*
+     * User interrupt.
+     */
+    ERRFLAG_INT = 2
+};
+
 /***********/
 /* Sorting */
 /***********/
@@ -2667,6 +2704,87 @@ struct sortelt {
 };
 
 typedef struct sortelt *SortElt;
+
+/*********************************************************/
+/* Structures to save and restore for individual modules */
+/*********************************************************/
+
+/* History */
+struct hist_stack {
+    int histactive;
+    int histdone;
+    int stophist;
+    int hlinesz;
+    char *hline;
+    char *hptr;
+    short *chwords;
+    int chwordlen;
+    int chwordpos;
+    int (*hgetc) _((void));
+    void (*hungetc) _((int));
+    void (*hwaddc) _((int));
+    void (*hwbegin) _((int));
+    void (*hwend) _((void));
+    void (*addtoline) _((int));
+    unsigned char *cstack;
+    int csp;
+};
+
+/*
+ * State of a lexical token buffer.
+ *
+ * It would be neater to include the pointer to the start of the buffer,
+ * however the current code structure means that the standard instance
+ * of this, tokstr, is visible in lots of places, so that's not
+ * convenient.
+ */
+
+struct lexbufstate {
+    /*
+     * Next character to be added.
+     * Set to NULL when the buffer is to be visible from elsewhere.
+     */
+    char *ptr;
+    /* Allocated buffer size */
+    int siz;
+    /* Length in use */
+    int len;
+};
+
+/* Lexical analyser */
+struct lex_stack {
+    int dbparens;
+    int isfirstln;
+    int isfirstch;
+    int lexflags;
+    enum lextok tok;
+    char *tokstr;
+    char *zshlextext;
+    struct lexbufstate lexbuf;
+    int lex_add_raw;
+    char *tokstr_raw;
+    struct lexbufstate lexbuf_raw;
+    int lexstop;
+    zlong toklineno;
+};
+
+/* Parser */
+struct parse_stack {
+    struct heredocs *hdocs;
+
+    int incmdpos;
+    int aliasspaceflag;
+    int incond;
+    int inredir;
+    int incasepat;
+    int isnewlin;
+    int infor;
+
+    int eclen, ecused, ecnpats;
+    Wordcode ecbuf;
+    Eccstr ecstrs;
+    int ecsoffs, ecssub, ecnfunc;
+};
 
 /************************/
 /* Flags to casemodifiy */
@@ -2870,9 +2988,9 @@ typedef wint_t convchar_t;
  * We can't be quite sure the wcwidth we've provided is entirely
  * in agreement with the system's, so be extra safe.
  */
-#define IS_COMBINING(wc)	(WCWIDTH(wc) == 0 && !iswcntrl(wc))
+#define IS_COMBINING(wc)	(wc != 0 && WCWIDTH(wc) == 0 && !iswcntrl(wc))
 #else
-#define IS_COMBINING(wc)	(WCWIDTH(wc) == 0)
+#define IS_COMBINING(wc)	(wc != 0 && WCWIDTH(wc) == 0)
 #endif
 /*
  * Test for the base of a combining character.

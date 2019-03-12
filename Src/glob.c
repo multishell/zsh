@@ -386,8 +386,8 @@ insert(char *s, int checked)
     while (!inserts || (news = dupstring(*inserts++))) {
 	if (colonmod) {
 	    /* Handle the remainder of the qualifier:  e.g. (:r:s/foo/bar/). */
-	    s = colonmod;
-	    modify(&news, &s);
+	    char *mod = colonmod;
+	    modify(&news, &mod);
 	}
 	if (!statted && (gf_sorts & GS_NORMAL)) {
 	    statfullpath(s, &buf, 1);
@@ -437,7 +437,7 @@ insert(char *s, int checked)
 	matchptr++;
 
 	if (++matchct == matchsz) {
-	    matchbuf = (Gmatch )realloc((char *)matchbuf,
+	    matchbuf = (Gmatch)zrealloc((char *)matchbuf,
 					sizeof(struct gmatch) * (matchsz *= 2));
 
 	    matchptr = matchbuf + matchct;
@@ -463,7 +463,7 @@ scanner(Complist q, int shortcircuit)
     int errssofar = errsfound;
     struct dirsav ds;
 
-    if (!q)
+    if (!q || errflag)
 	return;
     init_dirsav(&ds);
 
@@ -682,7 +682,7 @@ parsecomplist(char *instr)
 	/* Now get the next path component if there is one. */
 	l1 = (Complist) zhalloc(sizeof *l1);
 	if ((l1->next = parsecomplist(instr)) == NULL) {
-	    errflag = 1;
+	    errflag |= ERRFLAG_ERROR;
 	    return NULL;
 	}
 	l1->pat = patcompile(NULL, compflags | PAT_ANY, NULL);
@@ -708,7 +708,8 @@ parsecomplist(char *instr)
 	    }
 	    l1 = (Complist) zhalloc(sizeof *l1);
 	    l1->pat = p1;
-	    l1->closure = 1 + pdflag;
+	    /* special case (/)# to avoid infinite recursion */
+	    l1->closure = (*((char *)p1 + p1->startoff)) ? 1 + pdflag : 0;
 	    l1->follow = 0;
 	    l1->next = parsecomplist(instr);
 	    return (l1->pat) ? l1 : NULL;
@@ -728,7 +729,7 @@ parsecomplist(char *instr)
 	    return (ef && !l1->next) ? NULL : l1;
 	}
     }
-    errflag = 1;
+    errflag |= ERRFLAG_ERROR;
     return NULL;
 }
 
@@ -1790,7 +1791,7 @@ zglob(LinkList list, LinkNode np, int nountok)
 	    insertlinknode(list, node, ostr);
 	    return;
 	}
-	errflag = 0;
+	errflag &= ~ERRFLAG_ERROR;
 	zerr("bad pattern: %s", ostr);
 	return;
     }
@@ -1817,7 +1818,7 @@ zglob(LinkList list, LinkNode np, int nountok)
 	    badcshglob |= 1;	/* at least one cmd. line expansion failed */
 	} else if (isset(NOMATCH)) {
 	    zerr("no matches found: %s", ostr);
-	    free(matchbuf);
+	    zfree(matchbuf, 0);
 	    restore_globstate(saved);
 	    return;
 	} else {
@@ -1873,7 +1874,8 @@ zglob(LinkList list, LinkNode np, int nountok)
 				tmpptr->sortstrs[iexec] = tmpptr->name;
 			}
 
-			errflag = ef;
+			/* Retain any user interrupt error status */
+			errflag = ef | (errflag & ERRFLAG_INT);
 			lastval = lv;
 		    } else {
 			/* Failed, let's be safe */
@@ -1921,7 +1923,7 @@ zglob(LinkList list, LinkNode np, int nountok)
     } else if (!badcshglob && !isset(NOMATCH) && matchct == 1) {
 	insert_glob_match(list, node, (--matchptr)->name);
     }
-    free(matchbuf);
+    zfree(matchbuf, 0);
 
     restore_globstate(saved);
 }
@@ -3733,7 +3735,8 @@ qualsheval(char *name, UNUSED(struct stat *buf), UNUSED(off_t days), char *str)
 	execode(prog, 1, 0, "globqual");
 
 	ret = lastval;
-	errflag = ef;
+	/* Retain any user interrupt error status */
+	errflag = ef | (errflag & ERRFLAG_INT);
 	lastval = lv;
 
 	if (!(inserts = getaparam("reply")) &&
