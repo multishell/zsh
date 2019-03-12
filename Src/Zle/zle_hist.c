@@ -558,7 +558,7 @@ pushinput(char **args)
 
 /**/
 int
-getline(char **args)
+getline_zsh(char **args)
 {
     char *s = (char *)getlinknode(bufstack);
 
