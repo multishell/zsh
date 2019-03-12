@@ -115,8 +115,9 @@ selfinsert(UNUSED(char **args))
     ZLE_CHAR_T tmp;
 
 #ifdef MULTIBYTE_SUPPORT
+    /* may be redundant with getkeymapcmd(), but other widgets call here too */
     if (!lastchar_wide_valid)
-	if (getrestchar(lastchar) == WEOF)
+	if (getrestchar(lastchar, NULL, NULL) == WEOF)
 	    return 1;
 #endif
     tmp = LASTFULLCHAR;
@@ -787,12 +788,6 @@ bracketedpaste(char **args)
 	    zmult = 1;
 	    if (region_active)
 		killregion(zlenoargs);
-	    /* Chop a final newline if its insertion would be hard to
-	     * distinguish by the user from the line being accepted. */
-	    else if (n > 1 && zlecontext != ZLCON_VARED &&
-		    (zlecs + (insmode ? 0 : n - 1)) >= zlell &&
-		    wpaste[n-1] == ZWC('\n'))
-		n--;
 	    yankcs = yankb = zlecs;
 	    doinsert(wpaste, n);
 	    yanke = zlecs;
@@ -1431,7 +1426,7 @@ executenamedcommand(char *prmt)
 		else {
 #ifdef MULTIBYTE_SUPPORT
 		    if (!lastchar_wide_valid)
-			getrestchar(lastchar);
+			getrestchar(lastchar, NULL, NULL);
 		    if (lastchar_wide == WEOF)
 			feep = 1;
 		    else

@@ -115,6 +115,8 @@ bin_zsocket(char *nam, char **args, Options ops, UNUSED(int func))
 	    return 1;
 	}
 
+	addmodulefd(sfd, FDT_EXTERNAL);
+
 	if (targetfd) {
 	    sfd = redup(sfd, targetfd);
 	}
@@ -127,7 +129,10 @@ bin_zsocket(char *nam, char **args, Options ops, UNUSED(int func))
 	    return 1;
 	}
 
-	setiparam("REPLY", sfd);
+	/* allow to be closed explicitly */
+	fdtable[sfd] = FDT_EXTERNAL;
+
+	setiparam_no_convert("REPLY", (zlong)sfd);
 
 	if (verbose)
 	    printf("%s listener is on fd %d\n", soun.sun_path, sfd);
@@ -200,18 +205,22 @@ bin_zsocket(char *nam, char **args, Options ops, UNUSED(int func))
 	    return 1;
 	}
 
+	addmodulefd(rfd, FDT_EXTERNAL);
+
 	if (targetfd) {
 	    sfd = redup(rfd, targetfd);
 	    if (sfd < 0) {
 		zerrnam(nam, "could not duplicate socket fd to %d: %e", targetfd, errno);
+		zclose(rfd);
 		return 1;
 	    }
+	    fdtable[sfd] = FDT_EXTERNAL;
 	}
 	else {
 	    sfd = rfd;
 	}
 
-	setiparam("REPLY", sfd);
+	setiparam_no_convert("REPLY", (zlong)sfd);
 
 	if (verbose)
 	    printf("new connection from %s is on fd %d\n", soun.sun_path, sfd);
@@ -240,15 +249,19 @@ bin_zsocket(char *nam, char **args, Options ops, UNUSED(int func))
 	}
 	else
 	{
+	    addmodulefd(sfd, FDT_EXTERNAL);
+
 	    if (targetfd) {
-		sfd = redup(sfd, targetfd);
-		if (sfd < 0) {
+		if (redup(sfd, targetfd) < 0) {
 		    zerrnam(nam, "could not duplicate socket fd to %d: %e", targetfd, errno);
+		    zclose(sfd);
 		    return 1;
 		}
+		sfd = targetfd;
+		fdtable[sfd] = FDT_EXTERNAL;
 	    }
 
-	    setiparam("REPLY", sfd);
+	    setiparam_no_convert("REPLY", (zlong)sfd);
 
 	    if (verbose)
 		printf("%s is now on fd %d\n", soun.sun_path, sfd);

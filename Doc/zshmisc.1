@@ -1,4 +1,4 @@
-.TH "ZSHMISC" "1" "September 11, 2015" "zsh 5\&.1\&.1"
+.TH "ZSHMISC" "1" "December 2, 2015" "zsh 5\&.2"
 .SH "NAME"
 zshmisc \- everything and then some
 .\" Yodl file: Zsh/grammar.yo
@@ -402,8 +402,7 @@ works, but
 .nf
 \fBif true {  # Does not work!
   print yes
-}
-\fP
+}\fP
 .fi
 .RE
 .PP
@@ -1231,8 +1230,7 @@ For example, suppose the autoload file \fBfunc\fP contains
 .RS
 .nf
 \fBfunc() { print This is func; }
-print func is initialized
-\fP
+print func is initialized\fP
 .fi
 .RE
 .PP
@@ -1957,7 +1955,7 @@ can be specified with the \fBinteger\fP builtin\&.
 Arithmetic evaluation is performed on the value of each
 assignment to a named parameter declared integer
 in this manner\&.  Assigning a floating point number to an integer results in
-rounding down to the next integer\&.
+rounding towards zero\&.
 .PP
 Likewise, floating point numbers can be declared with the \fBfloat\fP
 builtin; there are two types, differing only in their output format, as
@@ -1969,16 +1967,16 @@ format\&.
 .PP
 Promotion of integer to floating point values is performed where
 necessary\&.  In addition, if any operator which requires an integer
-(`\fB~\fP\&', `\fB&\fP', `\fB|\fP', `\fB^\fP', `\fB%\fP', `\fB<<\fP', `\fB>>\fP' and their
-equivalents with assignment) is given a floating point argument, it will be
-silently rounded down to the next integer\&.
+(`\fB&\fP\&', `\fB|\fP', `\fB^\fP', `\fB<<\fP', `\fB>>\fP' and their equivalents with
+assignment) is given a floating point argument, it will be silently rounded
+towards zero except for `\fB~\fP\&' which rounds down\&.
 .PP
 Users should beware that, in common with many other programming
 languages but not software designed for calculation, the evaluation of
 an expression in zsh is taken a term at a time and promotion of integers
 to floating point does not occur in terms only containing integers\&.  A
 typical result of this is that a division such as \fB6/8\fP is truncated,
-in this being rounded down to 0\&.  The \fBFORCE_FLOAT\fP shell option can
+in this being rounded towards 0\&.  The \fBFORCE_FLOAT\fP shell option can
 be used in scripts or functions where floating point evaluation is
 required throughout\&.
 .PP

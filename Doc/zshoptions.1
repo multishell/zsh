@@ -1,4 +1,4 @@
-.TH "ZSHOPTIONS" "1" "September 11, 2015" "zsh 5\&.1\&.1"
+.TH "ZSHOPTIONS" "1" "December 2, 2015" "zsh 5\&.2"
 .SH "NAME"
 zshoptions \- zsh options
 .\" Yodl file: Zsh/options.yo
@@ -319,6 +319,15 @@ will be an array or a scalar\&.
 \fBGLOB_DOTS\fP (\fB\-4\fP)
 Do not require a leading `\fB\&.\fP\&' in a filename to be matched explicitly\&.
 .TP
+\fBGLOB_STAR_SHORT\fP
+When this option is set and the default zsh\-style globbing is in
+effect, the pattern `\fB**/*\fP\&' can be abbreviated to `\fB**\fP' and the
+pattern `\fB***/*\fP\&' can be abbreviated to \fB***\fP\&.  Hence `\fB**\&.c\fP'
+finds a file ending in \fB\&.c\fP in any subdirectory, and `\fB***\&.c\fP\&' does
+the same while also following symbolic links\&.  A \fB/\fP immediately
+after the `\fB**\fP\&' or `\fB***\fP' forces the pattern to be treated as the
+unabbreviated form\&.
+.TP
 \fBGLOB_SUBST\fP <C> <K> <S>
 Treat any characters resulting from parameter expansion as being
 eligible for filename expansion and filename generation, and any
@@ -464,7 +473,8 @@ Otherwise they are treated as an error\&.
 .TP
 \fBWARN_CREATE_GLOBAL\fP
 Print a warning message when a global parameter is created in a function
-by an assignment\&.  This often indicates that a parameter has not been
+by an assignment or in math context\&.
+This often indicates that a parameter has not been
 declared local when it should have been\&.  Parameters explicitly declared
 global from within a function using \fBtypeset \-g\fP do not cause a warning\&.
 Note that there is no warning when a local parameter is assigned to in
@@ -970,7 +980,7 @@ like C and other programming languages;
 the section ARITHMETIC EVALUATION in \fIzshmisc\fP(1)
 has an explicit list\&.
 .TP
-\fBDEBUG_BEFORE_CMD\fP
+\fBDEBUG_BEFORE_CMD\fP <D>
 Run the \fBDEBUG\fP trap before each command; otherwise it is run after
 each command\&.  Setting this option mimics the behaviour of ksh 93; with
 the option unset the behaviour is that of ksh 88\&.

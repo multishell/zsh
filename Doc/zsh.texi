@@ -28,8 +28,8 @@
 @end iftex
 @titlepage
 @title The Z Shell Manual
-@subtitle Version 5.1.1
-@subtitle Updated September 11, 2015
+@subtitle Version 5.2
+@subtitle Updated December 2, 2015
 @author Original documentation by Paul Falstad
 @page
 This is a texinfo version of the documentation for the Z Shell, originally by 
@@ -64,7 +64,7 @@ POSIX shells, but its default mode is not POSIX compatible, either.
 
 @noindent
 @cindex version
-Version 5.1.1, last updated September 11, 2015.
+Version 5.2, last updated December 2, 2015.
 @end ifinfo
 
 @menu
@@ -237,6 +237,7 @@ Zsh Modules
 * The zsh/newuser Module::
 * The zsh/parameter Module::
 * The zsh/pcre Module::
+* The zsh/param/private Module::
 * The zsh/regex Module::
 * The zsh/sched Module::
 * The zsh/net/socket Module::
@@ -287,6 +288,7 @@ User Contributions
 @noindent
 * Utilities::
 * Recent Directories::
+* Other Directory Functions::
 * Version Control Information::
 * Prompt Themes::
 * ZLE Functions::
@@ -1589,7 +1591,6 @@ works, but
 if true @{  # Does not work!
   print yes
 @}
-
 @end example
 
 @noindent
@@ -2484,7 +2485,6 @@ For example, suppose the autoload file @t{func} contains
 @example
 func() @{ print This is func; @}
 print func is initialized
-
 @end example
 
 @noindent
@@ -3300,7 +3300,7 @@ can be specified with the @t{integer} builtin.
 Arithmetic evaluation is performed on the value of each
 assignment to a named parameter declared integer
 in this manner.  Assigning a floating point number to an integer results in
-rounding down to the next integer.
+rounding towards zero.
 
 @noindent
 @cindex parameters, floating point
@@ -3317,9 +3317,9 @@ format.
 @noindent
 Promotion of integer to floating point values is performed where
 necessary.  In addition, if any operator which requires an integer
-(`@t{~}', `@t{&}', `@t{|}', `@t{^}', `@t{%}', `@t{<<}', `@t{>>}' and their
-equivalents with assignment) is given a floating point argument, it will be
-silently rounded down to the next integer.
+(`@t{&}', `@t{|}', `@t{^}', `@t{<<}', `@t{>>}' and their equivalents with
+assignment) is given a floating point argument, it will be silently rounded
+towards zero except for `@t{~}' which rounds down.
 
 @noindent
 Users should beware that, in common with many other programming
@@ -3327,7 +3327,7 @@ languages but not software designed for calculation, the evaluation of
 an expression in zsh is taken a term at a time and promotion of integers
 to floating point does not occur in terms only containing integers.  A
 typical result of this is that a division such as @t{6/8} is truncated,
-in this being rounded down to 0.  The @t{FORCE_FLOAT} shell option can
+in this being rounded towards 0.  The @t{FORCE_FLOAT} shell option can
 be used in scripts or functions where floating point evaluation is
 required throughout.
 
@@ -4529,6 +4529,13 @@ Process substitutions may be used following redirection operators; in this
 case, the substitution must appear with no trailing string.
 
 @noindent
+Note that `@t{<<(}@var{list}@t{)}' is not a special syntax; it
+is equivalent to `@t{< <(}@var{list}@t{)}', redirecting
+standard input from the result of process substitution.  Hence all
+the following documentation applies.  The second form (with the space)
+is recommended for clarity.
+
+@noindent
 In the case of the @t{<} or @t{>} forms, the shell runs the commands in
 @var{list} as a subprocess of the job executing the shell command line.
 If the system supports the @t{/dev/fd}
@@ -5236,7 +5243,17 @@ Note that flags set with one of the @t{typeset} family of commands
 If used with a nested parameter or command substitution, the result of that
 will be taken as a parameter name in the same way.  For example, if you
 have `@t{foo=bar}' and `@t{bar=baz}', the strings @t{$@{(P)foo@}},
-@t{$@{(P)$@{foo@}@}}, and @t{$@{(P)$(echo bar)@}} will be expanded to `@t{baz}'.
+@t{$@{(P)$@{foo@}@}}, and @t{$@{(P)$(echo bar)@}} will be expanded to
+`@t{baz}'.
+
+@noindent
+Likewise, if the reference is itself nested, the expression with the
+flag is treated as if it were directly replaced by the parameter name.
+It is an error if this nested substitution produces an array with more
+than one word.  For example, if `@t{name=assoc}' where the parameter
+@t{assoc} is an associative array, then
+`@t{$@{$@{(P)name@}[elt]@}}' refers to the element of the associative
+subscripted `@t{elt}'.
 
 @item @t{q}
 Quote characters that are special to the shell in the resulting words with
@@ -5613,9 +5630,14 @@ outermost.  The flags are not propagated up to enclosing
 substitutions; the nested substitution will return either a scalar or an
 array as determined by the flags, possibly adjusted for quoting.  All the
 following steps take place where applicable at all levels of substitution.
-Note that, unless the `@t{(P)}' flag is present, the flags and any subscripts
-apply directly to the value of the nested substitution; for example, the
-expansion @t{$@{$@{foo@}@}} behaves exactly the same as @t{$@{foo@}}.
+
+@noindent
+Note that, unless the `@t{(P)}' flag is present, the flags and any
+subscripts apply directly to the value of the nested substitution; for
+example, the expansion @t{$@{$@{foo@}@}} behaves exactly the same as
+@t{$@{foo@}}.  When the `@t{(P)}' flag is present in a nested substitution,
+the other substitution rules are applied to the value @emph{before} it is
+interpreted as a name, so @t{$@{$@{(P)foo@}@}} may differ from @t{$@{(P)foo@}}.
 
 @noindent
 At each nested level of substitution, the substituted words undergo all
@@ -5629,11 +5651,19 @@ substitution then applies the modifier @t{:h} and takes the directory part
 of the path.)
 
 @item @t{2.} @emph{Internal parameter flags}
-Any parameter flags set by one of the @t{typeset} family of commands,
-in particular the @t{L}, @t{R}, @t{Z}, @t{u} and @t{l} flags for padding
-and capitalization, are applied directly to the parameter value.
-Note these flags are options to the command, e.g. `@t{typeset -Z}';
-they are not the same as the flags used within parameter substitutions.
+Any parameter flags set by one of the @t{typeset} family of commands, in
+particular the @t{-L}, @t{-R}, @t{-Z}, @t{-u} and @t{-l} options for
+padding and capitalization, are applied directly to the parameter value.
+Note these flags are options to the command, e.g. `@t{typeset -Z}'; they
+are not the same as the flags used within parameter substitutions.
+
+@noindent
+At the outermost level of substitution, the `@t{(P)}' flag (rule @t{4.})
+ignores these transformations and uses the unmodified value of the
+parameter as the name to be replaced.  This is usually the desired
+behavior because padding may make the value syntactically illegal as a
+parameter name, but if capitalization changes are desired, use the
+@t{$@{$@{(P)foo@}@}} form (rule @t{25.}).
 
 @item @t{3.} @emph{Parameter subscripting}
 If the value is a raw parameter reference with a subscript, such as
@@ -5644,19 +5674,26 @@ subscript.  Thus if @t{var} is an array, @t{$@{var[1][2]@}} is the second
 character of the first word, but @t{$@{var[2,4][2]@}} is the entire third
 word (the second word of the range of words two through four of the
 original array).  Any number of subscripts may appear.  Flags such as
-@t{(k)} and @t{(v)} which alter the result of subscripting are applied.
+`@t{(k)}' and `@t{(v)}' which alter the result of subscripting are applied.
 
 @item @t{4.} @emph{Parameter name replacement}
-The effect of any @t{(P)} flag, which treats the value so far as a
-parameter name and replaces it with the corresponding value, is applied.
+At the outermost level of nesting only, the `@t{(P)}' flag is applied.  This
+treats the value so far as a parameter name (which may include a subscript
+expression) and replaces that with the corresponding value.  This
+replacement occurs later if the `@t{(P)}' flag appears in a nested
+substitution.
+
+@noindent
+If the value so far names a parameter that has internal flags (rule @t{2.}),
+those internal flags are applied to the new value after replacement.
 
 @item @t{5.} @emph{Double-quoted joining}
 If the value after this process is an array, and the substitution
-appears in double quotes, and neither an @t{(@@)} flag nor a @t{#}
+appears in double quotes, and neither an `@t{(@@)}' flag nor a `@t{#}'
 length operator is present at the current level, then words of the
 value are joined with the first character of the parameter @t{$IFS},
 by default a space, between each word (single word arrays are not
-modified).  If the @t{(j)} flag is present, that is used for joining
+modified).  If the `@t{(j)}' flag is present, that is used for joining
 instead of @t{$IFS}.
 
 @item @t{6.} @emph{Nested subscripting}
@@ -5670,22 +5707,22 @@ returns a scalar because of the quotes).
 
 @item @t{7.} @emph{Modifiers}
 Any modifiers, as specified by a trailing `@t{#}', `@t{%}', `@t{/}'
-(possibly doubled) or by a set of modifiers of the form @t{:...} (see
+(possibly doubled) or by a set of modifiers of the form `@t{:...}' (see
 @ref{Modifiers} in @ref{History Expansion}), are applied to the words
 of the value at this level.
 
 @item @t{8.} @emph{Character evaluation}
-Any @t{(#)} flag is applied, evaluating the result so far numerically
+Any `@t{(#)}' flag is applied, evaluating the result so far numerically
 as a character.
 
 @item @t{9.} @emph{Length}
-Any initial @t{#} modifier, i.e. in the form @t{$@{#}@var{var}@t{@}}, is
+Any initial `@t{#}' modifier, i.e. in the form @t{$@{#}@var{var}@t{@}}, is
 used to evaluate the length of the expression so far.
 
 @item @t{10.} @emph{Forced joining}
 If the `@t{(j)}' flag is present, or no `@t{(j)}' flag is present but
 the string is to be split as given by rule @t{11.}, and joining
-did not take place at step @t{5.}, any words in the value are joined
+did not take place at rule @t{5.}, any words in the value are joined
 together using the given string or the first character of @t{$IFS} if none.
 Note that the `@t{(F)}' flag implicitly supplies a string for joining in this
 manner.
@@ -5703,22 +5740,22 @@ occurrences of any of the characters in @t{$IFS}.  Note this step, too,
 takes place at all levels of a nested substitution.
 
 @item @t{12.} @emph{Case modification}
-Any case modification from one of the flags @t{(L)}, @t{(U)} or @t{(C)}
+Any case modification from one of the flags `@t{(L)}', `@t{(U)}' or `@t{(C)}'
 is applied.
 
 @item @t{13.} @emph{Escape sequence replacement}
-First any replacements from the @t{(g)} flag are performed, then any
-prompt-style formatting from the @t{(%)} family of flags is applied.
+First any replacements from the `@t{(g)}' flag are performed, then any
+prompt-style formatting from the `@t{(%)}' family of flags is applied.
 
 @item @t{14.} @emph{Quote application}
-Any quoting or unquoting using @t{(q)} and @t{(Q)} and related flags
+Any quoting or unquoting using `@t{(q)}' and `@t{(Q)}' and related flags
 is applied.
 
 @item @t{15.} @emph{Directory naming}
-Any directory name substitution using @t{(D)} flag is applied.
+Any directory name substitution using `@t{(D)}' flag is applied.
 
 @item @t{16.} @emph{Visibility enhancement}
-Any modifications to make characters visible using the @t{(V)} flag
+Any modifications to make characters visible using the `@t{(V)}' flag
 are applied.
 
 @item @t{17.} @emph{Lexical word splitting}
@@ -5756,7 +5793,7 @@ In contexts where expansion semantics requires a single word to
 result, all words are rejoined with the first character of @t{IFS}
 between.  So in `@t{$@{(P}@t{)$@{(f}@t{)lines@}@}}'
 the value of @t{$@{lines@}} is split at newlines, but then must be
-joined again before the @t{P} flag can be applied.
+joined again before the `@t{(P)}' flag can be applied.
 
 @noindent
 If a single word is not required, this rule is skipped.
@@ -5770,6 +5807,12 @@ is elided from the list of arguments inserted into the command line.
 Strictly speaking, the removal happens later as the same happens with
 other forms of substitution; the point to note here is simply that
 it occurs after any of the above parameter operations.
+
+@item @t{25.} @emph{Nested parameter name replacement}
+If the `@t{(P)}' flag is present and rule @t{4.} has not applied, the
+value so far is treated as a parameter name (which may include a subscript
+expression) and replaced with the corresponding value, with internal flags
+(rule @t{2.}) applied to the new value.
 
 @end table
 
@@ -6739,6 +6782,26 @@ otherwise identical.  Neither of these can be combined with other forms of
 globbing within the same path segment; in that case, the `@t{*}'
 operators revert to their usual effect.
 
+@noindent
+Even shorter forms are available when the option @t{GLOB_STAR_SHORT} is
+set.  In that case if no @t{/} immediately follows a @t{**} or @t{***}
+they are treated as if both a @t{/} plus a further @t{*} are present.
+Hence:
+
+@noindent
+@example
+setopt GLOBSTARSHORT
+ls **.c
+@end example
+
+@noindent
+is equivalent to
+
+@noindent
+@example
+ls **/*.c
+@end example
+
 @subsection Glob Qualifiers
 @noindent
 @cindex globbing, qualifiers
@@ -7335,6 +7398,12 @@ the syntax:
 @end quotation
 
 @noindent
+Within the parentheses on the right hand side of either form of the
+assignment, newlines and semicolons are treated the same as white space,
+separating individual @var{value}s.  Any consecutive sequence of such
+characters has the same effect.
+
+@noindent
 Ordinary array parameters may also be explicitly declared with:
 @findex typeset, use of
 
@@ -7685,9 +7754,7 @@ elements, use the append syntax:
 
 @noindent
 @example
-
-   aa+=('key with "*strange*" characters' 'value string')
-
+aa+=('key with "*strange*" characters' 'value string')
 @end example
 
 @noindent
@@ -8108,7 +8175,13 @@ Incremented by one each time a new shell is started.
 
 @vindex signals
 @item @t{signals}
-An array containing the names of the signals.
+An array containing the names of the signals.  Note that with
+the standard zsh numbering of array indices, where the first element
+has index 1, the signals are offset by 1 from the signal number
+used by the operating system.  For example, on typical Unix-like systems
+@t{HUP} is signal number 1, but is referred to as @t{$signals[2]}.  This
+is because of @t{EXIT} at position 1 in the array, which is used
+internally by zsh but is not known to the operating system.
 
 @vindex TRY_BLOCK_ERROR
 @item @t{TRY_BLOCK_ERROR} <S>
@@ -9681,6 +9754,21 @@ will be an array or a scalar.
 @item @t{GLOB_DOTS} (@t{-4})
 Do not require a leading `@t{.}' in a filename to be matched explicitly.
 
+@pindex GLOB_STAR_SHORT
+@pindex NO_GLOB_STAR_SHORT
+@pindex GLOBSTARSHORT
+@pindex NOGLOBSTARSHORT
+@cindex globbing, short forms
+@cindex globbing, ** special
+@item @t{GLOB_STAR_SHORT}
+When this option is set and the default zsh-style globbing is in
+effect, the pattern `@t{**/*}' can be abbreviated to `@t{**}' and the
+pattern `@t{***/*}' can be abbreviated to @t{***}.  Hence `@t{**.c}'
+finds a file ending in @t{.c} in any subdirectory, and `@t{***.c}' does
+the same while also following symbolic links.  A @t{/} immediately
+after the `@t{**}' or `@t{***}' forces the pattern to be treated as the
+unabbreviated form.
+
 @pindex GLOB_SUBST
 @pindex NO_GLOB_SUBST
 @pindex GLOBSUBST
@@ -9905,7 +9993,8 @@ Otherwise they are treated as an error.
 @cindex parameters, warning when created globally
 @item @t{WARN_CREATE_GLOBAL}
 Print a warning message when a global parameter is created in a function
-by an assignment.  This often indicates that a parameter has not been
+by an assignment or in math context.
+This often indicates that a parameter has not been
 declared local when it should have been.  Parameters explicitly declared
 global from within a function using @t{typeset -g} do not cause a warning.
 Note that there is no warning when a local parameter is assigned to in
@@ -10743,13 +10832,13 @@ like C and other programming languages;
 @ref{Arithmetic Evaluation}
 has an explicit list.
 
-@pindex DEBUG_BEFORE_CMD <D>
-@pindex NO_DEBUG_BEFORE_CMD <D>
-@pindex DEBUGBEFORECMD <D>
-@pindex NODEBUGBEFORECMD <D>
+@pindex DEBUG_BEFORE_CMD
+@pindex NO_DEBUG_BEFORE_CMD
+@pindex DEBUGBEFORECMD
+@pindex NODEBUGBEFORECMD
 @cindex traps, DEBUG, before or after command
 @cindex DEBUG trap, before or after command
-@item @t{DEBUG_BEFORE_CMD}
+@item @t{DEBUG_BEFORE_CMD} <D>
 Run the @t{DEBUG} trap before each command; otherwise it is run after
 each command.  Setting this option mimics the behaviour of ksh 93; with
 the option unset the behaviour is that of ksh 88.
@@ -12046,8 +12135,11 @@ For more on aliases, include common problems, see
 @cindex functions, autoloading
 @cindex autoloading functions
 @item @t{autoload} [ @{@t{+}|@t{-}@}@t{TUXkmtz} ] [ @t{-w} ] [ @var{name} ... ]
+@vindex fpath, searching
 Equivalent to @t{functions -u}, with the exception of @t{-X}/@t{+X} and
-@t{-w}.
+@t{-w}.  See the section `Autoloading Functions' in @ref{Functions} for full details.  The @t{fpath} parameter
+will be searched to find the function definition when the function is
+first referenced.
 
 @noindent
 The flag @t{-X} may be used only inside a shell function, and may not be
@@ -12452,7 +12544,7 @@ See @ref{The zsh/terminfo Module}.
 @cindex sh, compatibility
 @cindex ksh, compatibility
 @cindex csh, compatibility
-@item @t{emulate} [ @t{-LR} ] [ @{@t{zsh}|@t{sh}|@t{ksh}|@t{csh}@} [ @var{flags} ... ] ]
+@item @t{emulate} [ @t{-lLR} ] [ @{@t{zsh}|@t{sh}|@t{ksh}|@t{csh}@} [ @var{flags} ... ] ]
 Without any argument print current emulation mode.
 
 @noindent
@@ -12492,6 +12584,15 @@ modes except @t{ksh}. The @t{-L} switch is mutually exclusive with the
 use of @t{-c} in @var{flags}.
 
 @noindent
+If there is a single argument and the @t{-l} switch is given, the
+options that would be set or unset (the latter indicated with the prefix
+`@t{no}') are listed.  @t{-l} can be combined with @t{-L} or @t{-R} and
+the list will be modified in the appropriate way.  Note the list does
+not depend on the current setting of options, i.e. it includes all
+options that may in principle change, not just those that would actually
+change.
+
+@noindent
 The @var{flags} may be any of the invocation-time flags described in
 @ref{Invocation},
 except that `@t{-o EMACS}' and `@t{-o VI}' may not be used.  Flags such
@@ -12529,7 +12630,6 @@ For example:
 emulate sh -c 'fni() @{ setopt cshnullglob; @}
 fno() @{ fni; @}'
 fno
-
 @end example
 
 @noindent
@@ -14137,12 +14237,8 @@ for this function; the flag @t{-T} does the same, but turns off tracing
 on any function called from the present one, unless that function also
 has the @t{-t} or @t{-T} flag.  The @t{-u} and @t{-U} flags cause the
 function to be marked for autoloading; @t{-U} also causes alias
-expansion to be suppressed when the function is loaded.  The @t{fpath}
-parameter will be searched to find the function definition when the
-function is first referenced; see @ref{Functions}. The @t{-k} and
-@t{-z} flags make the function be loaded using ksh-style or zsh-style
-autoloading respectively. If neither is given, the setting of the
-@t{KSH_AUTOLOAD} option determines how the function is loaded.
+expansion to be suppressed when the function is loaded.  See the
+description of the `@t{autoload}' builtin for details.
 
 @noindent
 Note that the builtin @t{functions} provides the same basic capabilities
@@ -14517,7 +14613,7 @@ Equivalent to @t{whence -c}.
 This builtin command can be used to compile functions or scripts,
 storing the compiled form in a file, and to examine files containing
 the compiled form.  This allows faster autoloading of functions and
-execution of scripts by avoiding parsing of the text when the files
+sourcing of scripts by avoiding parsing of the text when the files
 are read.
 
 @noindent
@@ -14532,6 +14628,7 @@ for a description of how autoloaded functions are searched.  The
 extension @t{.zwc} stands for `zsh word code'.
 
 @noindent
+@vindex fpath, with zcompile
 If there is at least one @var{name} argument, all the named files
 are compiled into the output @var{file} given as the first argument.  If
 @var{file} does not end in @t{.zwc}, this extension is automatically
@@ -15471,6 +15568,7 @@ refer to a terminal an error is reported.
 @itemx @t{zle} @t{-D} @var{widget} ...
 @itemx @t{zle} @t{-A} @var{old-widget} @var{new-widget}
 @itemx @t{zle} @t{-N} @var{widget} [ @var{function} ]
+@itemx @t{zle} @t{-f} @var{flag} [ @var{flag}... ]
 @itemx @t{zle} @t{-C} @var{widget} @var{completion-widget} @var{function}
 @itemx @t{zle} @t{-R} [ @t{-c} ] [ @var{display-string} ] [ @var{string} ... ]
 @itemx @t{zle} @t{-M} @var{string}
@@ -15534,6 +15632,23 @@ widget is invoked from within the editor, the specified shell @var{function}
 is called.  If no function name is specified, it defaults to
 the same name as the widget.  For further information, see
 @ref{Zle Widgets}.
+
+@item @t{-f} @var{flag} [ @var{flag}... ]
+Set various flags on the running widget.  Possible values for @var{flag} are:
+
+@noindent
+@t{yank} for indicating that the widget has yanked text into the buffer.
+If the widget is wrapping an existing internal widget, no further
+action is necessary, but if it has inserted the text manually, then it
+should also take care to set @t{YANK_START} and @t{YANK_END} correctly.
+@t{yankbefore} does the same but is used when the yanked text appears
+after the cursor.
+
+@noindent
+@t{kill} for indicating that text has been killed into the cutbuffer.
+When repeatedly invoking a kill widget, text is appended to the cutbuffer
+instead of replacing it, but when wrapping such widgets, it is necessary
+to call `@t{zle -f kill}' to retain this effect.
 
 @cindex completion widgets, creating
 @item @t{-C} @var{widget} @var{completion-widget} @var{function}
@@ -16143,12 +16258,15 @@ defined with @t{zle -N} this is set to the empty string.  Read-only.
 @item @t{YANK_ACTIVE} (integer)
 @itemx @t{YANK_START} (integer)
 @itemx @t{YANK_END} (integer)
-These three parameters indicate whether text has just been yanked (pasted)
-into the buffer.  @t{YANK_START} and @t{YANK_END} are in the same unit sas
-@t{CURSOR}, and are only valid when @t{YANK_ACTIVE} is non-zero.
+@t{YANK_ACTIVE} indicates whether text has just been yanked (pasted)
+into the buffer.  @t{YANK_START} and @t{YANK_END} give the location of
+the pasted text and are in the same units as @t{CURSOR}.  They are only
+valid for reading when @t{YANK_ACTIVE} is non-zero.  They can also be
+assigned by widgets that insert text in a yank-like fashion, for example
+wrappers of @t{bracketed-paste}.  See also @t{zle -f}.
 
 @noindent
-All three are read-only.
+@t{YANK_ACTIVE} is read-only.
 
 @vindex ZLE_STATE
 @item @t{ZLE_STATE} (scalar)
@@ -17472,35 +17590,32 @@ the command line or key bindings temporarily.
 
 @noindent
 The following widget, @t{caps-lock}, serves as an example.
+
+@noindent
 @example
 self-insert-ucase() @{
   LBUFFER+=$@{(U)KEYS[-1]@}
 @}
 
-@noindent
 integer stat
 
-@noindent
 zle -N self-insert self-insert-ucase
 zle -A caps-lock save-caps-lock
 zle -A accept-line caps-lock
 
-@noindent
 zle recursive-edit
 stat=$?
 
-@noindent
 zle -A .self-insert self-insert
 zle -A save-caps-lock caps-lock
 zle -D save-caps-lock
 
-@noindent
 (( stat )) && zle send-break
 
-@noindent
 return $stat
-
 @end example
+
+@noindent
 This causes typed letters to be inserted capitalised until either
 @t{accept-line} (i.e. typically the return key) is typed or the
 @t{caps-lock} widget is invoked again; the later is handled by saving
@@ -17938,7 +18053,7 @@ context, the defaults applied are equivalent to
 @noindent
 @example
 zle_highlight=(region:standout special:standout
-suffix:bold isearch:underline)
+suffix:bold isearch:underline paste:standout)
 @end example
 
 @noindent
@@ -18919,8 +19034,8 @@ completion string.
 
 @noindent
 The @t{b} and @t{B} forms are similar to @t{l} and @t{L} with an empty 
-anchor, but need to match only the beginning of the trial completion
-or the word on the command line, respectively.
+anchor, but need to match only the beginning of the word on the command line
+or trial completion, respectively.
 
 @item @t{r:}@var{lpat}@t{|}@var{ranchor}@t{=}@var{tpat}
 @itemx @t{R:}@var{lpat}@t{|}@var{ranchor}@t{=}@var{tpat}
@@ -18931,7 +19046,7 @@ or the word on the command line, respectively.
 As @t{l}, @t{L}, @t{b} and @t{B}, with the difference that the command
 line and trial completion patterns are anchored on the right side.
 Here an empty @var{ranchor} and the @t{e} and @t{E} forms force the
-match to the end of the trial completion or command line string.
+match to the end of the command line or trial completion string.
 
 @end table
 
@@ -23707,6 +23822,12 @@ option `@t{-c}' will not be considered.  However, after `@t{-a}'
 both sets will still be considered valid.
 
 @noindent
+If an option in a set appears on the command line, it is stored in the
+associative array `@t{opt_args}' with '@var{set}@t{-}@var{option}'
+as a key.  In the example above, a key `@t{set1--c}' is used if the option
+`@t{-c}' is on the command line.
+
+@noindent
 If the name given for one of the mutually exclusive sets is of the form
 `@t{(}@var{name}@t{)}' then only one value from each set will ever
 be completed; more formally, all specifications are mutually
@@ -25848,6 +25969,9 @@ Access to internal hash tables via special associative arrays.
 @item @t{zsh/pcre}
 Interface to the PCRE library.
 
+@item @t{zsh/param/private}
+Builtins for managing private-scoped parameters in function context.
+
 @item @t{zsh/regex}
 Interface to the POSIX regex library.
 
@@ -25916,6 +26040,7 @@ styles.
 * The zsh/newuser Module::
 * The zsh/parameter Module::
 * The zsh/pcre Module::
+* The zsh/param/private Module::
 * The zsh/regex Module::
 * The zsh/sched Module::
 * The zsh/net/socket Module::
@@ -27763,10 +27888,14 @@ directory, the current working directory.
 @vindex history
 @item @t{history}
 This associative array maps history event numbers to the full history lines.
+Although it is presented as an associative array, the array of all values
+(@t{$@{history[@@]@}}) is guaranteed to be returned in order from most recent
+to oldest history event, that is, by decreasing history event number.
 
 @vindex historywords
 @item @t{historywords}
-A special array containing the words stored in the history.
+A special array containing the words stored in the history.  These also
+appear in most to least recent order.
 
 @vindex jobdirs
 @item @t{jobdirs}
@@ -27876,7 +28005,7 @@ where the @t{source} or `@t{.}' command was executed.
 
 @end table
 @c (avoiding a yodl bug)
-@node The zsh/pcre Module, The zsh/regex Module, The zsh/parameter Module, Zsh Modules
+@node The zsh/pcre Module, The zsh/param/private Module, The zsh/parameter Module, Zsh Modules
 
 @section The zsh/pcre Module
 @noindent
@@ -27940,7 +28069,6 @@ A simple example of "find all non-overlapping matches":
 
 @noindent
 @example
-
 string="The following zip codes: 78884 90210 99513"
 pcre_compile -m "\d@{5@}"
 accum=()
@@ -27951,9 +28079,6 @@ while [[ $? -eq 0 ]] do
     pcre_match -b -n $b[2] -- $string
 done
 print -l $accum
-
-@noindent
-
 @end example
 
 @end table
@@ -27986,7 +28111,120 @@ the @t{-i} switch of @t{pcre_compile}.
 
 @end table
 @c (avoiding a yodl bug)
-@node The zsh/regex Module, The zsh/sched Module, The zsh/pcre Module, Zsh Modules
+@node The zsh/param/private Module, The zsh/regex Module, The zsh/pcre Module, Zsh Modules
+
+@section The zsh/param/private Module
+@noindent
+@c Yodl file: Zsh/mod_private.yo
+
+The @t{zsh/param/private} module is used to create parameters whose scope
+is limited to the current function body, and @emph{not} to other functions
+called by the current function.
+
+@noindent
+This module provides a single autoloaded builtin:
+
+@table @asis
+@findex private
+@cindex private parameter, creating
+@item @t{private} [ @{@t{+}|@t{-}@}@t{AHUahlprtux} ] [ @{@t{+}|@t{-}@}@t{EFLRZi} [ @var{n} ] ] [ @var{name}[@t{=}@var{value}] ... ]
+The @t{private} builtin accepts all the same options and arguments as @t{local}
+(@ref{Shell Builtin Commands}) except
+for the `@t{-}@t{T}' option.  Tied parameters may not be made private.
+
+@noindent
+If used at the top level (outside a function scope), @t{private} creates a
+normal parameter in the same manner as @t{declare} or @t{typeset}.  A
+warning about this is printed if @t{WARN_CREATE_GLOBAL} is set
+(@ref{Options}).  Used inside a
+function scope, @t{private} creates a local parameter similar to one
+declared with @t{local}, except having special properties noted below.
+
+@noindent
+Special parameters which expose or manipulate internal shell state, such
+as @t{ARGC}, @t{argv}, @t{COLUMNS}, @t{LINES}, @t{UID}, @t{EUID}, @t{IFS},
+@t{PROMPT}, @t{RANDOM}, @t{SECONDS}, etc., cannot be made private unless
+the `@t{-}@t{h}' option is used to hide the special meaning of the
+parameter.  This may change in the future.
+
+@end table
+
+@noindent
+As with other @t{typeset} equivalents, @t{private} is both a builtin and a
+reserved word, so arrays may be assigned with parenthesized word list
+@var{name}@t{=(}@var{value}...@t{)} syntax.  However, the reserved
+word `@t{private}' is not available until @t{zsh/param/private} is loaded,
+so care must be taken with order of execution and parsing for function
+definitions which use @t{private}.  To compensate for this, the module
+also adds the option `@t{-P}' to the `@t{local}' builtin to declare private
+parameters.
+
+@noindent
+For example, this construction fails if @t{zsh/param/private} has not yet
+been loaded when `@t{bad_declaration}' is defined:
+@example
+bad_declaration() @{
+  zmodload zsh/param/private
+  private array=( one two three )
+@}
+@end example
+
+@noindent
+This construction works because @t{local} is already a keyword, and the
+module is loaded before the statement is executed:
+@example
+good_declaration() @{
+  zmodload zsh/param/private
+  local -P array=( one two three )
+@}
+@end example
+
+@noindent
+The following is usable in scripts but may have trouble with @t{autoload}:
+@example
+zmodload zsh/param/private
+iffy_declaration() @{
+  private array=( one two three )
+@}
+@end example
+
+@noindent
+The @t{private} builtin may always be used with scalar assignments and
+for declarations without assignments.
+
+@noindent
+Parameters declared with @t{private} have the following properties:
+
+@itemize @bullet
+
+@item 
+Within the function body where it is declared, the parameter
+behaves as a local, except as noted above for tied or special parameters.
+@item 
+The type of a parameter declared private cannot be changed in the
+scope where it was declared, even if the parameter is unset.  Thus an
+array cannot be assigned to a private scalar, etc.
+@item 
+Within any other function called by the declaring function, the
+private parameter does @emph{NOT} hide other parameters of the same name, so
+for example a global parameter of the same name is visible and may be
+assigned or unset.  This includes calls to anonymous functions, although
+that may also change in the future.
+@item 
+An exported private remains in the environment of inner scopes but
+appears unset for the current shell in those scopes.  Generally, exporting
+private parameters should be avoided.
+@end itemize
+
+@noindent
+Note that this differs from the static scope defined by compiled languages
+derived from C, in that the a new call to the same function creates a new
+scope, i.e., the parameter is still associated with the call stack rather
+than with the function definition.  It differs from ksh `@t{typeset -S}'
+because the syntax used to define the function has no bearing on whether
+the parameter scope is respected.
+@c (avoiding a yodl bug)
+@node The zsh/regex Module, The zsh/sched Module, The zsh/param/private Module, Zsh Modules
 
 @section The zsh/regex Module
 @noindent
@@ -28142,6 +28380,15 @@ connection.
 
 @noindent
 In order to elicit more verbose output, use @t{-v}.
+
+@noindent
+File descriptors can be closed with normal shell syntax when no longer
+needed, for example:
+
+@noindent
+@example
+exec @{REPLY@}>&-
+@end example
 
 @end table
 
@@ -33039,6 +33286,7 @@ such as shell functions, look for comments in the function source files.
 @menu
 * Utilities::
 * Recent Directories::
+* Other Directory Functions::
 * Version Control Information::
 * Prompt Themes::
 * ZLE Functions::
@@ -33091,7 +33339,7 @@ distribution in your home directory, you would use the commands:
 @noindent
 @example
 mkdir ~/zsh_help
-perl ~/zsh-5.1.1/Util/helpfiles ~/zsh_help
+perl ~/zsh-5.2/Util/helpfiles ~/zsh_help
 @end example
 
 @noindent
@@ -33252,7 +33500,7 @@ Run @t{zkbd} either as an autoloaded function, or as a shell script:
 
 @noindent
 @example
-zsh -f ~/zsh-5.1.1/Functions/Misc/zkbd
+zsh -f ~/zsh-5.2/Functions/Misc/zkbd
 @end example
 
 @noindent
@@ -33317,7 +33565,7 @@ command and redirect the output into a file:
 
 @noindent
 @example
-. ~/zsh-5.1.1/Util/reporter > zsh.report
+. ~/zsh-5.2/Util/reporter > zsh.report
 @end example
 
 @noindent
@@ -33434,7 +33682,7 @@ options @t{-Uz} are appropriate.
 @end table
 
 @noindent
-@node Recent Directories, Version Control Information, Utilities, User Contributions
+@node Recent Directories, Other Directory Functions, Utilities, User Contributions
 @cindex recent directories, maintaining list of
 @cindex directories, maintaining list of recent
 @findex cdr
@@ -33552,6 +33800,19 @@ performed.  Completion is available.  No quoting is necessary (except for
 newlines, where I have in any case no sympathy); directories are in
 unabbreviated from and contain an absolute path, i.e. they start with @t{/}.
 Usually the first entry should be left as the current directory.
+
+@item @t{-p '}@var{pattern}@t{'}
+Prunes any items in the directory list that match the given extended glob
+pattern; the pattern needs to be quoted from immediate expansion on the
+command line.  The pattern is matched against each completely expanded
+file name in the list; the full string must match, so wildcards at the
+end (e.g. @t{'*removeme*'}) are needed to remove entries with a given
+substring.
+
+@noindent
+If output is to a terminal, then the function will print the new list
+after pruning and prompt for confirmation by the user.  This output and
+confirmation step can be skipped by using @t{-P} instead of @t{-p}.
 
 @end table
 
@@ -33762,7 +34023,239 @@ command line.  See the contents of the function @t{chpwd_recent_dirs} for
 more details.
 
 @noindent
-@node Version Control Information, Prompt Themes, Recent Directories, User Contributions
+@node Other Directory Functions, Version Control Information, Recent Directories, User Contributions
+@cindex directories, named, dynamic, helper function
+@cindex dynamic directory naming, helper function
+@cindex named directories, dynamic, helper function
+@findex zsh_directory_name_generic
+
+@section Abbreviated dynamic references to directories
+@noindent
+
+@noindent
+The dynamic directory naming system is described in the subsection
+@emph{Dynamic named directories} of
+@ref{Filename Expansion}.  In this, a reference to
+@t{~[}@var{...}@t{]} is expanded by a function found by the hooks
+mechanism.
+
+@noindent
+The contributed function @t{zsh_directory_name_generic} provides a
+system allowing the user to refer to directories with only a limited
+amount of new code.  It supports all three of the standard interfaces
+for directory naming: converting from a name to a directory, converting
+in the reverse direction to find a short name, and completion of names.
+
+@noindent
+The main feature of this function is a path-like syntax,
+combining abbreviations at multiple levels separated by ":".
+As an example, ~[g:p:s] might specify:
+@table @asis
+@item @t{g}
+The top level directory for your git area.  This first component
+has to match, or the function will retrun indicating another
+directory name hook function should be tried.
+
+@item @t{p}
+The name of a project within your git area.
+
+@item @t{s}
+The source area within that project.
+
+@end table
+This allows you to collapse references to long hierarchies to a very
+compact form, particularly if the hierarchies are similar across different
+areas of the disk.
+
+@noindent
+Name components may be completed: if a description is shown at the top
+of the list of completions, it includes the path to which previous
+components expand, while the description for an individual completion
+shows the path segment it would add.  No additional configuration is
+needed for this as the completion system is aware of the dynamic
+directory name mechanism.
+
+@noindent
+
+@subsection Usage
+@noindent
+
+@noindent
+To use the function, first define a wrapper function for your specific
+case.  We'll assume it's to be autoloaded.  This can have any name but
+we'll refer to it as zdn_mywrapper.  This wrapper function will define
+various variables and then call this function with the same arguments
+that the wrapper function gets.  This configuration is described below.
+
+@noindent
+Then arrange for the wrapper to be run as a zsh_directory_name hook:
+
+@noindent
+@example
+autoload -Uz add-zsh-hook zsh_diretory_name_generic zdn_mywrapper
+add-zsh-hook -U zsh_directory_name zdn_mywrapper
+@end example
+
+@noindent
+
+@subsection Configuration
+@noindent
+
+@noindent
+The wrapper function should define a local associative array zdn_top.
+Alternatively, this can be set with a style called @t{mapping}.  The
+context for the style is @t{:zdn:}@var{wrapper-name} where
+@var{wrapper-name} is the function calling zsh_directory_name_generic;
+for example:
+
+@noindent
+@example
+zstyle :zdn:zdn_mywrapper: mapping zdn_mywrapper_top
+@end example
+
+@noindent
+The keys in this associative array correspond to the first component of
+the name.  The values are matching directories.  They may have an
+optional suffix with a slash followed by a colon and the name of a
+variable in the same format to give the next component.  (The slash
+before the colon is to disambiguate the case where a colon is needed in
+the path for a drive.  There is otherwise no syntax for escaping this,
+so path components whose names start with a colon are not supported.)  A
+special component @t{:default:} specifies a variable in the form
+@t{/:}@var{var} (the path section is ignored and so is usually empty)
+that will be used for the next component if no variable is given for the
+path.  Variables referred to within @t{zdn_top} have the same format as
+@t{zdn_top} itself, but contain relative paths.
+
+@noindent
+For example,
+
+@noindent
+@example
+local -A zdn_top=(
+  g   ~/git
+  ga  ~/alternate/git
+  gs  /scratch/$USER/git/:second2
+  :default: /:second1
+)
+@end example
+
+@noindent
+This specifies the behaviour of a directory referred to as @t{~[g:...]}
+or @t{~[ga:...]} or @t{~[gs:...]}.  Later path components are optional;
+in that case @t{~[g]} expands to @t{~/git}, and so on.  @t{gs} expands
+to @t{/scratch/$USER/git} and uses the associative array @t{second2} to
+match the second component; @t{g} and @t{ga} use the associative array
+@t{second1} to match the second component.
+
+@noindent
+When expanding a name to a directory, if the first component is not @t{g} or
+@t{ga} or @t{gs}, it is not an error; the function simply returns 1 so that a
+later hook function can be tried.  However, matching the first component
+commits the function, so if a later component does not match, an error
+is printed (though this still does not stop later hooks from being
+executed).
+
+@noindent
+For components after the first, a relative path is expected, but note that
+multiple levels may still appear.  Here is an example of @t{second1}:
+
+@noindent
+@example
+local -A second1=(
+  p   myproject
+  s   somproject
+  os  otherproject/subproject/:third
+)
+@end example
+
+@noindent
+The path as found from @t{zdn_top} is extended with the matching
+directory, so @t{~[g:p]} becomes @t{~/git/myproject}.  The slash between
+is added automatically (it's not possible to have a later component
+modify the name of a directory already matched).  Only @t{os} specifies
+a variable for a third component, and there's no @t{:default:}, so it's
+an error to use a name like @t{~[g:p:x]} or @t{~[ga:s:y]} because
+there's nowhere to look up the @t{x} or @t{y}.
+
+@noindent
+The associative arrays need to be visible within this function; the
+generic function therefore uses internal variable names beginning
+@t{_zdn_} in order to avoid clashes.  Note that the variable @t{reply}
+needs to be passed back to the shell, so should not be local in the
+calling function.
+
+@noindent
+The function does not test whether directories assembled by component
+actually exist; this allows the system to work across automounted
+file systems.  The error from the command trying to use a non-existent
+directory should be sufficient to indicate the problem.
+
+@noindent
+
+@subsection Complete example
+@noindent
+
+@noindent
+Here is a full fictitious but usable autoloadable definition of the
+example function defined by the code above.  So @t{~[gs:p:s]} expands
+to @t{/scratch/$USER/git/myscratchproject/top/srcdir} (with @t{$USER}
+also expanded).
+
+@noindent
+@example
+local -A zdn_top=(
+  g   ~/git
+  ga  ~/alternate/git
+  gs  /scratch/$USER/git/:second2
+  :default: /:second1
+)
+
+local -A second1=(
+  p   myproject
+  s   somproject
+  os  otherproject/subproject/:third
+)
+
+local -A second2=(
+  p   myscratchproject
+  s   somescratchproject
+)
+
+local -A third=(
+  s   top/srcdir
+  d   top/documentation
+)
+
+# autoload not needed if you did this at initialisation...
+autoload -Uz zsh_directory_name_generic
+zsh_directory_name_generic "$@@
+@end example
+
+@noindent
+It is also possible to use global associative arrays, suitably named,
+and set the style for the context of your wrapper function to
+refer to this.  Then your set up code would contain the following:
+
+@noindent
+@example
+typeset -A zdn_mywrapper_top=(...)
+# ... and so on for other associative arrays ...
+zstyle ':zdn:zdn_mywrapper:' mapping zdn_mywrapper_top
+autoload -Uz add-zsh-hook zsh_directory_name_generic zdn_mywrapper
+add-zsh-hook -U zsh_directory_name zdn_mywrapper
+@end example
+
+@noindent
+and the function @t{zdn_mywrapper} would contain only the following:
+
+@noindent
+@example
+zsh_directory_name_generic "$@@"
+@end example
+
+@noindent
+@node Version Control Information, Prompt Themes, Other Directory Functions, User Contributions
 
 @section Gathering information from version control systems
 @noindent
@@ -34466,7 +34959,7 @@ otherwise would be something like `svn' or `cvs') will be set to
 identifier is the second element. @t{vcs_info} will have filled in a proper
 value for the "repository's" root directory and the string containing the
 information about quilt's state will be available as the `misc' replacement
-(and @t{%Q} for compatibility with `addon' mode.
+(and @t{%Q} for compatibility with `addon' mode).
 
 @noindent
 What is left to discuss is how `standalone' mode is detected. The detection
@@ -35001,7 +35494,7 @@ zstyle ':vcs_info:hg+gen-hg-bookmark-string:*' hooks hgbookmarks
 @end example
 
 @noindent
-And then we define the `@t{+vi-hgbookmarks} function:
+And then we define the `@t{+vi-hgbookmarks}' function:
 @example
 
 function +vi-hgbookmarks() @{
@@ -35028,7 +35521,6 @@ function +vi-hgbookmarks() @{
     ret=1
     return 0
 @}
-
 @end example
 
 @noindent
@@ -35186,7 +35678,9 @@ select-word-style bash
 The eight `@t{-match}' functions are drop-in replacements for the
 builtin widgets without the suffix.  By default they behave in a similar
 way.  However, by the use of styles and the function @t{select-word-style},
-the way words are matched can be altered.
+the way words are matched can be altered.  For comparison, the widgets
+described in @ref{Text Objects} use fixed definitions of words, compatible
+with the @t{vim} editor.
 
 @noindent
 The simplest way of configuring the functions is to use
@@ -35313,9 +35807,10 @@ matched against each @var{pattern} in turn until one matches; if it does,
 the context is extended by a colon and the corresponding @var{subcontext}.
 Note that the test is made against the original word on the line, with no
 stripping of quotes.  Special handling is done between words: the current
-context is examined and if it contains the string @t{back}, the word before
-the cursor is considered, else the word after cursor is considered. Some
-examples are given below.
+context is examined and if it contains the string @t{between} the word
+is set to a single space; else if it is contains the string @t{back},
+the word before the cursor is considered, else the word after cursor is
+considered. Some examples are given below.
 
 @noindent
 The style @t{skip-whitespace-first} is only used with the
@@ -35413,6 +35908,122 @@ extract the command argument around the cursor.
 The @t{word-context} style is implemented by the function
 @t{match-word-context}.  This should not usually need to be called
 directly.
+
+@tindex bracketed-paste-magic
+@item bracketed-paste-magic
+The @t{bracketed-paste} widget (see @ref{Miscellaneous} in @ref{Zle Widgets})
+inserts pasted text literally into the editor buffer rather than interpret
+it as keystrokes.  This disables some common usages where the self-insert
+widget is replaced in order to accomplish some extra processing.  An
+example is the contributed @t{url-quote-magic} widget described below.
+
+@noindent
+The @t{bracketed-paste-magic} widget is meant to replace @t{bracketed-paste}
+with a wrapper that re-enables these self-insert actions, and other
+actions as selected by zstyles.  Therefore this widget is installed with
+
+@example
+autoload -Uz bracketed-paste-magic
+zle -N bracketed-paste bracketed-paste-magic
+@end example
+
+@noindent
+Other than enabling some widget processing, @t{bracketed-paste-magic}
+attempts to replicate @t{bracketed-paste} as faithfully as possible.
+
+@noindent
+The following zstyles may be set to control processing of pasted text.
+All are looked up in the context `@t{:bracketed-paste-magic}'.
+
+@noindent
+@table @asis
+@item @t{active-widgets}
+A list of patterns matching widget names that should be activated during
+the paste.  All other key sequences are processed as self-insert-unmeta.
+The default is `@t{self-*}' so any user-defined widgets named with that
+prefix are active along with the builtin self-insert.
+
+@noindent
+If this style is not set (explicitly deleted) or set to an empty value,
+no widgets are active and the pasted text is inserted literally.  If the
+value includes `@t{undefined-key}', any unknown sequences are discarded
+from the pasted text.
+
+@item @t{inactive-keys}
+The inverse of @t{active-widgets}, a list of key sequences that always use
+@t{self-insert-unmeta} even when bound to an active widget.  Note that
+this is a list of literal key sequences, not patterns.
+
+@item @t{paste-init}
+A list of function names, called in widget context (but not as widgets).
+The functions are called in order until one of them returns a non-zero
+status.  The parameter `@t{PASTED}' contains the initial state of the
+pasted text.  All other ZLE parameters such as `@t{BUFFER}' have their
+normal values and side-effects, and full history is available, so for
+example @t{paste-init} functions may move words from @t{BUFFER} into
+@t{PASTED} to make those words visible to the @t{active-widgets}.
+
+@noindent
+A non-zero return from a @t{paste-init} function does @emph{not} prevent the
+paste itself from proceeding.
+
+@noindent
+Loading @t{bracketed-paste-magic} defines @t{backward-extend-paste}, a
+helper function for use in @t{paste-init}.
+
+@noindent
+@example
+zstyle :bracketed-paste-magic paste-init \ 
+       backward-extend-paste
+@end example
+
+@noindent
+When a paste would insert into the middle of a word or append text to a
+word already on the line, @t{backward-extend-paste} moves the prefix
+from @t{LBUFFER} into @t{PASTED} so that the @t{active-widgets} see the
+full word so far.  This may be useful with @t{url-quote-magic}.
+
+@item @t{paste-finish}
+Another list of function names called in order until one returns non-zero.
+These functions are called @emph{after} the pasted text has been processed
+by the @t{active-widgets}, but @emph{before} it is inserted into `@t{BUFFER}'.
+ZLE parameters have their normal values and side-effects.
+
+@noindent
+A non-zero return from a @t{paste-finish} function does @emph{not} prevent
+the paste itself from proceeding.
+
+@noindent
+Loading @t{bracketed-paste-magic} also defines @t{quote-paste}, a helper
+function for use in @t{paste-finish}.
+
+@noindent
+@example
+zstyle :bracketed-paste-magic paste-finish \ 
+       quote-paste
+zstyle :bracketed-paste-magic:finish quote-style \ 
+       qqq
+@end example
+
+@noindent
+When the pasted text is inserted into @t{BUFFER}, it is quoted per the
+@t{quote-style} value.  To forcibly turn off the built-in numeric prefix
+quoting of @t{bracketed-paste}, use:
+
+@noindent
+@example
+zstyle :bracketed-paste-magic:finish quote-style \ 
+       none
+@end example
+
+@end table
+
+@noindent
+@emph{Important:} During @t{active-widgets} processing of the paste (after
+@t{paste-init} and before @t{paste-finish}), @t{BUFFER} starts empty and
+history is restricted, so cursor motions, etc., may not pass outside of
+the pasted content.  Text assigned to @t{BUFFER} by the active widgets
+is copied back into @t{PASTED} before @t{paste-finish}.
 
 @tindex copy-earlier-word
 @item @t{copy-earlier-word}
@@ -36272,6 +36883,72 @@ cursor.  These two lines are transposed and the cursor moved to the
 start of the previous line.  Using a numeric argument less than -1
 has the effect of moving the line above the cursor up by minus that
 number of lines.
+
+@tindex url-quote-magic
+@item @t{url-quote-magic}
+This widget replaces the built-in @t{self-insert} to make it easier to
+type URLs as command line arguments.  As you type, the input character is
+analyzed and, if it may need quoting, the current word is checked for a
+URI scheme.  If one is found and the current word is not already in
+quotes, a backslash is inserted before the input character.
+
+@noindent
+Styles to control quoting behavior:
+
+@noindent
+@table @asis
+@item @t{url-metas}
+This style is looked up in the context `@t{:url-quote-magic:}@var{scheme}'
+(where @var{scheme} is that of the current URL, e.g. "@t{ftp}").  The value
+is a string listing the characters to be treated as globbing
+metacharacters when appearing in a URL using that scheme.  The default is
+to quote all zsh extended globbing characters, excluding '@t{<}' and
+'@t{>}' but including braces (as in brace expansion).  See also
+@t{url-seps}.
+
+@item @t{url-seps}
+Like @t{url-metas}, but lists characters that should be considered command
+separators, redirections, history references, etc.  The default is to
+quote the standard set of shell separators, excluding those that overlap
+with the extended globbing characters, but including '@t{<}' and
+'@t{>}' and the first character of @t{$histchars}.
+
+@item @t{url-globbers}
+This style is looked up in the context `@t{:url-quote-magic}'.  The values
+form a list of command names that are expected to do their own globbing
+on the URL string.  This implies that they are aliased to use the
+`@t{noglob}' modifier.  When the first word on the line matches one of the
+values @emph{and} the URL refers to a local file (see @t{url-local-schema}),
+only the @t{url-seps} characters are quoted; the @t{url-metas} are left
+alone, allowing them to affect command-line parsing, completion, etc.  The
+default values are a literal `@t{noglob}' plus (when the @t{zsh/parameter}
+module is available) any commands aliased to the helper function
+`@t{urlglobber}' or its alias `@t{globurl}'.
+
+@item @t{url-local-schema}
+This style is always looked up in the context `@t{:urlglobber}', even
+though it is used by both url-quote-magic and urlglobber.  The values form
+a list of URI schema that should be treated as referring to local files by
+their real local path names, as opposed to files which are specified
+relative to a web-server-defined document root.  The defaults are
+"@t{ftp}" and "@t{file}".
+
+@item @t{url-other-schema}
+Like @t{url-local-schema}, but lists all other URI schema upon which
+@t{urlglobber} and @t{url-quote-magic} should act.  If the URI on the
+command line does not have a scheme appearing either in this list or in
+@t{url-local-schema}, it is not magically quoted.  The default values are
+"@t{http}", "@t{https}", and "@t{ftp}".  When a scheme appears both here
+and in @t{url-local-schema}, it is quoted differently depending on whether
+the command name appears in @t{url-globbers}.
+
+@end table
+
+@noindent
+Loading @t{url-quote-magic} also defines a helper function `@t{urlglobber}'
+and aliases `@t{globurl}' to `@t{noglob urlglobber}'.  This function takes
+a local URL apart, attempts to pattern-match the local file portion of the
+URL path, and then puts the results back into URL format again.
 
 @tindex which-command
 @item @t{which-command}
@@ -37148,6 +37825,15 @@ variables declared to be integers) are by default evaluated using
 integer arithmetic, which is not how an ordinary desk calculator
 operates.  To force floating point operation, pass the option @t{-f};
 see further notes below.
+
+@noindent
+If the file @t{~/.zcalcrc} exists it will be sourced inside the function
+once it is set up and about to process the command line.  This
+can be used, for example, to set shell options; @t{emulate -L zsh}
+and @t{setopt extendedglob} are in effect at this point.  Any
+failure to source the file if it exists is treated as fatal.
+As with other initialisation files, the directory @t{$ZDOTDIR} is used
+instead of @t{$HOME} if it is set.
 
 @noindent
 The mathematical library @t{zsh/mathfunc} will be loaded if it is

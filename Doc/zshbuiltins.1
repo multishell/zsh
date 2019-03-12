@@ -1,4 +1,4 @@
-.TH "ZSHBUILTINS" "1" "September 11, 2015" "zsh 5\&.1\&.1"
+.TH "ZSHBUILTINS" "1" "December 2, 2015" "zsh 5\&.2"
 .SH "NAME"
 zshbuiltins \- zsh built\-in commands
 .\" Yodl file: Zsh/builtins.yo
@@ -119,7 +119,9 @@ the section ALIASING in \fIzshmisc\fP(1)\&.
 .TP
 \fBautoload\fP [ {\fB+\fP|\fB\-\fP}\fBTUXkmtz\fP ] [ \fB\-w\fP ] [ \fIname\fP \&.\&.\&. ]
 Equivalent to \fBfunctions \-u\fP, with the exception of \fB\-X\fP/\fB+X\fP and
-\fB\-w\fP\&.
+\fB\-w\fP\&.  See the section `Autoloading Functions\&' in \fIzshmisc\fP(1) for full details\&.  The \fBfpath\fP parameter
+will be searched to find the function definition when the function is
+first referenced\&.
 .RS
 .PP
 The flag \fB\-X\fP may be used only inside a shell function, and may not be
@@ -514,7 +516,7 @@ See the section `The zsh/termcap Module\&' in \fIzshmodules\fP(1)\&.
 \fBechoti\fP
 See the section `The zsh/terminfo Module\&' in \fIzshmodules\fP(1)\&.
 .TP
-\fBemulate\fP [ \fB\-LR\fP ] [ {\fBzsh\fP|\fBsh\fP|\fBksh\fP|\fBcsh\fP} [ \fIflags\fP \&.\&.\&. ] ]
+\fBemulate\fP [ \fB\-lLR\fP ] [ {\fBzsh\fP|\fBsh\fP|\fBksh\fP|\fBcsh\fP} [ \fIflags\fP \&.\&.\&. ] ]
 Without any argument print current emulation mode\&.
 .RS
 .PP
@@ -551,6 +553,14 @@ function, if any; normally these options are turned off in all emulation
 modes except \fBksh\fP\&. The \fB\-L\fP switch is mutually exclusive with the
 use of \fB\-c\fP in \fIflags\fP\&.
 .PP
+If there is a single argument and the \fB\-l\fP switch is given, the
+options that would be set or unset (the latter indicated with the prefix
+`\fBno\fP\&') are listed\&.  \fB\-l\fP can be combined with \fB\-L\fP or \fB\-R\fP and
+the list will be modified in the appropriate way\&.  Note the list does
+not depend on the current setting of options, i\&.e\&. it includes all
+options that may in principle change, not just those that would actually
+change\&.
+.PP
 The \fIflags\fP may be any of the invocation\-time flags described in
 the section INVOCATION in \fIzsh\fP(1),
 except that `\fB\-o EMACS\fP\&' and `\fB\-o VI\fP' may not be used\&.  Flags such
@@ -584,8 +594,7 @@ For example:
 .nf
 \fBemulate sh \-c \&'fni() { setopt cshnullglob; }
 fno() { fni; }\&'
-fno
-\fP
+fno\fP
 .fi
 .RE
 .PP
@@ -2153,12 +2162,8 @@ for this function; the flag \fB\-T\fP does the same, but turns off tracing
 on any function called from the present one, unless that function also
 has the \fB\-t\fP or \fB\-T\fP flag\&.  The \fB\-u\fP and \fB\-U\fP flags cause the
 function to be marked for autoloading; \fB\-U\fP also causes alias
-expansion to be suppressed when the function is loaded\&.  The \fBfpath\fP
-parameter will be searched to find the function definition when the
-function is first referenced; see the section `Functions\&'\&. The \fB\-k\fP and
-\fB\-z\fP flags make the function be loaded using ksh\-style or zsh\-style
-autoloading respectively\&. If neither is given, the setting of the
-\fBKSH_AUTOLOAD\fP option determines how the function is loaded\&.
+expansion to be suppressed when the function is loaded\&.  See the
+description of the `\fBautoload\fP\&' builtin for details\&.
 .RS
 .PP
 Note that the builtin \fBfunctions\fP provides the same basic capabilities
@@ -2527,7 +2532,7 @@ Equivalent to \fBwhence \-c\fP\&.
 This builtin command can be used to compile functions or scripts,
 storing the compiled form in a file, and to examine files containing
 the compiled form\&.  This allows faster autoloading of functions and
-execution of scripts by avoiding parsing of the text when the files
+sourcing of scripts by avoiding parsing of the text when the files
 are read\&.
 .RS
 .PP

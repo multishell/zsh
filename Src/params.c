@@ -447,7 +447,7 @@ newparamtable(int size, char const *name)
     ht->cmpnodes    = strcmp;
     ht->addnode     = addhashnode;
     ht->getnode     = getparamnode;
-    ht->getnode2    = getparamnode;
+    ht->getnode2    = gethashnode2;
     ht->removenode  = removehashnode;
     ht->disablenode = NULL;
     ht->enablenode  = NULL;
@@ -775,17 +775,18 @@ createparamtable(void)
 #endif
     opts[ALLEXPORT] = oae;
 
+    /*
+     * For native emulation we always set the variable home
+     * (see setupvals()).
+     */
+    pm = (Param) paramtab->getnode(paramtab, "HOME");
     if (EMULATION(EMULATE_ZSH))
     {
-	/*
-	 * For native emulation we always set the variable home
-	 * (see setupvals()).
-	 */
-	pm = (Param) paramtab->getnode(paramtab, "HOME");
 	pm->node.flags &= ~PM_UNSET;
 	if (!(pm->node.flags & PM_EXPORTED))
 	    addenv(pm, home);
-    }
+    } else if (!home)
+	pm->node.flags |= PM_UNSET;
     pm = (Param) paramtab->getnode(paramtab, "LOGNAME");
     if (!(pm->node.flags & PM_EXPORTED))
 	addenv(pm, pm->u.str);
@@ -868,6 +869,7 @@ createparam(char *name, int flags)
 
     if (name != nulstring) {
 	oldpm = (Param) (paramtab == realparamtab ?
+			 /* gethashnode2() for direct table read */
 			 gethashnode2(paramtab, name) :
 			 paramtab->getnode(paramtab, name));
 
@@ -878,6 +880,10 @@ createparam(char *name, int flags)
 		zerr("read-only variable: %s", name);
 		return NULL;
 	    }
+	    if ((oldpm->node.flags & PM_RESTRICTED) && isset(RESTRICTED)) {
+		zerr("%s: restricted", name);
+		return NULL;
+	    }
 	    if (!(oldpm->node.flags & PM_UNSET) || (oldpm->node.flags & PM_SPECIAL)) {
 		oldpm->node.flags &= ~PM_UNSET;
 		if ((oldpm->node.flags & PM_SPECIAL) && oldpm->ename) {
@@ -886,10 +892,6 @@ createparam(char *name, int flags)
 		    if (altpm)
 			altpm->node.flags &= ~PM_UNSET;
 		}
-		return NULL;
-	    }
-	    if ((oldpm->node.flags & PM_RESTRICTED) && isset(RESTRICTED)) {
-		zerr("%s: restricted", name);
 		return NULL;
 	    }
 
@@ -2535,6 +2537,7 @@ setarrvalue(Value v, char **val)
 	freearray(val);
 	return;
     }
+
     if (v->start == 0 && v->end == -1) {
 	if (PM_TYPE(v->pm->node.flags) == PM_HASHED)
 	    arrhashsetfn(v->pm, val, 0);
@@ -2543,47 +2546,49 @@ setarrvalue(Value v, char **val)
     } else if (v->start == -1 && v->end == 0 &&
     	    PM_TYPE(v->pm->node.flags) == PM_HASHED) {
     	arrhashsetfn(v->pm, val, 1);
+    } else if ((PM_TYPE(v->pm->node.flags) == PM_HASHED)) {
+	freearray(val);
+	zerr("%s: attempt to set slice of associative array",
+	     v->pm->node.nam);
+	return;
     } else {
 	char **old, **new, **p, **q, **r;
-	int n, ll, i;
+	int pre_assignment_length;
+	int post_assignment_length;
+	int i;
 
-	if ((PM_TYPE(v->pm->node.flags) == PM_HASHED)) {
-	    freearray(val);
-	    zerr("%s: attempt to set slice of associative array",
-		 v->pm->node.nam);
-	    return;
-	}
 	if ((v->flags & VALFLAG_INV) && unset(KSHARRAYS)) {
 	    if (v->start > 0)
 		v->start--;
 	    v->end--;
 	}
 	q = old = v->pm->gsu.a->getfn(v->pm);
-	n = arrlen(old);
+	pre_assignment_length = arrlen(old);
 	if (v->start < 0) {
-	    v->start += n;
+	    v->start += pre_assignment_length;
 	    if (v->start < 0)
 		v->start = 0;
 	}
 	if (v->end < 0) {
-	    v->end += n + 1;
+	    v->end += pre_assignment_length + 1;
 	    if (v->end < 0)
 		v->end = 0;
 	}
 	if (v->end < v->start)
 	    v->end = v->start;
 
-	ll = v->start + arrlen(val);
-	if (v->end <= n)
-	    ll += n - v->end + 1;
+	post_assignment_length = v->start + arrlen(val);
+	if (v->end <= pre_assignment_length)
+	    post_assignment_length += pre_assignment_length - v->end + 1;
 
-	p = new = (char **) zshcalloc(sizeof(char *) * (ll + 1));
+	p = new = (char **) zshcalloc(sizeof(char *)
+		                      * (post_assignment_length + 1));
 
 	for (i = 0; i < v->start; i++)
-	    *p++ = i < n ? ztrdup(*q++) : ztrdup("");
+	    *p++ = i < pre_assignment_length ? ztrdup(*q++) : ztrdup("");
 	for (r = val; *r;)
 	    *p++ = ztrdup(*r++);
-	if (v->end < n)
+	if (v->end < pre_assignment_length)
 	    for (q = old + v->end; *q;)
 		*p++ = ztrdup(*q++);
 	*p = NULL;
@@ -2694,6 +2699,37 @@ gethkparam(char *s)
 }
 
 /**/
+static void
+check_warn_create(Param pm, const char *pmtype)
+{
+    Funcstack i;
+    const char *name;
+
+    if (pm->level != 0 || (pm->node.flags & PM_SPECIAL))
+	return;
+
+    name = NULL;
+    for (i = funcstack; i; i = i->prev) {
+	if (i->tp == FS_FUNC) {
+	    DPUTS(!i->name, "funcstack entry with no name");
+	    name = i->name;
+	    break;
+	}
+    }
+
+    if (name)
+    {
+	zwarn("%s parameter %s created globally in function %s",
+	      pmtype, pm->node.nam, name);
+    }
+    else
+    {
+	zwarn("%s parameter %s created globally in function",
+	      pmtype, pm->node.nam);
+    }
+}
+
+/**/
 mod_export Param
 assignsparam(char *s, char *val, int flags)
 {
@@ -2744,11 +2780,11 @@ assignsparam(char *s, char *val, int flags)
     if (!v && !(v = getvalue(&vbuf, &t, 1))) {
 	unqueue_signals();
 	zsfree(val);
+	/* errflag |= ERRFLAG_ERROR; */
 	return NULL;
     }
-    if ((flags & ASSPM_WARN_CREATE) && v->pm->level == 0)
-	zwarn("scalar parameter %s created globally in function",
-	      v->pm->node.nam);
+    if (flags & ASSPM_WARN_CREATE)
+	check_warn_create(v->pm, "scalar");
     if (flags & ASSPM_AUGMENT) {
 	if (v->start == 0 && v->end == -1) {
 	    switch (PM_TYPE(v->pm->node.flags)) {
@@ -2827,6 +2863,15 @@ assignsparam(char *s, char *val, int flags)
 
 /**/
 mod_export Param
+setsparam(char *s, char *val)
+{
+    return assignsparam(
+	s, val, isset(WARNCREATEGLOBAL) && locallevel > 0 ?
+	ASSPM_WARN_CREATE : 0);
+}
+
+/**/
+mod_export Param
 assignaparam(char *s, char **val, int flags)
 {
     struct value vbuf;
@@ -2885,12 +2930,12 @@ assignaparam(char *s, char **val, int flags)
 	if (!(v = fetchvalue(&vbuf, &t, 1, SCANPM_ASSIGNING))) {
 	    unqueue_signals();
 	    freearray(val);
+	    /* errflag |= ERRFLAG_ERROR; */
 	    return NULL;
 	}
 
-    if ((flags & ASSPM_WARN_CREATE) && v->pm->level == 0)
-	zwarn("array parameter %s created globally in function",
-	      v->pm->node.nam);
+    if (flags & ASSPM_WARN_CREATE)
+	check_warn_create(v->pm, "array");
     if (flags & ASSPM_AUGMENT) {
     	if (v->start == 0 && v->end == -1) {
 	    if (PM_TYPE(v->pm->node.flags) & PM_ARRAY) {
@@ -2913,6 +2958,16 @@ assignaparam(char *s, char **val, int flags)
     return v->pm;
 }
 
+
+/**/
+mod_export Param
+setaparam(char *s, char **aval)
+{
+    return assignaparam(
+	s, aval, isset(WARNCREATEGLOBAL) && locallevel >0 ?
+	ASSPM_WARN_CREATE : 0);
+}
+
 /**/
 mod_export Param
 sethparam(char *s, char **val)
@@ -2920,6 +2975,7 @@ sethparam(char *s, char **val)
     struct value vbuf;
     Value v;
     char *t = s;
+    int checkcreate = 0;
 
     if (!isident(s)) {
 	zerr("not an identifier: %s", s);
@@ -2936,19 +2992,25 @@ sethparam(char *s, char **val)
     if (unset(EXECOPT))
 	return NULL;
     queue_signals();
-    if (!(v = fetchvalue(&vbuf, &s, 1, SCANPM_ASSIGNING)))
+    if (!(v = fetchvalue(&vbuf, &s, 1, SCANPM_ASSIGNING))) {
+	DPUTS(!v, "BUG: assigning to undeclared associative array");
 	createparam(t, PM_HASHED);
-    else if (!(PM_TYPE(v->pm->node.flags) & PM_HASHED) &&
+	checkcreate = isset(WARNCREATEGLOBAL) && locallevel > 0;
+    } else if (!(PM_TYPE(v->pm->node.flags) & PM_HASHED) &&
 	     !(v->pm->node.flags & PM_SPECIAL)) {
 	unsetparam(t);
+	/* no WARNCREATEGLOBAL check here as parameter already existed */
 	createparam(t, PM_HASHED);
 	v = NULL;
     }
     if (!v)
 	if (!(v = fetchvalue(&vbuf, &t, 1, SCANPM_ASSIGNING))) {
 	    unqueue_signals();
+	    /* errflag |= ERRFLAG_ERROR; */
 	    return NULL;
 	}
+    if (checkcreate)
+	check_warn_create(v->pm, "associative array");
     setarrvalue(v, val);
     unqueue_signals();
     return v->pm;
@@ -2967,6 +3029,7 @@ setnparam(char *s, mnumber val)
     Value v;
     char *t = s, *ss;
     Param pm;
+    int was_unset = 0;
 
     if (!isident(s)) {
 	zerr("not an identifier: %s", s);
@@ -2986,6 +3049,7 @@ setnparam(char *s, mnumber val)
 	 */
 	unset(KSHARRAYS) && !ss) {
 	unsetparam_pm(v->pm, 0, 1);
+	was_unset = 1;
 	s = t;
 	v = NULL;
     }
@@ -3004,8 +3068,13 @@ setnparam(char *s, mnumber val)
 	} else if (val.type & MN_INTEGER) {
 	    pm->base = outputradix;
 	}
-	v = getvalue(&vbuf, &t, 1);
-	DPUTS(!v, "BUG: value not found for new parameter");
+	if (!(v = getvalue(&vbuf, &t, 1))) {
+	    DPUTS(!v, "BUG: value not found for new parameter");
+	    /* errflag |= ERRFLAG_ERROR; */
+	    return NULL;
+	}
+	if (!was_unset && isset(WARNCREATEGLOBAL) && locallevel > 0)
+	    check_warn_create(v->pm, "numeric");
     }
     setnumvalue(v, val);
     unqueue_signals();
@@ -3024,6 +3093,26 @@ setiparam(char *s, zlong val)
     return setnparam(s, mnval);
 }
 
+/*
+ * Set an integer parameter without forcing creation of an integer type.
+ * This is useful if the integer is going to be set to a parmaeter which
+ * would usually be scalar but may not exist.
+ */
+
+/**/
+mod_export Param
+setiparam_no_convert(char *s, zlong val)
+{
+    /*
+     * If the target is already an integer, thisgets converted
+     * back.  Low technology rules.
+     */
+    char buf[BDIGBUFSIZE];
+    convbase(buf, val, 10);
+    return assignsparam(
+	s, ztrdup(buf),
+	isset(WARNCREATEGLOBAL) && locallevel > 0 ? ASSPM_WARN_CREATE : 0);
+}
 
 /* Unset a parameter */
 
@@ -3035,7 +3124,8 @@ unsetparam(char *s)
 
     queue_signals();
     if ((pm = (Param) (paramtab == realparamtab ?
-		       gethashnode2(paramtab, s) :
+		       /* getnode2() to avoid autoloading */
+		       paramtab->getnode2(paramtab, s) :
 		       paramtab->getnode(paramtab, s))))
 	unsetparam_pm(pm, 0, 1);
     unqueue_signals();
@@ -3139,6 +3229,10 @@ unsetparam_pm(Param pm, int altflag, int exp)
  *
  * This could usefully be made type-specific, but then we need
  * to be more careful when calling the unset method directly.
+ *
+ * The "exp"licit parameter should be nonzero for assignments and the
+ * unset command, and zero for implicit unset (e.g., end of scope).
+ * Currently this is used only by some modules.
  */
 
 /**/
@@ -5025,8 +5119,11 @@ freeparamnode(HashNode hn)
 {
     Param pm = (Param) hn;
  
-    /* Since the second flag to unsetfn isn't used, I don't *
-     * know what its value should be.                       */
+    /* The second argument of unsetfn() is used by modules to
+     * differentiate "exp"licit unset from implicit unset, as when
+     * a parameter is going out of scope.  It's not clear which
+     * of these applies here, but passing 1 has always worked.
+     */
     if (delunset)
 	pm->gsu.s->unsetfn(pm, 1);
     zsfree(pm->node.nam);

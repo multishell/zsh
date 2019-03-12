@@ -1878,6 +1878,7 @@ get_comp_string(void)
 
     if (!isset(IGNOREBRACES)) {
 	/* Try and deal with foo{xxx etc. */
+	/*}*/
 	char *curs = s + (isset(COMPLETEINWORD) ? offs : (int)strlen(s));
 	char *predup = dupstring(s), *dp = predup;
 	char *bbeg = NULL, *bend = NULL, *dbeg = NULL;
@@ -1889,6 +1890,7 @@ get_comp_string(void)
 	     * we try to get braces after a parameter expansion right,
 	     * but this may fail sometimes. sorry.
 	     */
+	    /*}*/
 	    if (*p == String || *p == Qstring) {
 		if (p[1] == Inbrace || p[1] == Inpar || p[1] == Inbrack) {
 		    char *tp = p + 1;
@@ -2223,7 +2225,7 @@ doexpansion(char *s, int lst, int olst, int explincmd)
         else if (*ts == '\'')
             *ts = Snull;
     addlinknode(vl, ss);
-    prefork(vl, 0);
+    prefork(vl, 0, NULL);
     if (errflag)
 	goto end;
     if (lst == COMP_LIST_EXPAND || lst == COMP_EXPAND) {
@@ -2951,6 +2953,9 @@ getcurcmd(void)
 
     return s;
 }
+
+/* Run '$WIDGET $commandword' and then restore the command-line using push-line.
+ */
 
 /**/
 int

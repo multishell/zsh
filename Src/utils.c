@@ -692,9 +692,23 @@ ispwd(char *s)
 {
     struct stat sbuf, tbuf;
 
-    if (stat(unmeta(s), &sbuf) == 0 && stat(".", &tbuf) == 0)
-	if (sbuf.st_dev == tbuf.st_dev && sbuf.st_ino == tbuf.st_ino)
-	    return 1;
+    /* POSIX: environment PWD must be absolute */
+    if (*s != '/')
+	return 0;
+
+    if (stat((s = unmeta(s)), &sbuf) == 0 && stat(".", &tbuf) == 0)
+	if (sbuf.st_dev == tbuf.st_dev && sbuf.st_ino == tbuf.st_ino) {
+	    /* POSIX: No element of $PWD may be "." or ".." */
+	    while (*s) {
+		if (s[0] == '.' &&
+		    (!s[1] || s[1] == '/' ||
+		     (s[1] == '.' && (!s[2] || s[2] == '/'))))
+		    break;
+		while (*s++ != '/' && *s)
+		    continue;
+	    }
+	    return !*s;
+	}
     return 0;
 }
 
@@ -1878,6 +1892,37 @@ redup(int x, int y)
 }
 
 /*
+ * Add an fd opened ithin a module.
+ *
+ * fdt is the type of the fd; see the FDT_ definitions in zsh.h.
+ * The most likely falures are:
+ *
+ * FDT_EXTERNAL: the fd can be used within the shell for normal I/O but
+ * it will not be closed automatically or by normal shell syntax.
+ *
+ * FDT_MODULE: as FDT_EXTERNAL, but it can only be closed by the module
+ * (which should included zclose() as part of the sequence), not by
+ * the standard shell syntax for closing file descriptors.
+ *
+ * FDT_INTERNAL: fd is treated like others created by the shell for
+ * internal use; it can be closed and will be closed by the shell if it
+ * exec's or performs an exec with a fork optimised out.
+ *
+ * Safe if fd is -1 to indicate failure.
+ */
+/**/
+mod_export void
+addmodulefd(int fd, int fdt)
+{
+    if (fd >= 0) {
+	check_fd_table(fd);
+	fdtable[fd] = fdt;
+    }
+}
+
+/**/
+
+/*
  * Indicate that an fd has a file lock; if cloexec is 1 it will be closed
  * on exec.
  * The fd should already be known to fdtable (e.g. by movefd).
@@ -2798,7 +2843,7 @@ spckword(char **s, int hist, int cmd, int ask)
 		     * as used in spscan(), so that an autocd is chosen *
 		     * only when it is better than anything so far, and *
 		     * so we prefer directories earlier in the cdpath.  */
-		    if ((thisdist = mindist(*pp, *s, bestcd)) < d) {
+		    if ((thisdist = mindist(*pp, *s, bestcd, 1)) < d) {
 			best = dupstring(bestcd);
 			d = thisdist;
 		    }
@@ -3098,6 +3143,7 @@ strftimehandling:
 		 * in the accounting in bufsize (but nowhere else).
 		 */
 		{
+		    char origchar = fmt[-1];
 		    int size = fmt - fmtstart;
 		    char *tmp, *last;
 		    tmp = zhalloc(size + 1);
@@ -3118,11 +3164,17 @@ strftimehandling:
 		    *buf = '\1';
 		    if (!strftime(buf, bufsize + 2, tmp, tm))
 		    {
-			if (*buf) {
-			    buf[0] = '\0';
-			    return -1;
+			/*
+			 * Some locales don't have strings for
+			 * AM/PM, so empty output is valid.
+			 */
+			if (*buf || (origchar != 'p' && origchar != 'P')) {
+			    if (*buf) {
+				buf[0] = '\0';
+				return -1;
+			    }
+			    return 0;
 			}
-			return 0;
 		    }
 		    decr = strlen(buf);
 		    buf += decr;
@@ -4043,7 +4095,8 @@ spname(char *oldname)
 	    thresh = 3;
 	else if (thresh > 100)
 	    thresh = 100;
-	if ((thisdist = mindist(newname, spnameguess, spnamebest)) >= thresh) {
+	thisdist = mindist(newname, spnameguess, spnamebest, *old == '/');
+	if (thisdist >= thresh) {
 	    /* The next test is always true, except for the first path    *
 	     * component.  We could initialize bestdist to some large     *
 	     * constant instead, and then compare to that constant here,  *
@@ -4068,42 +4121,52 @@ spname(char *oldname)
 
 /**/
 static int
-mindist(char *dir, char *mindistguess, char *mindistbest)
+mindist(char *dir, char *mindistguess, char *mindistbest, int wantdir)
 {
     int mindistd, nd;
     DIR *dd;
     char *fn;
     char *buf;
+    struct stat st;
+    size_t dirlen;
 
     if (dir[0] == '\0')
 	dir = ".";
     mindistd = 100;
 
-    buf = zalloc(strlen(dir) + strlen(mindistguess) + 2);
+    if (!(buf = zalloc((dirlen = strlen(dir)) + strlen(mindistguess) + 2)))
+	return 0;
     sprintf(buf, "%s/%s", dir, mindistguess);
 
-    if (access(unmeta(buf), F_OK) == 0) {
+    if (stat(unmeta(buf), &st) == 0 && (!wantdir || S_ISDIR(st.st_mode))) {
 	strcpy(mindistbest, mindistguess);
 	free(buf);
 	return 0;
     }
-    free(buf);
 
-    if (!(dd = opendir(unmeta(dir))))
-	return mindistd;
-    while ((fn = zreaddir(dd, 0))) {
-	if (spnamepat && pattry(spnamepat, fn))
-	    continue;
-	nd = spdist(fn, mindistguess,
-		    (int)strlen(mindistguess) / 4 + 1);
-	if (nd <= mindistd) {
-	    strcpy(mindistbest, fn);
-	    mindistd = nd;
-	    if (mindistd == 0)
-		break;
+    if ((dd = opendir(unmeta(dir)))) {
+	while ((fn = zreaddir(dd, 0))) {
+	    if (spnamepat && pattry(spnamepat, fn))
+		continue;
+	    nd = spdist(fn, mindistguess,
+			(int)strlen(mindistguess) / 4 + 1);
+	    if (nd <= mindistd) {
+		if (wantdir) {
+		    if (!(buf = zrealloc(buf, dirlen + strlen(fn) + 2)))
+			continue;
+		    sprintf(buf, "%s/%s", dir, fn);
+		    if (stat(unmeta(buf), &st) != 0 || !S_ISDIR(st.st_mode))
+			continue;
+		}
+		strcpy(mindistbest, fn);
+		mindistd = nd;
+		if (mindistd == 0)
+		    break;
+	    }
 	}
+	closedir(dd);
     }
-    closedir(dd);
+    free(buf);
     return mindistd;
 }
 
@@ -5384,6 +5447,12 @@ quotestring(const char *s, char **e, int instring)
 	  "BUG: bad quote type in quotestring");
     u = s;
     if (instring == QT_DOLLARS) {
+	/*
+	 * The only way to get Nularg here is when
+	 * it is placeholding for the empty string?
+	 */
+	if (inull(*u))
+	    u++;
 	/*
 	 * As we test for printability here we need to be able
 	 * to look for multibyte characters.

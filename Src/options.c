@@ -140,6 +140,7 @@ static struct optname optns[] = {
 {{NULL, "globassign",	      OPT_EMULATE|OPT_CSH},	 GLOBASSIGN},
 {{NULL, "globcomplete",	      0},			 GLOBCOMPLETE},
 {{NULL, "globdots",	      OPT_EMULATE},		 GLOBDOTS},
+{{NULL, "globstarshort",      OPT_EMULATE},		 GLOBSTARSHORT},
 {{NULL, "globsubst",	      OPT_EMULATE|OPT_NONZSH},	 GLOBSUBST},
 {{NULL, "hashcmds",	      OPT_ALL},			 HASHCMDS},
 {{NULL, "hashdirs",	      OPT_ALL},			 HASHDIRS},
@@ -900,4 +901,34 @@ printoptionlist_printequiv(int optno)
 
     optno *= (isneg ? -1 : 1);
     printf("  equivalent to --%s%s\n", isneg ? "no-" : "", optns[optno-1].node.nam);
+}
+
+/**/
+static char *print_emulate_opts;
+
+/**/
+static void
+print_emulate_option(HashNode hn, int fully)
+{
+    Optname on = (Optname) hn;
+
+    if (!(on->node.flags & OPT_ALIAS) &&
+	((fully && !(on->node.flags & OPT_SPECIAL)) ||
+	 (on->node.flags & OPT_EMULATE)))
+    {
+	if (!print_emulate_opts[on->optno])
+	    fputs("no", stdout);
+	puts(on->node.nam);
+    }
+}
+
+/*
+ * List the settings of options associated with an emulation
+ */
+
+/**/
+void list_emulate_options(char *cmdopts, int fully)
+{
+    print_emulate_opts = cmdopts;
+    scanhashtable(optiontab, 1, 0, 0, print_emulate_option, fully);
 }

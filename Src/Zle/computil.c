@@ -185,7 +185,7 @@ cd_group(int maxg)
  * descriptions. */
 
 static void
-cd_calc()
+cd_calc(void)
 {
     Cdset set;
     Cdstr str;
@@ -236,7 +236,7 @@ cd_sort(const void *a, const void *b)
 }
 
 static int
-cd_prep()
+cd_prep(void)
 {
     Cdrun run, *runp;
     Cdset set;
@@ -1693,10 +1693,13 @@ ca_get_opt(Cadef d, char *line, int full, char **end)
 	for (p = d->opts; p; p = p->next)
 	    if (p->active && ((!p->args || p->type == CAO_NEXT) ?
 			      !strcmp(p->name, line) : strpfx(p->name, line))) {
+	    int l = strlen(p->name);
+	    if ((p->type == CAO_OEQUAL || p->type == CAO_EQUAL) &&
+		line[l] && line[l] != '=')
+		continue;
+
 		if (end) {
 		    /* Return a pointer to the end of the option. */
-		    int l = strlen(p->name);
-
 		    if ((p->type == CAO_OEQUAL || p->type == CAO_EQUAL) &&
 			line[l] == '=')
 			l++;

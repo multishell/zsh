@@ -499,7 +499,7 @@ filecol(char *col)
  */
 
 static void
-getcols()
+getcols(void)
 {
     char *s;
     int i, l;
@@ -602,7 +602,7 @@ zcoff(void)
 
 
 static void
-initiscol()
+initiscol(void)
 {
     int i;
 
@@ -868,7 +868,7 @@ putmatchcol(char *group, char *n)
 	nrefs = MAX_POS - 1;
 
 	if ((!pc->prog || !group || pattry(pc->prog, group)) &&
-	    pattryrefs(pc->pat, n, -1, -1, 0, &nrefs, begpos, endpos)) {
+	    pattryrefs(pc->pat, n, -1, -1, NULL, 0, &nrefs, begpos, endpos)) {
 	    if (pc->cols[1]) {
 		patcols = pc->cols;
 
@@ -900,7 +900,8 @@ putfilecol(char *group, char *filename, mode_t m, int special)
 	nrefs = MAX_POS - 1;
 
 	if ((!pc->prog || !group || pattry(pc->prog, group)) &&
-	    pattryrefs(pc->pat, filename, -1, -1, 0, &nrefs, begpos, endpos)) {
+	    pattryrefs(pc->pat, filename, -1, -1, NULL,
+		       0, &nrefs, begpos, endpos)) {
 	    if (pc->cols[1]) {
 		patcols = pc->cols;
 
@@ -1908,7 +1909,7 @@ singlecalc(int *cp, int l, int *lcp)
 }
 
 static void
-singledraw()
+singledraw(void)
 {
     Cmgroup g;
     int mc1, mc2, ml1, ml2, md1, md2, mcc1, mcc2, lc1, lc2, t1, t2;
@@ -3300,7 +3301,7 @@ domenuselect(Hookdef dummy, Chdata dat)
 			    int len;
 
 			    memset(&mbs, 0, sizeof(mbs));
-			    len = wcrtomb(s, lastchar_wide, &mbs);
+			    len = wcrtomb(toins, lastchar_wide, &mbs);
 			    if (len < 0)
 				len = 0;
 			    insert[len] = '\0';

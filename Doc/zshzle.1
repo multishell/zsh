@@ -1,4 +1,4 @@
-.TH "ZSHZLE" "1" "September 11, 2015" "zsh 5\&.1\&.1"
+.TH "ZSHZLE" "1" "December 2, 2015" "zsh 5\&.2"
 .SH "NAME"
 zshzle \- zsh command line editor
 .\" Yodl file: Zsh/zle.yo
@@ -461,6 +461,9 @@ refer to a terminal an error is reported\&.
 \fBzle\fP \fB\-N\fP \fIwidget\fP [ \fIfunction\fP ]
 .TP
 .PD 0
+\fBzle\fP \fB\-f\fP \fIflag\fP [ \fIflag\fP\&.\&.\&. ]
+.TP
+.PD 0
 \fBzle\fP \fB\-C\fP \fIwidget\fP \fIcompletion\-widget\fP \fIfunction\fP
 .TP
 .PD 0
@@ -539,6 +542,23 @@ widget is invoked from within the editor, the specified shell \fIfunction\fP
 is called\&.  If no function name is specified, it defaults to
 the same name as the widget\&.  For further information, see
 the section `Widgets\&' below\&.
+.TP
+\fB\-f\fP \fIflag\fP [ \fIflag\fP\&.\&.\&. ]
+Set various flags on the running widget\&.  Possible values for \fIflag\fP are:
+.RS
+.PP
+\fByank\fP for indicating that the widget has yanked text into the buffer\&.
+If the widget is wrapping an existing internal widget, no further
+action is necessary, but if it has inserted the text manually, then it
+should also take care to set \fBYANK_START\fP and \fBYANK_END\fP correctly\&.
+\fByankbefore\fP does the same but is used when the yanked text appears
+after the cursor\&.
+.PP
+\fBkill\fP for indicating that text has been killed into the cutbuffer\&.
+When repeatedly invoking a kill widget, text is appended to the cutbuffer
+instead of replacing it, but when wrapping such widgets, it is necessary
+to call `\fBzle \-f kill\fP\&' to retain this effect\&.
+.RE
 .TP
 \fB\-C\fP \fIwidget\fP \fIcompletion\-widget\fP \fIfunction\fP
 Create a user\-defined completion widget named \fIwidget\fP\&. The 
@@ -1097,12 +1117,15 @@ defined with \fBzle \-N\fP this is set to the empty string\&.  Read\-only\&.
 .TP
 .PD
 \fBYANK_END\fP (integer)
-These three parameters indicate whether text has just been yanked (pasted)
-into the buffer\&.  \fBYANK_START\fP and \fBYANK_END\fP are in the same unit sas
-\fBCURSOR\fP, and are only valid when \fBYANK_ACTIVE\fP is non\-zero\&.
+\fBYANK_ACTIVE\fP indicates whether text has just been yanked (pasted)
+into the buffer\&.  \fBYANK_START\fP and \fBYANK_END\fP give the location of
+the pasted text and are in the same units as \fBCURSOR\fP\&.  They are only
+valid for reading when \fBYANK_ACTIVE\fP is non\-zero\&.  They can also be
+assigned by widgets that insert text in a yank\-like fashion, for example
+wrappers of \fBbracketed\-paste\fP\&.  See also \fBzle \-f\fP\&.
 .RS
 .PP
-All three are read\-only\&.
+\fBYANK_ACTIVE\fP is read\-only\&.
 .RE
 .TP
 \fBZLE_STATE\fP (scalar)
@@ -2257,31 +2280,32 @@ the command line or key bindings temporarily\&.
 .RS
 .PP
 The following widget, \fBcaps\-lock\fP, serves as an example\&.
+.PP
 .RS
 .nf
 \fBself\-insert\-ucase() {
   LBUFFER+=${(U)KEYS[\-1]}
 }
-.PP
+
 integer stat
-.PP
+
 zle \-N self\-insert self\-insert\-ucase
 zle \-A caps\-lock save\-caps\-lock
 zle \-A accept\-line caps\-lock
-.PP
+
 zle recursive\-edit
 stat=$?
-.PP
+
 zle \-A \&.self\-insert self\-insert
 zle \-A save\-caps\-lock caps\-lock
 zle \-D save\-caps\-lock
-.PP
+
 (( stat )) && zle send\-break
-.PP
-return $stat
-\fP
+
+return $stat\fP
 .fi
 .RE
+.PP
 This causes typed letters to be inserted capitalised until either
 \fBaccept\-line\fP (i\&.e\&. typically the return key) is typed or the
 \fBcaps\-lock\fP widget is invoked again; the later is handled by saving
@@ -2664,7 +2688,7 @@ context, the defaults applied are equivalent to
 .RS
 .nf
 \fBzle_highlight=(region:standout special:standout
-suffix:bold isearch:underline)\fP
+suffix:bold isearch:underline paste:standout)\fP
 .fi
 .RE
 .PP

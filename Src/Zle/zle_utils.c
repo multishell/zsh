@@ -166,13 +166,13 @@ zlecharasstring(ZLE_CHAR_T inchar, char *buf)
 }
 
 /*
- * Input a line in internal zle format, possibly using wide characters,
+ * Input: a line in internal zle format, possibly using wide characters,
  * possibly not, together with its length and the cursor position.
  * The length must be accurate and includes all characters (no NULL
  * termination is expected).  The input cursor position is only
  * significant if outcs is non-NULL.
  *
- * Output an ordinary NULL-terminated string, using multibyte characters
+ * Output: an ordinary NULL-terminated string, using multibyte characters
  * instead of wide characters where appropriate and with the contents
  * metafied.
  *
@@ -1436,6 +1436,8 @@ freeundo(void)
     freechanges(changes);
     freechanges(nextchanges);
     zfree(lastline, lastlinesz);
+    lastline = NULL;
+    lastlinesz = 0;
 }
 
 /**/
@@ -1739,9 +1741,26 @@ zlecallhook(char *name, char *arg)
 zlong
 get_undo_current_change(UNUSED(Param pm))
 {
+    int remetafy;
+
+    /*
+     * Yuk: we call this from within the completion system,
+     * so we need to convert back to the form which can be
+     * copied into undo entries.
+     */
+    if (zlemetaline != NULL) {
+	unmetafy_line();
+	remetafy = 1;
+    } else
+	remetafy = 0;
+
     /* add entry for any pending changes */
     mkundoent();
     setlastline();
+
+    if (remetafy)
+	metafy_line();
+
     return undo_changeno;
 }
 

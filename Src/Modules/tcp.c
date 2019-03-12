@@ -236,6 +236,8 @@ tcp_socket(int domain, int type, int protocol, int ztflags)
     if (!sess) return NULL;
 
     sess->fd = socket(domain, type, protocol);
+    /* We'll check failure and tidy up in caller */
+    addmodulefd(sess->fd, FDT_MODULE);
     return sess;
 }
 
@@ -298,7 +300,7 @@ tcp_close(Tcp_session sess)
     {  
 	if (sess->fd != -1)
 	{
-	    err = close(sess->fd);
+	    err = zclose(sess->fd);
 	    if (err)
 		zwarn("connection close failed: %e", errno);
 	}
@@ -459,7 +461,7 @@ bin_ztcp(char *nam, char **args, Options ops, UNUSED(int func))
 	    return 1;
 	}
 
-	setiparam("REPLY", sess->fd);
+	setiparam_no_convert("REPLY", (zlong)sess->fd);
 
 	if (verbose)
 	    printf("%d listener is on fd %d\n", ntohs(sess->sock.in.sin_port), sess->fd);
@@ -546,6 +548,9 @@ bin_ztcp(char *nam, char **args, Options ops, UNUSED(int func))
 	    return 1;
 	}
 
+	/* redup expects fd is already registered */
+	addmodulefd(rfd, FDT_MODULE);
+
 	if (targetfd) {
 	    sess->fd = redup(rfd, targetfd);
 	    if (sess->fd < 0) {
@@ -557,7 +562,7 @@ bin_ztcp(char *nam, char **args, Options ops, UNUSED(int func))
 	    sess->fd = rfd;
 	}
 
-	setiparam("REPLY", sess->fd);
+	setiparam_no_convert("REPLY", (zlong)sess->fd);
 
 	if (verbose)
 	    printf("%d is on fd %d\n", ntohs(sess->peer.in.sin_port), sess->fd);
@@ -676,7 +681,7 @@ bin_ztcp(char *nam, char **args, Options ops, UNUSED(int func))
 		}
 	    }
 
-	    setiparam("REPLY", sess->fd);
+	    setiparam_no_convert("REPLY", (zlong)sess->fd);
 
 	    if (verbose)
 		printf("%s:%d is now on fd %d\n",

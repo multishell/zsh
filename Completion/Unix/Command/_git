@@ -656,7 +656,7 @@ _git-commit () {
     '(        --porcelain --dry-run)--short[output dry run in short format]' \
     '(--short             --dry-run)--porcelain[output dry run in porcelain-ready format]' \
     '(--short --porcelain --dry-run -z --null)'{-z,--null}'[separate dry run entry output with NUL]' \
-    '--patch[use the interactive patch selection interface to chose which changes to commit]' \
+    {-p,--patch}'[use the interactive patch selection interface to chose which changes to commit]' \
     '(--reset-author)--author[override the author name used in the commit]:author name' \
     '--date=[override the author date used in the commit]:date' \
     '(-s --signoff)'{-s,--signoff}'[add Signed-off-by line at the end of the commit message]' \
@@ -1131,6 +1131,7 @@ _git-log () {
 _git-merge () {
   local -a merge_options
   __git_setup_merge_options
+  local -a git_commit_opts=(--all --not HEAD --not)
 
   _arguments -w -S -s \
     $merge_options \
@@ -1138,7 +1139,7 @@ _git-merge () {
     '(                    --no-rerere-autoupdate)--rerere-autoupdate[allow the rerere mechanism to update the index]' \
     '(--rerere-autoupdate                       )--no-rerere-autoupdate[do not allow the rerere mechanism to update the index]' \
     '--abort[restore the original branch and abort the merge operation]' \
-    '*: :__git_commits'
+    '*: : __git_commits -O expl:git_commit_opts'
 }
 
 (( $+functions[_git-mv] )) ||
@@ -5004,6 +5005,33 @@ __git_is_in_middle_of_merge () {
   [[ -f $gitdir/MERGE_HEAD ]]
 }
 
+(( $+functions[__git_describe_branch] )) ||
+__git_describe_branch () {
+  local __commits_in=$1
+  local __tag=$2
+  local __desc=$3
+  shift 3
+
+  integer maxverbose
+  if zstyle -s :completion:$curcontext max-verbose maxverbose &&
+    (( ${compstate[nmatches]} <= maxverbose )); then
+    local __c
+    local -a __commits
+    for __c in ${(P)__commits_in}; do
+      __commits+=("${__c}:${$(_call_program describe git log -1 --oneline $__c)//:/\\:}")
+    done
+    _describe -t $__tag $__desc __commits "$@"
+  else
+    local expl
+    _wanted $__tag expl $__desc compadd "$@" -a - $__commits_in
+  fi
+}
+
+(( $+functions[__git_describe_commit] )) ||
+__git_describe_commit () {
+  __git_describe_branch $1 $2 $3 -M 'r:|/=**' "${(@)argv[4,-1]}"
+}
+
 # Completion Wrappers
 
 (( $+functions[__git_ignore_line] )) ||
@@ -5216,7 +5244,7 @@ _git_commands () {
   for cmdtype in aliases $cmdtypes; do
     local -a ${cmdtype}_d
     (( $#disp )) && set -A ${cmdtype}_d \
-        ${${(Pr.COLUMNS-4.)cmdtype/(#s)(#m)[^:]##:/${(r.len.)MATCH[1,-2]} $sep }%% #}
+        ${${(r.COLUMNS-4.)${(P)cmdtype}/(#s)(#m)[^:]##:/${(r.len.)MATCH[1,-2]} $sep }%% #}
     alts+=( "${cmdtype//_/-}:${${cmdtype//_/ }%%(e|)s}:compadd ${(e)disp} -a ${cmdtype}_m" )
   done
 
@@ -5313,7 +5341,8 @@ __git_remotes () {
 __git_ref_specs () {
   # TODO: This needs to deal with a lot more types of things.
   if compset -P '*:'; then
-    __git_heads
+    # TODO: have the caller supply the correct remote name, restrict to refs/remotes/${that_remote}/* only
+    __git_remote_branch_names_noprefix
   else
     compset -P '+'
     if compset -S ':*'; then
@@ -5487,12 +5516,21 @@ __git_signoff_file () {
 (( $+functions[__git_stashes] )) ||
 __git_stashes () {
   local expl
+  declare -a interleaved
   declare -a stashes
+  declare -a descriptions
 
-  stashes=(${(f)"$(_call_program stashes git stash list --pretty=format:%gd 2>/dev/null)"})
+  interleaved=(${(ps:\0:)"$(_call_program stashes git stash list -z --pretty='format:%gd%x00%s%x00\(%cr\)' 2>/dev/null)"})
   __git_command_successful $pipestatus || return 1
+  () {
+    local i j k
+    for i j k in $interleaved; do
+      stashes+=($i)
+      descriptions+=("$i: $j $k")
+    done
+  }
 
-  _wanted stashes expl stash compadd "$@" -a - stashes
+  _wanted stashes expl 'stash' compadd -Vx -d descriptions -a - stashes
 }
 
 (( $+functions[__git_svn_revisions] )) ||
@@ -5531,29 +5569,27 @@ __git_branch_names () {
   branch_names=(${${(f)"$(_call_program branchrefs git for-each-ref --format='"%(refname)"' refs/heads 2>/dev/null)"}#refs/heads/})
   __git_command_successful $pipestatus || return 1
 
-  _wanted branch-names expl branch-name compadd "$@" -a - branch_names
+  __git_describe_commit branch_names branch-names 'branch name' "$@"
 }
 
 (( $+functions[__git_remote_branch_names] )) ||
 __git_remote_branch_names () {
-  local expl
   declare -a branch_names
 
   branch_names=(${${(f)"$(_call_program remote-branch-refs git for-each-ref --format='"%(refname)"' refs/remotes 2>/dev/null)"}#refs/remotes/})
   __git_command_successful $pipestatus || return 1
 
-  _wanted remote-branch-names expl 'remote branch name' compadd -M 'r:|/=**' "$@" -a - branch_names
+  __git_describe_commit branch_names remote-branch-names 'remote branch name' "$@"
 }
 
 (( $+functions[__git_remote_branch_names_noprefix] )) ||
 __git_remote_branch_names_noprefix () {
-  local expl
   declare -a heads
 
-  branch_names=(${${${(f)"$(_call_program remote-branch-refs-noprefix git for-each-ref --format='"%(refname)"' refs/remotes 2>/dev/null)"}##*/}:#HEAD})
+  branch_names=(${${${${(f)"$(_call_program remote-branch-refs-noprefix git for-each-ref --format='"%(refname)"' refs/remotes 2>/dev/null)"}#refs/remotes/}#*/}:#HEAD})
   __git_command_successful $pipestatus || return 1
 
-  _wanted remote-branch-names-noprefix expl 'remote branch name' compadd -M 'r:|/=**' "$@" -a - branch_names
+  __git_describe_commit branch_names remote-branch-names-noprefix 'remote branch name' "$@"
 }
 
 (( $+functions[__git_commit_objects_prefer_recent] )) ||
@@ -5593,7 +5629,7 @@ __git_heads () {
 
 (( $+functions[__git_heads_local] )) ||
 __git_heads_local () {
-  local gitdir expl start
+  local gitdir
   declare -a heads
 
   heads=(${(f)"$(_call_program headrefs git for-each-ref --format='"%(refname:short)" refs/heads' 2>/dev/null)"})
@@ -5603,19 +5639,19 @@ __git_heads_local () {
       [[ -f $gitdir/$f ]] && heads+=$f
     done
     [[ -f $gitdir/refs/stash ]] && heads+=stash
+    [[ -f $gitdir/refs/bisect/bad ]] && heads+=bisect/bad
   fi
 
-  _wanted heads-local expl "local head" compadd -M 'r:|/=**' "$@" -a - heads
+  __git_describe_commit heads heads-local "local head" "$@"
 }
 
 (( $+functions[__git_heads_remote] )) ||
 __git_heads_remote () {
-  local gitdir expl start
   declare -a heads
 
   heads=(${(f)"$(_call_program headrefs git for-each-ref --format='"%(refname:short)" refs/remotes' 2>/dev/null)"})
 
-  _wanted heads-remote expl "remote head" compadd -M 'r:|/=**' "$@" -a - heads
+  __git_describe_commit heads heads-remote "remote head" "$@"
 }
 
 (( $+functions[__git_commit_objects] )) ||
@@ -5631,7 +5667,7 @@ __git_commit_objects () {
   commits=(${(f)"$(_call_program commits git --no-pager log -1000 --all --reflog --format='%h:\[%h\]\ %s\ \(%cr\)')"})
   __git_command_successful $pipestatus || return 1
 
-  _describe -V -t commits 'commit object name' commits
+  _describe -Vx -t commits 'commit object name' commits
 }
 
 (( $+functions[__git_recent_commits] )) ||
@@ -5641,6 +5677,8 @@ __git_recent_commits () {
   local i j k ret
   integer distance_from_head
   local label
+  local parents
+  local next_first_parent_ancestral_line_commit
 
   zparseopts -D -E O:=argument_array_names
   # Turn (-O foo:bar) to (foo bar)
@@ -5650,10 +5688,10 @@ __git_recent_commits () {
 
   # Careful: most %d will expand to the empty string.  Quote properly!
   # NOTE: we could use %D directly, but it's not available in git 1.9.1 at least.
-  commits=("${(f)"$(_call_program commits git --no-pager log $commit_opts -20 --format='%h%n%d%n%s\ \(%cr\)')"}")
+  commits=("${(f)"$(_call_program commits git --no-pager log $commit_opts -20 --format='%h%n%d%n%s\ \(%cr\)%n%p')"}")
   __git_command_successful $pipestatus || return 1
 
-  for i j k in "$commits[@]" ; do
+  for i j k parents in "$commits[@]" ; do
     # Note: the after-the-colon part must be unique across the entire array;
     # see workers/34768
     if (( $#commit_opts )); then
@@ -5662,20 +5700,39 @@ __git_recent_commits () {
       # description unique (due to workers/34768), which we do by including the
       # hash.  Git always prints enough hash digits to make the output unique.)
       label="[$i]"
-    elif (( distance_from_head == 0 )); then
-      label="[HEAD]   "
-    elif (( distance_from_head == 1 )); then
-      label="[HEAD^]  "
-    elif (( distance_from_head == 2 )); then
-      label="[HEAD^^] "
-    elif (( distance_from_head < 10 )); then
-      label="[HEAD~$distance_from_head] "
+    elif (( distance_from_head )) && [[ $i != $next_first_parent_ancestral_line_commit ]]; then
+      # The first commit (HEAD), and its ancestors along the first-parent line,
+      # get HEAD~$n labels.
+      #
+      # For other commits, we just print the hash.  (${parents} does provide enough
+      # information to compute HEAD~3^2~4 -style labels, though, if somebody cared
+      # enough to implement that.)
+      label="[$i]"
     else
-      label="[HEAD~$distance_from_head]"
+      # Compute a first-parent-ancestry commit's label.
+      if false ; then
+      elif (( distance_from_head == 0 )); then
+        label="[HEAD]   "
+      elif (( distance_from_head == 1 )); then
+        label="[HEAD^]  "
+      elif (( distance_from_head == 2 )); then
+        label="[HEAD^^] "
+      elif (( distance_from_head < 10 )); then
+        label="[HEAD~$distance_from_head] "
+      else
+        label="[HEAD~$distance_from_head]"
+      fi
+      ## Disabled because _describe renders the output unhelpfuly when this function
+      ## is called twice during a single completion operation, and list-grouped is
+      ## in its default setting (enabled).
+      #descr+=("@~${distance_from_head}":"${label} $k") # CROSSREF: use the same label as below
+
+      # Prepare for the next first-parent-ancestry commit.
+      (( ++distance_from_head ))
+      next_first_parent_ancestral_line_commit=${parents%% *}
     fi
     # label is now 9 bytes, so the descriptions ($k) will be aligned.
-    descr+=($i:"${label} $k")
-    (( ++distance_from_head ))
+    descr+=($i:"${label} $k") # CROSSREF: use the same label as above
 
     j=${${j# \(}%\)} # strip leading ' (' and trailing ')'
     j=${j/ ->/,}  # Convert " -> master, origin/master".
@@ -5695,7 +5752,7 @@ __git_recent_commits () {
   expl=()
   _wanted heads expl 'head' compadd "$@" -a - heads && ret=0
   expl=()
-  _describe -Vx -t commits 'recent commit object name' descr && ret=0
+  _describe -V -t commits 'recent commit object name' descr && ret=0
   return $ret
 }
 
@@ -5753,7 +5810,14 @@ __git_commit_ranges () {
   if compset -P '*..(.|)'; then
     expl=( $* )
   else
-    compset -S '..*' || suf=( -S .. -r '.@~ ^:\t\n\-' )
+    if ! compset -S '..*'; then
+      local match mbegin mend
+      if [[ ${PREFIX} = (#b)((\\|)\^)* ]]; then
+	compset -p ${#match[1]}
+      else
+	suf=( -S .. -r '.@~ ^:\t\n\-' )
+      fi
+    fi
     expl=( $* $suf )
   fi
 
@@ -5814,7 +5878,7 @@ __git_tags () {
   tags=(${${(f)"$(_call_program tagrefs git for-each-ref --format='"%(refname)"' refs/tags 2>/dev/null)"}#refs/tags/})
   __git_command_successful $pipestatus || return 1
 
-  _wanted tags expl tag compadd "$@" -a - tags
+  _wanted tags expl tag compadd -M 'r:|/=**' "$@" -a - tags
 }
 
 (( $+functions[__git_commit_tags] )) ||
@@ -5837,7 +5901,7 @@ __git_tags_of_type () {
   tags=(${${(M)${(f)"$(_call_program $type-tag-refs "git for-each-ref --format='%(*objecttype)%(objecttype) %(refname)' refs/tags 2>/dev/null")"}:#$type(tag|) *}#$type(tag|) refs/tags/})
   __git_command_successful $pipestatus || return 1
 
-  _wanted $type-tags expl "$type tag" compadd "$@" -a - tags
+  _wanted $type-tags expl "$type tag" compadd -M 'r:|/=**' "$@" -a - tags
 }
 
 # Reference Argument Types

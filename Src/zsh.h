@@ -36,6 +36,16 @@
  */
 #ifdef ZSH_64_BIT_TYPE
 typedef ZSH_64_BIT_TYPE zlong;
+#if defined(ZLONG_IS_LONG_LONG) && defined(LLONG_MAX)
+#define ZLONG_MAX LLONG_MAX
+#else
+#ifdef ZLONG_IS_LONG_64
+#define ZLONG_MAX LONG_MAX
+#else
+/* umm... */
+#define  ZLONG_MAX ((zlong)9223372036854775807)
+#endif
+#endif
 #ifdef ZSH_64_BIT_UTYPE
 typedef ZSH_64_BIT_UTYPE zulong;
 #else
@@ -44,6 +54,7 @@ typedef unsigned zlong zulong;
 #else
 typedef long zlong;
 typedef unsigned long zulong;
+#define ZLONG_MAX LONG_MAX
 #endif
 
 /*
@@ -395,25 +406,32 @@ enum {
  */
 #define FDT_EXTERNAL		2
 /*
+ * Entry visible to other processes but controlled by a module.
+ * The difference from FDT_EXTERNAL is that closing this using
+ * standard fd syntax will fail as there is some tidying up that
+ * needs to be done by the module's own mechanism.
+ */
+#define FDT_MODULE		3
+/*
  * Entry used by output from the XTRACE option.
  */
-#define FDT_XTRACE		3
+#define FDT_XTRACE		4
 /*
  * Entry used for file locking.
  */
-#define FDT_FLOCK		4
+#define FDT_FLOCK		5
 /*
  * As above, but the fd is not marked for closing on exec,
  * so the shell can still exec the last process.
  */
-#define FDT_FLOCK_EXEC		5
+#define FDT_FLOCK_EXEC		6
 #ifdef PATH_DEV_FD
 /*
  * Entry used by a process substition.
  * This marker is not tested internally as we associated the file
  * descriptor with a job for closing.
  */
-#define FDT_PROC_SUBST		6
+#define FDT_PROC_SUBST		7
 #endif
 
 /* Flags for input stack */
@@ -469,6 +487,7 @@ typedef struct heap      *Heap;
 typedef struct heapstack *Heapstack;
 typedef struct histent   *Histent;
 typedef struct hookdef   *Hookdef;
+typedef struct imatchdata *Imatchdata;
 typedef struct jobfile   *Jobfile;
 typedef struct job       *Job;
 typedef struct linkedmod *Linkedmod;
@@ -480,6 +499,7 @@ typedef struct options	 *Options;
 typedef struct optname   *Optname;
 typedef struct param     *Param;
 typedef struct paramdef  *Paramdef;
+typedef struct patstralloc  *Patstralloc;
 typedef struct patprog   *Patprog;
 typedef struct prepromptfn *Prepromptfn;
 typedef struct process   *Process;
@@ -1459,6 +1479,15 @@ struct patprog {
     char		patstartch;
 };
 
+struct patstralloc {
+    int unmetalen;		/* Unmetafied length of trial string */
+    int unmetalenp;		/* Unmetafied length of path prefix.
+				   If 0, no path prefix. */
+    char *alloced;		/* Allocated string, may be NULL */
+    char *progstrunmeta;	/* Unmetafied pure string in pattern, cached */
+    int progstrunmetalen;	/* Length of the foregoing */
+};
+
 /* Flags used in pattern matchers (Patprog) and passed down to patcompile */
 
 #define PAT_FILE	0x0001	/* Pattern is a file name */
@@ -1571,6 +1600,31 @@ typedef struct zpc_disables_save *Zpc_disables_save;
 #define PP_UNKWN  20
 /* Range: token followed by the (possibly multibyte) start and end */
 #define PP_RANGE  21
+
+/*
+ * Argument to get_match_ret() in glob.c
+ */
+struct imatchdata {
+    /* Metafied trial string */
+    char *mstr;
+    /* Its length */
+    int mlen;
+    /* Unmetafied string */
+    char *ustr;
+    /* Its length */
+    int ulen;
+    /* Flags (SUB_*) */
+    int flags;
+    /* Replacement string (metafied) */
+    char *replstr;
+    /*
+     * List of bits of matches to concatenate with replacement string.
+     * The data is a struct repldata.  It is not used in cases like
+     * ${...//#foo/bar} even though SUB_GLOBAL is set, since the match
+     * is anchored.  It goes on the heap.
+     */
+    LinkList repllist;
+};
 
 /* Globbing flags: lower 8 bits gives approx count */
 #define GF_LCMATCHUC	0x0100
@@ -1812,18 +1866,45 @@ enum {
 };
 
 /* Flags as the second argument to prefork */
-/* argument handled like typeset foo=bar */
-#define PREFORK_TYPESET	        0x01
-/* argument handled like the RHS of foo=bar */
-#define PREFORK_ASSIGN	        0x02
-/* single word substitution */
-#define PREFORK_SINGLE	        0x04
-/* explicitly split nested substitution */
-#define PREFORK_SPLIT           0x08
-/* SHWORDSPLIT in parameter expn */
-#define PREFORK_SHWORDSPLIT     0x10
-/* SHWORDSPLIT forced off in nested subst */
-#define PREFORK_NOSHWORDSPLIT   0x20
+enum {
+    /* argument handled like typeset foo=bar */
+    PREFORK_TYPESET       = 0x01,
+    /* argument handled like the RHS of foo=bar */
+    PREFORK_ASSIGN        = 0x02,
+    /* single word substitution */
+    PREFORK_SINGLE        = 0x04,
+    /* explicitly split nested substitution */
+    PREFORK_SPLIT         = 0x08,
+    /* SHWORDSPLIT in parameter expn */
+    PREFORK_SHWORDSPLIT   = 0x10,
+    /* SHWORDSPLIT forced off in nested subst */
+    PREFORK_NOSHWORDSPLIT = 0x20,
+    /* Prefork is part of a parameter subexpression */
+    PREFORK_SUBEXP        = 0x40
+};
+
+/*
+ * Bit flags passed back from multsub() to paramsubst().
+ * Some flags go from a nested parmsubst() through the enclosing
+ * stringsubst() and prefork().
+ */
+enum {
+    /*
+     * Set if the string had whitespace at the start
+     * that should cause word splitting against any preceeding string.
+     */
+    MULTSUB_WS_AT_START = 1,
+    /*
+     * Set if the string had whitespace at the end
+     * that should cause word splitting against any following string.
+     */
+    MULTSUB_WS_AT_END   = 2,
+    /*
+     * Set by nested paramsubst() to indicate the return
+     * value is a parameter name, rather than a value.
+     */
+    MULTSUB_PARAM_NAME  = 4
+};
 
 /*
  * Structure for adding parameters in a module.
@@ -1884,9 +1965,6 @@ struct paramdef {
 #define SPECIALPMDEF(name, flags, gsufn, getfn, scanfn) \
     { name, flags | PM_SPECIAL | PM_HIDE | PM_HIDEVAL, \
 	    NULL, gsufn, getfn, scanfn, NULL }
-
-#define setsparam(S,V) assignsparam(S,V,0)
-#define setaparam(S,V) assignaparam(S,V,0)
 
 /*
  * Flags for assignsparam and assignaparam.
@@ -2164,6 +2242,7 @@ enum {
     GLOBASSIGN,
     GLOBCOMPLETE,
     GLOBDOTS,
+    GLOBSTARSHORT,
     GLOBSUBST,
     HASHCMDS,
     HASHDIRS,

@@ -1306,8 +1306,8 @@ doisearch(char **args, int dir, int pattern)
 			     * this mode.
 			     */
 			    if (!skip_pos &&
-				pattryrefs(patprog, zt, -1, -1, 0, NULL, NULL,
-					   &end_pos))
+				pattryrefs(patprog, zt, -1, -1, NULL, 0,
+					   NULL, NULL, &end_pos))
 				t = zt;
 			} else {
 			    if (!matchlist && !skip_pos) {
@@ -1643,7 +1643,7 @@ doisearch(char **args, int dir, int pattern)
 	    } else if (cmd == Th(z_selfinsert)) {
 #ifdef MULTIBYTE_SUPPORT
 		if (!lastchar_wide_valid)
-		    if (getrestchar(lastchar) == WEOF) {
+		    if (getrestchar(lastchar, NULL, NULL) == WEOF) {
 			handlefeep(zlenoargs);
 			continue;
 		    }
@@ -1877,7 +1877,7 @@ getvisrchstr(void)
 	    } else {
 #ifdef MULTIBYTE_SUPPORT
 		if (!lastchar_wide_valid)
-		    if (getrestchar(lastchar) == WEOF) {
+		    if (getrestchar(lastchar, NULL, NULL) == WEOF) {
 			handlefeep(zlenoargs);
 			continue;
 		    }

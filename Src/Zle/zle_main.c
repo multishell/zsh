@@ -933,7 +933,7 @@ getfullchar(int do_keytmout)
     int inchar = getbyte((long)do_keytmout, NULL);
 
 #ifdef MULTIBYTE_SUPPORT
-    return getrestchar(inchar);
+    return getrestchar(inchar, NULL, NULL);
 #else
     return inchar;
 #endif
@@ -951,7 +951,7 @@ getfullchar(int do_keytmout)
 
 /**/
 mod_export ZLE_INT_T
-getrestchar(int inchar)
+getrestchar(int inchar, char *outstr, int *outcount)
 {
     char c = inchar;
     wchar_t outchar;
@@ -965,6 +965,8 @@ getrestchar(int inchar)
      */
     lastchar_wide_valid = 1;
 
+    if (outcount)
+	*outcount = 0;
     if (inchar == EOF) {
 	/* End of input, so reset the shift state. */
 	memset(&mbs, 0, sizeof mbs);
@@ -1013,6 +1015,10 @@ getrestchar(int inchar)
 		return lastchar_wide = WEOF;
 	}
 	c = inchar;
+	if (outstr) {
+	    *outstr++ = c;
+	    (*outcount)++;
+	}
     }
     return lastchar_wide = (ZLE_INT_T)outchar;
 }
@@ -1396,7 +1402,8 @@ execzlefunc(Thingy func, char **args, int set_bindk)
 	    opts[XTRACE] = oxt;
 	    sfcontext = osc;
 	    endparamscope();
-	    lastcmd = 0;
+	    lastcmd = w->flags;
+	    w->flags = 0;
 	    r = 1;
 	    redup(osi, 0);
 	}
@@ -1975,7 +1982,7 @@ zle_main_entry(int cmd, va_list ap)
 static struct builtin bintab[] = {
     BUILTIN("bindkey", 0, bin_bindkey, 0, -1, 0, "evaM:ldDANmrsLRp", NULL),
     BUILTIN("vared",   0, bin_vared,   1,  1, 0, "aAcef:hi:M:m:p:r:t:", NULL),
-    BUILTIN("zle",     0, bin_zle,     0, -1, 0, "aAcCDFgGIKlLmMNrRTUw", NULL),
+    BUILTIN("zle",     0, bin_zle,     0, -1, 0, "aAcCDfFgGIKlLmMNrRTUw", NULL),
 };
 
 /* The order of the entries in this table has to match the *HOOK
@@ -2038,7 +2045,8 @@ setup_(UNUSED(Module m))
     bpaste = zshcalloc(3*sizeof(char *));
     bpaste[0] = ztrdup("\033[?2004h");
     bpaste[1] = ztrdup("\033[?2004l");
-    setaparam("zle_bracketed_paste", bpaste);
+    /* Intended to be global, no WARNCREATEGLOBAL check. */
+    assignaparam("zle_bracketed_paste", bpaste, 0);
 
     return 0;
 }

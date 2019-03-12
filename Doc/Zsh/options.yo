@@ -534,6 +534,21 @@ cindex(globbing, of . files)
 item(tt(GLOB_DOTS) (tt(-4)))(
 Do not require a leading `tt(.)' in a filename to be matched explicitly.
 )
+pindex(GLOB_STAR_SHORT)
+pindex(NO_GLOB_STAR_SHORT)
+pindex(GLOBSTARSHORT)
+pindex(NOGLOBSTARSHORT)
+cindex(globbing, short forms)
+cindex(globbing, ** special)
+item(tt(GLOB_STAR_SHORT))(
+When this option is set and the default zsh-style globbing is in
+effect, the pattern `tt(**/*)' can be abbreviated to `tt(**)' and the
+pattern `tt(***/*)' can be abbreviated to tt(***).  Hence `tt(**.c)'
+finds a file ending in tt(.c) in any subdirectory, and `tt(***.c)' does
+the same while also following symbolic links.  A tt(/) immediately
+after the `tt(**)' or `tt(***)' forces the pattern to be treated as the
+unabbreviated form.
+)
 pindex(GLOB_SUBST)
 pindex(NO_GLOB_SUBST)
 pindex(GLOBSUBST)
@@ -746,7 +761,8 @@ pindex(NOWARNCREATEGLOBAL)
 cindex(parameters, warning when created globally)
 item(tt(WARN_CREATE_GLOBAL))(
 Print a warning message when a global parameter is created in a function
-by an assignment.  This often indicates that a parameter has not been
+by an assignment or in math context.
+This often indicates that a parameter has not been
 declared local when it should have been.  Parameters explicitly declared
 global from within a function using tt(typeset -g) do not cause a warning.
 Note that there is no warning when a local parameter is assigned to in
@@ -1552,13 +1568,13 @@ ifnzman(noderef(Arithmetic Evaluation))\
 ifzman(the section ARITHMETIC EVALUATION in zmanref(zshmisc))
 has an explicit list.
 )
-pindex(DEBUG_BEFORE_CMD <D>)
-pindex(NO_DEBUG_BEFORE_CMD <D>)
-pindex(DEBUGBEFORECMD <D>)
-pindex(NODEBUGBEFORECMD <D>)
+pindex(DEBUG_BEFORE_CMD)
+pindex(NO_DEBUG_BEFORE_CMD)
+pindex(DEBUGBEFORECMD)
+pindex(NODEBUGBEFORECMD)
 cindex(traps, DEBUG, before or after command)
 cindex(DEBUG trap, before or after command)
-item(tt(DEBUG_BEFORE_CMD))(
+item(tt(DEBUG_BEFORE_CMD) <D>)(
 Run the tt(DEBUG) trap before each command; otherwise it is run after
 each command.  Setting this option mimics the behaviour of ksh 93; with
 the option unset the behaviour is that of ksh 88.

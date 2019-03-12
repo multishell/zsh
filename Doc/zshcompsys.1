@@ -1,4 +1,4 @@
-.TH "ZSHCOMPSYS" "1" "September 11, 2015" "zsh 5\&.1\&.1"
+.TH "ZSHCOMPSYS" "1" "December 2, 2015" "zsh 5\&.2"
 .SH "NAME"
 zshcompsys \- zsh completion system
 .\" Yodl file: Zsh/compsys.yo
@@ -4129,6 +4129,11 @@ This defines two sets\&.  When the command line contains the option
 possible completions\&.  When it contains `\fB\-d\fP\&' or an argument, the
 option `\fB\-c\fP\&' will not be considered\&.  However, after `\fB\-a\fP'
 both sets will still be considered valid\&.
+.PP
+If an option in a set appears on the command line, it is stored in the
+associative array `\fBopt_args\fP\&' with '\fIset\fP\fB\-\fP\fIoption\fP'
+as a key\&.  In the example above, a key `\fBset1\-\-c\fP\&' is used if the option
+`\fB\-c\fP\&' is on the command line\&.
 .PP
 If the name given for one of the mutually exclusive sets is of the form
 `\fB(\fP\fIname\fP\fB)\fP\&' then only one value from each set will ever
