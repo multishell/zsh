@@ -845,7 +845,7 @@ addhistnum(int hl, int n, int xflags)
     if (n)
 	he = movehistent(he, n, xflags);
     if (!he)
-	return dir < 0? firsthist() : curhist;
+	return dir < 0? firsthist() - 1 : curhist + 1;
     return he->histnum;
 }
 
@@ -922,6 +922,10 @@ prepnexthistent(void)
 
     if (curline_in_ring)
 	unlinkcurline();
+    if (hist_ring && hist_ring->flags & HIST_TMPSTORE) {
+	curhist--;
+	freehistnode((HashNode)hist_ring);
+    }
 
     if (histlinect < histsiz) {
 	he = (Histent)zcalloc(sizeof *he);
@@ -967,13 +971,13 @@ prepnexthistent(void)
 static int
 should_ignore_line(Eprog prog)
 {
-    if (!prog)
-	return 0;
-
     if (isset(HISTIGNORESPACE)) {
 	if (*chline == ' ' || aliasspaceflag)
 	    return 1;
     }
+
+    if (!prog)
+	return 0;
 
     if (isset(HISTNOFUNCTIONS)) {
 	Wordcode pc = prog->prog;
@@ -985,12 +989,20 @@ should_ignore_line(Eprog prog)
 
     if (isset(HISTNOSTORE)) {
 	char *b = getjobtext(prog, NULL);
-	if (*b == 'b' && strncmp(b, "builtin ", 8) == 0)
+	int saw_builtin;
+	if (*b == 'b' && strncmp(b,"builtin ",8) == 0) {
 	    b += 8;
-	if (*b == 'h' && strncmp(b, "history", 7) == 0
-	 && (!b[7] || b[7] == ' '))
+	    saw_builtin = 1;
+	} else
+	    saw_builtin = 0;
+	if (*b == 'h' && strncmp(b,"history",7) == 0 && (!b[7] || b[7] == ' ')
+	 && (saw_builtin || !shfunctab->getnode(shfunctab,"history")))
 	    return 1;
-	if (*b == 'f' && b[1] == 'c' && b[2] == ' ' && b[3] == '-') {
+	if (*b == 'r' && (!b[1] || b[1] == ' ')
+	 && (saw_builtin || !shfunctab->getnode(shfunctab,"r")))
+	    return 1;
+	if (*b == 'f' && b[1] == 'c' && b[2] == ' ' && b[3] == '-'
+	 && (saw_builtin || !shfunctab->getnode(shfunctab,"fc"))) {
 	    b += 3;
 	    do {
 		if (*++b == 'l')
@@ -1754,6 +1766,33 @@ static struct {
 
 static int histfile_linect;
 
+static int readhistline(int start, char **bufp, int *bufsiz, FILE *in)
+{
+    char *buf = *bufp;
+    if (fgets(buf + start, *bufsiz - start, in)) {
+	int l = strlen(buf);
+
+	if (start >= l)
+	    return -1;
+
+	if (l) {
+	    if (buf[l - 1] != '\n' && !feof(in)) {
+		*bufp = zrealloc(buf, 2 * (*bufsiz));
+		*bufsiz = 2 * (*bufsiz);
+		return readhistline(l, bufp, bufsiz, in);
+	    }
+	    buf[l - 1] = '\0';
+	    if (l > 1 && buf[l - 2] == '\\') {
+		buf[--l - 1] = '\n';
+		if (!feof(in))
+		    return readhistline(l, bufp, bufsiz, in);
+	    }
+	}
+	return l;
+    } else
+	return 0;
+}
+
 /**/
 void
 readhistfile(char *fn, int err, int readflags)
@@ -1766,7 +1805,7 @@ readhistfile(char *fn, int err, int readflags)
     short *wordlist;
     struct stat sb;
     int nwordpos, nwordlist, bufsiz;
-    int searching, newflags;
+    int searching, newflags, l;
 
     if (!fn && !(fn = getsparam("HISTFILE")))
 	return;
@@ -1804,30 +1843,13 @@ readhistfile(char *fn, int err, int readflags)
 	if (readflags & HFILE_SKIPOLD
 	 || (hist_ignore_all_dups && newflags & hist_skip_flags))
 	    newflags |= HIST_MAKEUNIQUE;
-	while (fpos = ftell(in), fgets(buf, bufsiz, in)) {
-	    int l = strlen(buf);
-	    char *pt;
+	while (fpos = ftell(in), (l = readhistline(0, &buf, &bufsiz, in))) {
+	    char *pt = buf;
 
-	    while (l) {
-		while (buf[l - 1] != '\n') {
-		    buf = zrealloc(buf, 2 * bufsiz);
-		    bufsiz = 2 * bufsiz;
-		    if (!fgets(buf + l, bufsiz - l, in)) {
-			l++;
-			break;
-		    }
-		    l += strlen(buf+l);
-		}
-		buf[l - 1] = '\0';
-		if (l > 1 && buf[l - 2] == '\\') {
-		    buf[--l - 1] = '\n';
-		    fgets(buf + l, bufsiz - l, in);
-		    l += strlen(buf+l);
-		} else
-		    break;
+	    if (l < 0) {
+		zerr("corrupt history file %s", fn, 0);
+		break;
 	    }
-
-	    pt = buf;
 	    if (*pt == ':') {
 		pt++;
 		stim = zstrtol(pt, NULL, 0);
@@ -1921,7 +1943,7 @@ readhistfile(char *fn, int err, int readflags)
 
 	fclose(in);
     } else if (err)
-	zerr("can't read history file", fn, 0);
+	zerr("can't read history file %s", fn, 0);
 
     unlockhistfile(fn);
 }
@@ -2024,10 +2046,13 @@ savehistfile(char *fn, int err, int writeflags)
 	    Histent remember_hist_ring = hist_ring;
 	    int remember_histlinect = histlinect;
 	    int remember_curhist = curhist;
+	    int remember_histsiz = histsiz;
+	    int remember_histactive = histactive;
 
 	    hist_ring = NULL;
 	    curhist = histlinect = 0;
 	    histsiz = savehist;
+	    histactive = 0;
 	    createhisttable(); /* sets histtab */
 
 	    hist_ignore_all_dups |= isset(HISTSAVENODUPS);
@@ -2040,6 +2065,8 @@ savehistfile(char *fn, int err, int writeflags)
 	    histlinect = remember_histlinect;
 	    hist_ring = remember_hist_ring;
 	    histtab = remember_histtab;
+	    histsiz = remember_histsiz;
+	    histactive = remember_histactive;
 	}
     } else if (err)
 	zerr("can't write history file %s", fn, 0);

@@ -30,8 +30,8 @@
 @end iftex
 @titlepage
 @title The Z Shell Manual
-@subtitle Version 4.0.1-dev-0
-@subtitle Updated June 4, 2001
+@subtitle Version 4.0.3
+@subtitle Updated October 24, 2001
 @author Original documentation by Paul Falstad
 @page
 This is a texinfo version of the documentation for the Z Shell, originally by 
@@ -61,7 +61,7 @@ This Info file documents Zsh, a freely available UNIX command interpreter
 (ksh), although it is not completely compatible.
 
 @noindent
-Version 4.0.1-dev-0, last updated June 4, 2001.
+Version 4.0.3, last updated October 24, 2001.
 @end ifinfo
 
 @noindent
@@ -285,12 +285,13 @@ produce a nicely formatted printed manual.
 An HTML version of this manual is available at the Zsh web site via:
 
 @noindent
-@t{http://sunsite.dk/zsh/Doc/}.
+@t{http://zsh.sunsite.dk/Doc/}.
 
 @noindent
 (The HTML version is produced with @cite{texi2html}, which may be obtained
 from @t{http://www.mathematik.uni-kl.de/~obachman/Texi2html/}. The command is
-`@t{texi2html -split_chapter -expandinfo zsh.texi}'.)
+`@t{texi2html -split chapter -expand info zsh.texi}'.  If necessary,
+upgrade to version 1.64 of texi2html.)
 
 @end table
 
@@ -490,7 +491,7 @@ A userguide is currently in preparation.  It is intended to complement the
 manual, with explanations and hints on issues where the manual can be
 cabbalistic, hierographic, or downright mystifying (for example, the word
 `hierographic' does not exist).  It can be viewed in its current state at
-@t{http://sunsite.dk/zsh/Guide/}.  At the time of writing, chapters
+@t{http://zsh.sunsite.dk/Guide/}.  At the time of writing, chapters
 dealing with startup files and their contents and the new completion system
 were essentially complete.
 @c (avoiding a yodl bug)
@@ -1133,11 +1134,17 @@ for a description of @var{exp}.
 Many of zsh's complex commands have alternate forms.  These particular
 versions of complex commands should be considered deprecated and may be
 removed in the future.  The versions in the previous section should be
-preferred instead.  The short versions below only work if @var{sublist}
-is of the form `@t{@{} @var{list} @t{@}}' or if the @t{SHORT_LOOPS}
-option is set.  In this case, the test part of the loop must also be
-suitably delimited, such as by `@t{[[ ... ]]}' or `@t{(( ... ))}', else
-the end of the test will not be recognized.
+preferred instead.
+
+@noindent
+The short versions below only work if @var{sublist} is of the form `@t{@{}
+@var{list} @t{@}}' or if the @t{SHORT_LOOPS} option is set.  For the @t{if},
+@t{while} and @t{until} commands, in both these cases the test part of the
+loop must also be suitably delimited, such as by `@t{[[ ... ]]}' or `@t{((
+... ))}', else the end of the test will not be recognized.  For the
+@t{for}, @t{repeat}, @t{case} and @t{select} commands no such special form
+for the arguments is necessary, but the other condition (the special form
+of @var{sublist} or use of the @t{SHORT_LOOPS} option) still applies.
 
 @noindent
 @table @asis
@@ -1166,7 +1173,8 @@ if true @{  # Does not work!
 does @emph{not}, since the test is not suitably delimited.
 
 @item @t{if} @var{list} @var{sublist}
-A short form of the alternate `if'.
+A short form of the alternate `if'.  The same limitations on the form of
+@var{list} apply as for the previous form.
 
 @item @t{for} @var{name} @t{(} @var{word} ... @t{)} @var{sublist}
 A short form of @t{for}.
@@ -1182,10 +1190,12 @@ A short form of the arithmetic @t{for} command.
 Another form of @t{for}.
 
 @item @t{while} @var{list} @t{@{} @var{list} @t{@}}
-An alternative form of @t{while}.
+An alternative form of @t{while}.  Note the limitations on the form of
+@var{list} mentioned above.
 
 @item @t{until} @var{list} @t{@{} @var{list} @t{@}}
-An alternative form of @t{until}.
+An alternative form of @t{until}.  Note the limitations on the form of
+@var{list} mentioned above.
 
 @item @t{repeat} @var{word} @var{sublist}
 This is a short form of @t{repeat}.
@@ -2047,7 +2057,7 @@ let "val = 2 + 1"
 @end example
 
 @noindent
-both assigning the value 3 to the shell variable @t{foo} and returning a
+both assigning the value 3 to the shell variable @t{var} and returning a
 zero status.
 
 @noindent
@@ -2704,41 +2714,44 @@ the latter two sequences.
 @noindent
 @cindex expansion
 
-@section Description
-@noindent
-The types of expansions performed are
+The following types of expansions are performed in the indicated order in
+five steps:
 
 @noindent
 @table @asis
 @item @emph{History Expansion}
+This is performed only in interactive shells.
+
 @item @emph{Alias Expansion}
+Aliases are expanded immediately before the command line is parsed as
+explained
+in @ref{Aliasing}.
+
 @item @emph{Process Substitution}
-@item @emph{Parameter Expansion}
-@item @emph{Command Substitution}
-@item @emph{Arithmetic Expansion}
-@item @emph{Brace Expansion}
+@itemx @emph{Parameter Expansion}
+@itemx @emph{Command Substitution}
+@itemx @emph{Arithmetic Expansion}
+@itemx @emph{Brace Expansion}
+These five are performed in one step in left-to-right fashion.  After
+these expansions, all unquoted occurrences of the characters `@t{\}',
+`@t{'}' and `@t{"}' are removed.
+
 @item @emph{Filename Expansion}
+If the @t{SH_FILE_EXPANSION} option is set, the order of expansion is
+modified for compatibility with @cite{sh} and @cite{ksh}.  In that case
+@emph{filename expansion} is performed immediately after @emph{alias expansion},
+preceding the set of five expansions mentioned above.
+
+@cindex globbing
 @item @emph{Filename Generation}
-@item
+This expansion, commonly referred to as @cite{globbing}, is always done last.
+
 @end table
 
 @noindent
-Expansion is done in the above specified order in five steps.  The
-first is @emph{history expansion}, which is only performed in
-interactive shells.  The next step is @emph{alias expansion}, which is
-done right before the command line is parsed.  They are followed by
-@emph{process substitution}, @emph{parameter expansion}, @emph{command
-substitution}, @emph{arithmetic expansion} and @emph{brace expansion}
-which are performed in one step in left-to-right fashion.  After
-these expansions, all unquoted occurrences of the characters `@t{\}',
-`@t{'}' and `@t{"}' are removed, and the result is subjected to
-@emph{filename expansion} followed by @emph{filename generation}.
+The following sections explain the types of expansion in detail.
 
 @noindent
-If the @t{SH_FILE_EXPANSION} option is set, the order of expansion is modified
-for compatibility with @cite{sh} and @cite{ksh}.  @emph{Filename expansion}
-is performed immediately after @emph{alias expansion},
-preceding the set of five expansions mentioned above.
 @menu
 * History Expansion::
 * Process Substitution::
@@ -2765,8 +2778,8 @@ the size of which is controlled by the @t{HISTSIZE} parameter.  The one
 most recent command is always retained in any case.  Each saved command in
 the history list is called a history @emph{event} and is assigned a number,
 beginning with 1 (one) when the shell starts up.  The history number that
-you may see in your prompt (see @ref{Prompt Expansion}) is the number
-that is to be assigned to the @emph{next} command.
+you may see in your prompt (see
+@ref{Prompt Expansion}) is the number that is to be assigned to the @emph{next} command.
 
 @noindent
 @menu
@@ -2927,8 +2940,11 @@ in an error, although the error may not be the most obvious one.
 
 @subsection Modifiers
 @noindent
-@cindex modifiers, history
+@cindex modifiers
+@cindex colon modifiers
 @cindex history modifiers
+@cindex globbing modifiers
+@cindex parameter modifiers
 After the optional word designator, you can add
 a sequence of one or more of the following modifiers,
 each preceded by a `@t{:}'.  These modifiers also work on the result
@@ -2966,7 +2982,7 @@ by @t{eval}.
 Remove one level of quotes from the substituted words.
 
 @item @t{x}
-Like @t{q}, but break into words at each blank.  Does not work with
+Like @t{q}, but break into words at whitespace.  Does not work with
 parameter expansion.
 
 @item @t{l}
@@ -3054,8 +3070,10 @@ pipes (FIFOs), the command argument will be a named pipe.  If the form with
 be connected to the output of the @var{list} process.  For example,
 
 @noindent
-@t{paste <(cut -f1} @var{file1}@t{) <(cut -f3} @var{file2}@t{) |@*
+@example
+@t{paste <(cut -f1} @var{file1}@t{) <(cut -f3} @var{file2}@t{) |
 tee >(}@var{process1}@t{) >(}@var{process2}@t{) >/dev/null}
+@end example
 
 @noindent
 cuts fields 1 and 3 from the files @var{file1} and @var{file2} respectively,
@@ -3067,8 +3085,8 @@ Both the @t{/dev/fd} and the named pipe implementation have drawbacks.  In
 the former case, some programmes may automatically close the file
 descriptor in question before examining the file on the command line,
 particularly if this is necessary for security reasons such as when the
-programme is running setuid.  In the second case,  if the
-programme does not actually open the file the subshell attempting to read
+programme is running setuid.  In the second case, if the
+programme does not actually open the file, the subshell attempting to read
 from or write to the pipe will (in a typical implementation, different
 operating systems may have different behaviour) block for ever and have to
 be killed explicitly.  In both cases, the shell actually supplies the
@@ -3080,7 +3098,9 @@ Also note that the previous example can be more compactly and
 efficiently written (provided the @t{MULTIOS} option is set) as:
 
 @noindent
-@t{paste <(cut -f1} @var{file1}@t{) <(cut -f3} @var{file2}@t{) > >(}@var{process1}@t{) > >(}@var{process2}@t{)}
+@example
+@t{paste <(cut -f1} @var{file1}@t{) <(cut -f3} @var{file2}@t{)} @t{> >(}@var{process1}@t{) > >(}@var{process2}@t{)}
+@end example
 
 @noindent
 The shell uses pipes instead of FIFOs to implement the latter
@@ -3111,7 +3131,7 @@ the pattern is the same as that used for filename generation;
 see @ref{Filename Generation}.  Note that these patterns, along with
 the replacement text of any substitutions, are themselves subject to
 parameter expansion, command substitution, and arithmetic expansion.
-In addition to the following operations, the file modifiers described in
+In addition to the following operations, the colon modifiers described in
 @ref{Modifiers} in @ref{History Expansion} can be
 applied:  for example, @t{$@{i:s/foo/bar/@}} performs string
 substitution on the expansion of parameter @t{$i}.
@@ -3259,7 +3279,7 @@ Note that `@t{^}', `@t{=}', and `@t{~}', below, must appear
 to the left of `@t{#}' when these forms are combined.
 
 @item @t{$@{^}@var{spec}@t{@}}
-@pindex RC_EXPAND_PARAM, use of
+@pindex RC_EXPAND_PARAM, toggle
 @cindex array expansion style, rc
 @cindex rc, array expansion style
 Turn on the @t{RC_EXPAND_PARAM} option for the
@@ -3281,9 +3301,9 @@ If word splitting is also in effect the
 elements.
 
 @item @t{$@{=}@var{spec}@t{@}}
-@pindex SH_WORD_SPLIT, use of
-@cindex field splitting, sh style
-@cindex sh, field splitting style
+@pindex SH_WORD_SPLIT, toggle
+@cindex field splitting, sh style, parameter
+@cindex sh, field splitting style, parameter
 Perform word splitting using the rules for @t{SH_WORD_SPLIT} during the
 evaluation of @var{spec}, but regardless of whether the parameter appears in
 double quotes; if the `@t{=}' is doubled, turn it off.
@@ -3298,7 +3318,7 @@ of @var{spec} @emph{before} the assignment to @var{name} is performed.
 This affects the result of array assignments with the @t{A} flag.
 
 @item @t{$@{~}@var{spec}@t{@}}
-@pindex GLOB_SUBST
+@pindex GLOB_SUBST, toggle
 Turn on the @t{GLOB_SUBST} option for the evaluation of
 @var{spec}; if the `@t{~}' is doubled, turn it off.  When this option is
 set, the string resulting from the expansion will be interpreted as a
@@ -3340,13 +3360,27 @@ before.
 @cindex substitution, parameter, flags
 If the opening brace is directly followed by an opening parenthesis,
 the string up to the matching closing parenthesis will be taken as a
-list of flags.  Where arguments are valid, any character, or the
-matching pairs `@t{(}...@t{)}', `@t{@{}...@t{@}}',
-`@t{[}...@t{]}', or `@t{<}...@t{>}',  may be used
-in place of the colon as delimiters.  The following flags are supported:
+list of flags.  In cases where repeating a flag is meaningful, the
+repetitions need not be consecutive; for example, `(@t{q%q%q})'
+means the same thing as the more readable `(@t{%%qqq})'.  The
+following flags are supported:
 
 @noindent
 @table @asis
+@item @t{%}
+Expand all @t{%} escapes in the resulting words in the same way as in in
+prompts (see @ref{Prompt Expansion}). If this flag is given twice,
+full prompt expansion is done on the resulting words, depending on the
+setting of the @t{PROMPT_PERCENT}, @t{PROMPT_SUBST} and @t{PROMPT_BANG}
+options.
+
+@item @t{@@}
+In double quotes, array elements are put into separate words.
+E.g., `@t{"$@{(@@)foo@}"}' is equivalent to `@t{"$@{foo[@@]@}"}' and
+`@t{"$@{(@@)foo[1,2]@}"}' is the same as `@t{"$foo[1]" "$foo[2]"}'.
+This is distinct from @emph{field splitting} by the the @t{f}, @t{s}
+or @t{z} flags, which still applies within each array element.
+
 @item @t{A}
 Create an array parameter with `@t{$@{}...@t{=}...@t{@}}',
 `@t{$@{}...@t{:=}...@t{@}}' or `@t{$@{}...@t{::=}...@t{@}}'.
@@ -3354,26 +3388,43 @@ If this flag is repeated (as in `@t{AA}'), create an associative
 array parameter.  Assignment is made before sorting or padding.
 The @var{name} part may be a subscripted range for ordinary
 arrays; the @var{word} part @emph{must} be converted to an array, for
-example by using `@t{$@{(AA)=}@var{name}@t{=}...@t{@}}' to activate word
-splitting, when creating an associative array.
+example by using `@t{$@{(AA)=}@var{name}@t{=}...@t{@}}' to activate
+field splitting, when creating an associative array.
 
-@item @t{@@}
-In double quotes, array elements are put into separate words.
-E.g., `@t{"$@{(@@)foo@}"}' is equivalent to `@t{"$@{foo[@@]@}"}' and
-`@t{"$@{(@@)foo[1,2]@}"}' is the same as `@t{"$foo[1]" "$foo[2]"}'.
+@item @t{c}
+With @t{$@{#}@var{name}@t{@}}, count the total number of characters in an array,
+as if the elements were concatenated with spaces between them.
+
+@item @t{C}
+Capitalize the resulting words.  `Words' in this case refers to sequences
+of alphanumeric characters separated by non-alphanumerics, @emph{not} to words
+that result from field splitting.
 
 @item @t{e}
 Perform @emph{parameter expansion}, @emph{command substitution} and
 @emph{arithmetic expansion} on the result. Such expansions can be
 nested but too deep recursion may have unpredictable effects.
 
-@item @t{P}
-This forces the value of the parameter @var{name} to be interpreted as a
-further parameter name, whose value will be used where appropriate. If used
-with a nested parameter or command substitution, the result of that will be
-taken as a parameter name in the same way.  For example, if you have
-`@t{foo=bar}' and `@t{bar=baz}', the strings @t{$@{(P)foo@}},
-@t{$@{(P)$@{foo@}@}}, and @t{$@{(P)$(echo bar)@}} will be expanded to `@t{baz}'.
+@item @t{f}
+Split the result of the expansion to lines. This is a shorthand
+for `@t{ps:\n:}'.
+
+@item @t{F}
+Join the words of arrays together using newline as a separator.
+This is a shorthand for `@t{pj:\n:}'.
+
+@item @t{i}
+With @t{o} or @t{O}, sort case-independently.
+
+@item @t{k}
+If @var{name} refers to an associative array, substitute the @emph{keys}
+(element names) rather than the values of the elements.  Used with
+subscripts (including ordinary arrays), force indices or keys to be
+substituted even if the subscript form refers to values.  However,
+this flag may not be combined with subscript ranges.
+
+@item @t{L}
+Convert all letters in the result to lower case.
 
 @item @t{o}
 Sort the resulting words in ascending order.
@@ -3381,22 +3432,13 @@ Sort the resulting words in ascending order.
 @item @t{O}
 Sort the resulting words in descending order.
 
-@item @t{i}
-With @t{o} or @t{O}, sort case-independently.
-
-@item @t{L}
-Convert all letters in the result to lower case.
-
-@item @t{U}
-Convert all letters in the result to upper case.
-
-@item @t{C}
-Capitalize the resulting words.  `Words' in this case refers to sequences
-of alphanumeric characters separated by non-alphanumerics, @emph{not} to words
-that result from field splitting.
-
-@item @t{V}
-Make any special characters in the resulting words visible.
+@item @t{P}
+This forces the value of the parameter @var{name} to be interpreted as a
+further parameter name, whose value will be used where appropriate. If
+used with a nested parameter or command substitution, the result of that
+will be taken as a parameter name in the same way.  For example, if you
+have `@t{foo=bar}' and `@t{bar=baz}', the strings @t{$@{(P)foo@}},
+@t{$@{(P)$@{foo@}@}}, and @t{$@{(P)$(echo bar)@}} will be expanded to `@t{baz}'.
 
 @item @t{q}
 Quote the resulting words with backslashes. If this flag is given
@@ -3406,88 +3448,6 @@ given four times, the words are quoted in single quotes preceded by a @t{$}.
 
 @item @t{Q}
 Remove one level of quotes from the resulting words.
-
-@item @t{%}
-Expand all @t{%} escapes in the resulting words in the same way as in
-prompts (see @ref{Prompt Expansion}). If this flag is given twice,
-full prompt expansion is done on the resulting words, depending on the 
-setting of the @t{PROMPT_PERCENT}, @t{PROMPT_SUBST} and
-@t{PROMPT_BANG} options.
-
-@item @t{X}
-With this flag parsing errors occurring with the @t{Q} and @t{e} flags or the
-pattern matching forms such as `@t{$@{}@var{name}@t{#}@var{pattern}@t{@}}' 
-are reported. Without the flag they are silently ignored.
-
-@item @t{c}
-With @t{$@{#}@var{name}@t{@}}, count the total number of characters in an array,
-as if the elements were concatenated with spaces between them.
-
-@item @t{w}
-With @t{$@{#}@var{name}@t{@}}, count words in arrays or strings; the @t{s}
-flag may be used to set a word delimiter.
-
-@item @t{W}
-Similar to @t{w} with the difference that empty words between
-repeated delimiters are also counted.
-
-@item @t{k}
-If @var{name} refers to an associative array, substitute the @emph{keys}
-(element names) rather than the values of the elements.  Used with
-subscripts (including ordinary arrays), force indices or keys to be
-substituted even if the subscript form refers to values.  However,
-this flag may not be combined with subscript ranges.
-
-@item @t{v}
-Used with @t{k}, substitute (as two consecutive words) both the key
-and the value of each associative array element.  Used with subscripts,
-force values to be substituted even if the subscript form refers to
-indices or keys.
-
-@item @t{p}
-Recognize the same escape sequences as the @t{print} builtin
-in string arguments to any of the flags described below.
-
-@item @t{l:}@var{expr}@t{::}@var{string1}@t{::}@var{string2}@t{:}
-Pad the resulting words on the left.  Each word will be truncated if
-required and placed in a field @var{expr} characters wide.  The space
-to the left will be filled with @var{string1} (concatenated as often
-as needed) or spaces if @var{string1} is not given.  If both
-@var{string1} and @var{string2} are given, this string is inserted
-once directly to the left of each word, before padding.
-
-@item @t{r:}@var{expr}@t{::}@var{string1}@t{::}@var{string2}@t{:}
-As @t{l}, but pad the words on the right and insert @var{string2}
-on the right.
-
-@item @t{j:}@var{string}@t{:}
-Join the words of arrays together using @var{string} as a separator.
-@pindex SH_WORD_SPLIT, use of
-Note that this occurs before field splitting by the @t{SH_WORD_SPLIT}
-option.
-
-@item @t{F}
-Join the words of arrays together using newline as a separator.
-This is a shorthand for `@t{pj:\n:}'.
-
-@item @t{s:}@var{string}@t{:}
-Force field splitting (see the option @t{SH_WORD_SPLIT}) at the
-separator @var{string}.  Splitting only occurs in places where an
-array value is valid.
-
-@item @t{f}
-Split the result of the expansion to lines. This is a shorthand
-for `@t{ps:\n:}'.
-
-@item @t{z}
-Split the result of the expansion into words using shell parsing to
-find the words, i.e. taking into account any quoting in the value.
-
-@noindent
-Note that this is done very late, as for the `@t{(s)}' flag. So to
-access single words in the result, one has to use nested expansions as 
-in `@t{$@{$@{(z)foo@}[2]@}}'. Likewise, to remove the quotes in the
-resulting words one would do: `@t{$@{(Q)$@{(z)foo@}@}}'.
 
 @item @t{t}
 Use a string describing the type of the parameter where the value
@@ -3539,6 +3499,80 @@ for special parameters defined by the shell
 
 @end table
 
+@item @t{U}
+Convert all letters in the result to upper case.
+
+@item @t{v}
+Used with @t{k}, substitute (as two consecutive words) both the key
+and the value of each associative array element.  Used with subscripts,
+force values to be substituted even if the subscript form refers to
+indices or keys.
+
+@item @t{V}
+Make any special characters in the resulting words visible.
+
+@item @t{w}
+With @t{$@{#}@var{name}@t{@}}, count words in arrays or strings; the @t{s}
+flag may be used to set a word delimiter.
+
+@item @t{W}
+Similar to @t{w} with the difference that empty words between
+repeated delimiters are also counted.
+
+@item @t{X}
+With this flag parsing errors occurring with the @t{Q} and @t{e} flags or the
+pattern matching forms such as `@t{$@{}@var{name}@t{#}@var{pattern}@t{@}}' 
+are reported. Without the flag they are silently ignored.
+
+@item @t{z}
+Split the result of the expansion into words using shell parsing to
+find the words, i.e. taking into account any quoting in the value.
+
+@noindent
+Note that this is done very late, as for the `@t{(s)}' flag. So to
+access single words in the result, one has to use nested expansions as 
+in `@t{$@{$@{(z)foo@}[2]@}}'. Likewise, to remove the quotes in the
+resulting words one would do: `@t{$@{(Q)$@{(z)foo@}@}}'.
+
+@end table
+
+@noindent
+The following flags (except @t{p}) are followed by one or more arguments
+as shown.  Any character, or the matching pairs `@t{(}...@t{)}',
+`@t{@{}...@t{@}}', `@t{[}...@t{]}', or `@t{<}...@t{>}', may be used in place
+of a colon as delimiters, but note that when a flag takes more than one
+argument, a matched pair of delimiters must surround each argument.
+
+@noindent
+@table @asis
+@item @t{p}
+Recognize the same escape sequences as the @t{print} builtin
+in string arguments to any of the flags described below.
+
+@item @t{j:}@var{string}@t{:}
+Join the words of arrays together using @var{string} as a separator.
+@pindex SH_WORD_SPLIT, use of
+Note that this occurs before field splitting by the @t{SH_WORD_SPLIT}
+option.
+
+@item @t{l:}@var{expr}@t{::}@var{string1}@t{::}@var{string2}@t{:}
+Pad the resulting words on the left.  Each word will be truncated if
+required and placed in a field @var{expr} characters wide.  The space
+to the left will be filled with @var{string1} (concatenated as often
+as needed) or spaces if @var{string1} is not given.  If both
+@var{string1} and @var{string2} are given, this string is inserted
+once directly to the left of each word, before padding.
+
+@item @t{r:}@var{expr}@t{::}@var{string1}@t{::}@var{string2}@t{:}
+As @t{l}, but pad the words on the right and insert @var{string2}
+on the right.
+
+@item @t{s:}@var{string}@t{:}
+Force field splitting (see the option @t{SH_WORD_SPLIT}) at the
+separator @var{string}.  Note that a @var{string} of two or more
+characters means all must all match in sequence; this differs from
+the treatment of two or more characters in the @t{IFS} parameter.
+
 @end table
 
 @noindent
@@ -3552,24 +3586,38 @@ used with the @t{$@{}...@t{/}...@t{@}} forms.
 Search substrings as well as beginnings or ends; with @t{#} start
 from the beginning and with @t{%} start from the end of the string.
 With substitution via @t{$@{}...@t{/}...@t{@}} or
-@t{$@{}...@t{//}...@t{@}}, specifies that the shortest instead of the
-longest match should be replaced.
+@t{$@{}...@t{//}...@t{@}}, specifies non-greedy matching, i.e. that the
+shortest instead of the longest match should be replaced.
 
 @item @t{I:}@var{expr}@t{:}
 Search the @var{expr}th match (where @var{expr} evaluates to a number).
 This only applies when searching for substrings, either with the @t{S}
 flag, or with @t{$@{}...@t{/}...@t{@}} (only the @var{expr}th match is
 substituted) or @t{$@{}...@t{//}...@t{@}} (all matches from the
-@var{expr}th on are substituted).  The @var{expr}th match is counted
-such that there is either one or zero matches from each starting
-position in the string, although for global substitution matches
-overlapping previous replacements are ignored.
+@var{expr}th on are substituted).  The default is to take the first match.
 
-@item @t{M}
-Include the matched portion in the result.
+@noindent
+The @var{expr}th match is counted such that there is either one or zero
+matches from each starting position in the string, although for global
+substitution matches overlapping previous replacements are ignored.  With
+the @t{$@{}...@t{%}...@t{@}} and @t{$@{}...@t{%%}...@t{@}} forms, the starting
+position for the match moves backwards from the end as the index increases,
+while with the other forms it moves forward from the start.
 
-@item @t{R}
-Include the unmatched portion in the result (the @emph{R}est).
+@noindent
+Hence with the string
+@example
+which switch is the right switch for Ipswich?
+@end example
+substitutions of the form
+@t{$@{}(@t{SI:}@var{N}@t{:})@t{string#w*ch@}} as @var{N} increases
+from 1 will match and remove `@t{which}', `@t{witch}', `@t{witch}' and
+`@t{wich}'; the form using `@t{##}' will match and remove `@t{which switch
+is the right switch for Ipswich}', `@t{witch is the right switch for
+Ipswich}', `@t{witch for Ipswich}' and `@t{wich}'. The form using `@t{%}'
+will remove the same matches as for `@t{#}', but in reverse order, and the
+form using `@t{%%}' will remove the same matches as for `@t{##}' in reverse
+order.
 
 @item @t{B}
 Include the index of the beginning of the match in the result.
@@ -3577,8 +3625,14 @@ Include the index of the beginning of the match in the result.
 @item @t{E}
 Include the index of the end of the match in the result.
 
+@item @t{M}
+Include the matched portion in the result.
+
 @item @t{N}
 Include the length of the match in the result.
+
+@item @t{R}
+Include the unmatched portion in the result (the @emph{R}est).
 
 @end table
 
@@ -3675,6 +3729,16 @@ substitutions.
 @item @t{11.} @emph{Padding}
 Any padding of the value by the `@t{(l.}@var{fill}@t{.)}' or
 `@t{(r.}@var{fill}@t{.)}' flags is applied.
+
+@item @t{12.} @emph{Semantic Joining}
+In contexts where expansion semantics requires a single word to
+result, all words are rejoined with the first character of @t{IFS}
+between.  So in `@t{$@{(P}@t{)$@{(f}@t{)lines@}@}}'
+the value of @t{$@{lines@}} is split at newlines, but then must be
+joined again before the @t{P} flag can be applied.
+
+@noindent
+If a single word is not required, this rule is skipped.
 
 @end table
 
@@ -3888,7 +3952,6 @@ first `@t{=}' also inhibits this.
 @section Filename Generation
 @noindent
 @cindex filename generation
-@cindex globbing
 If a word contains an unquoted instance of one of the characters
 `@t{*}', `@t{(}', `@t{|}', `@t{<}', `@t{[}', or `@t{?}', it is regarded
 as a pattern for filename generation, unless the @t{GLOB} option is unset.
@@ -4594,7 +4657,7 @@ specifies how the names of the files should be sorted. If @var{c} is
 are sorted depending on the size (length) of the files; if @t{l} 
 they are sorted by the number of links; if @t{a}, @t{m}, or @t{c}
 they are sorted by the time of the last access, modification, or
-inode change respectively; if @var{d}, files in subdirectories appear before
+inode change respectively; if @t{d}, files in subdirectories appear before
 those in the current directory at each level of the search --- this is best
 combined with other criteria, for example `@t{odon}' to sort on names for
 files within the same directory.  Note that @t{a}, @t{m}, and @t{c} compare
@@ -5771,7 +5834,12 @@ window size specifications; these will not be local to the command.
 
 @vindex TERM
 @item @t{TERM} <S>
-The type of terminal in use.  This is used when looking up termcap sequences.
+The type of terminal in use.  This is used when looking up termcap
+sequences.  An assignment to @t{TERM} causes zsh to re-initialize the
+terminal, even if the value does not change (e.g., `@t{TERM=$TERM}').  It
+is necessary to make such an assignment upon any change to the terminal
+definition database or terminal type in order for the new settings to
+take effect.
 
 @vindex TIMEFMT
 @item @t{TIMEFMT}
@@ -6442,15 +6510,18 @@ for expansion.
 Note the location of each command the first time it is executed.
 Subsequent invocations of the same command will use the
 saved location, avoiding a path search.
-If this option is unset, no path hashing will be done at all.
+If this option is unset, no path hashing is done at all.
+However, when @t{CORRECT} is set, commands whose names do not appear in
+the functions or aliases hash tables are hashed in order to avoid
+reporting them as spelling errors.
 
 @pindex HASH_DIRS
 @cindex hashing, of directories
 @cindex directories, hashing
 @item @t{HASH_DIRS} <D>
-Whenever a command is executed, hash the directory containing it,
+Whenever a command name is hashed, hash the directory containing it,
 as well as all directories that occur earlier in the path.
-Has no effect if @t{HASH_CMDS} is unset.
+Has no effect if neither @t{HASH_CMDS} nor @t{CORRECT} is set.
 
 @pindex HASH_LIST_ALL
 @item @t{HASH_LIST_ALL} <D>
@@ -7501,7 +7572,7 @@ Put each specified @var{job} in the background,
 or the current job if none is specified.
 
 @item @t{bindkey}
-See @ref{The zsh/zle Module}.
+See @ref{Zle Builtins}.
 
 @findex break
 @cindex exiting loops
@@ -8138,7 +8209,7 @@ newline.  Only the @t{-e} and @t{-n} flags are recognized after
 @item @t{-b}
 Recognize all the escape sequences defined for the @t{bindkey} command,
 see 
-@ref{The zsh/zle Module}.
+@ref{Zle Builtins}.
 
 @item @t{-m}
 Take the first argument as a pattern (should be quoted), and remove
@@ -8177,8 +8248,7 @@ Print the arguments to file descriptor @var{n}.
 Print the arguments to the input of the coprocess.
 
 @item @t{-z}
-Push the arguments onto the editing buffer stack, separated by spaces;
-no escape sequences are recognized.
+Push the arguments onto the editing buffer stack, separated by spaces.
 
 @item @t{-D}
 Treat the arguments as directory names, replacing prefixes with @t{~}
@@ -8842,7 +8912,7 @@ If the @t{-m} flag is given the arguments are taken as patterns
 patterns), and all options with names matching these patterns are unset.
 
 @item @t{vared}
-See @ref{The zsh/zle Module}.
+See @ref{Zle Builtins}.
 
 @findex wait
 @cindex waiting for jobs
@@ -9038,7 +9108,7 @@ See @ref{The zsh/zutil Module}.
 See @ref{The zsh/zftp Module}.
 
 @item @t{zle}
-See @ref{The zsh/zle Module}.
+See @ref{Zle Builtins}.
 
 @findex zmodload
 @cindex modules, loading
@@ -9268,6 +9338,24 @@ This mode
 is similar to @cite{ksh}, and uses no termcap sequences.  If @t{TERM} is
 "emacs", the @t{ZLE} option will be unset by default.
 
+@noindent
+@vindex BAUD, use of
+@vindex COLUMNS, use of
+@vindex LINES, use of
+The parameters @t{BAUD}, @t{COLUMNS}, and @t{LINES} are also used by the
+line editor.
+@ref{Parameters Used By The Shell}.
+
+@noindent
+@menu
+* Keymaps::
+* Zle Builtins::
+* Zle Widgets::
+@end menu
+
+@noindent
+@node Keymaps, Zle Builtins, , Zsh Line Editor
+
 @section Keymaps
 @noindent
 @cindex keymaps
@@ -9343,6 +9431,7 @@ detect loops the process will be stopped if there are twenty such replacements
 without a real command being read.
 
 @noindent
+@node Zle Builtins, Zle Widgets, Keymaps, Zsh Line Editor
 
 @section Zle Builtins
 @noindent
@@ -9761,6 +9850,7 @@ invoked using this builtin command and non-zero if ZLE is not active.
 @end table
 
 @noindent
+@node Zle Widgets, , Zle Builtins, Zsh Line Editor
 
 @section Widgets
 @noindent
@@ -9911,7 +10001,7 @@ the @t{KEYTIMEOUT} parameter, see @ref{Parameters}.
 * Completion::
 * Miscellaneous::
 @end menu
-@node Movement, History Control, , Zsh Line Editor
+@node Movement, History Control, , Zle Widgets
 
 @subsection Movement
 @noindent
@@ -10043,7 +10133,7 @@ Repeat the last @t{vi-find} command.
 Repeat the last @t{vi-find} command in the opposite direction.
 
 @end table
-@node History Control, Modifying Text, Movement, Zsh Line Editor
+@node History Control, Modifying Text, Movement, Zle Widgets
 
 @subsection History Control
 @noindent
@@ -10298,7 +10388,7 @@ line up to the cursor.
 This leaves the cursor in its original position.
 
 @end table
-@node Modifying Text, Arguments, History Control, Zsh Line Editor
+@node Modifying Text, Arguments, History Control, Zle Widgets
 
 @subsection Modifying Text
 @noindent
@@ -10584,7 +10674,7 @@ into the kill buffer.
 Arguably, this is what Y should do in vi, but it isn't what it actually does.
 
 @end table
-@node Arguments, Completion, Modifying Text, Zsh Line Editor
+@node Arguments, Completion, Modifying Text, Zle Widgets
 
 @subsection Arguments
 @noindent
@@ -10619,7 +10709,7 @@ universal-argument} @var{num}', the numerical argument will be set to
 @var{num}; this is equivalent to `@t{NUMERIC=}@var{num}'.
 
 @end table
-@node Completion, Miscellaneous, Arguments, Zsh Line Editor
+@node Completion, Miscellaneous, Arguments, Zle Widgets
 
 @subsection Completion
 @noindent
@@ -10696,7 +10786,7 @@ When a previous completion displayed a list below the prompt, this
 widget can be used to move the prompt below the list.
 
 @end table
-@node Miscellaneous, , Completion, Zsh Line Editor
+@node Miscellaneous, , Completion, Zle Widgets
 
 @subsection Miscellaneous
 @noindent
@@ -13294,15 +13384,15 @@ the file @t{/etc/resolv.conf}.
 @kindex expand, completion style
 @item @t{expand}
 This style is used when completing strings consisting of multiple
-parts, such as path names.  If its
-value contains the string `@t{prefix}', the partially typed word from
+parts, such as path names.  If one of its values is
+the string `@t{prefix}', the partially typed word from
 the line will be expanded as far as possible even if trailing parts
-cannot be completed.  If it contains the string `@t{suffix}'
-and normal (non-menu-) completion is used, matching names for
+cannot be completed.  If one of its values is the string `@t{suffix}',
+matching names for
 components after the first ambiguous one will also be added.  This
 means that the resulting string is the longest unambiguous string
 possible, but if menu completion is started on the list of matches
-generated this way (e.g. due to the option @t{AUTO_MENU} being set),
+generated this way,
 this will also cycle through the names of the files in pathname
 components after the first ambiguous one.
 
@@ -14141,6 +14231,16 @@ all.
 
 @noindent
 The default style for this style is `true'.
+
+@kindex preserve-prefix, completion style
+@item @t{preserve-prefix}
+This style is used when completing path names.  Its value should be a
+pattern matching an initial prefix of the word to complete that should
+be left unchanged under all circumstances.  For example, on some Unices
+an initial `@t{//}' (double slash) has a special meaning and hence
+should be kept.  For that one could set this style to the string
+`@t{//}'.  As another example, setting this style to `@t{?:/}' under
+Cygwin would allow completion after `@t{a:/...}' and the like.
 
 @kindex range, completion style
 @item @t{range}
@@ -16466,7 +16566,7 @@ calculate completions, you can store that data in variables, and use
 this function to dump the values of those variables to a file.  Then,
 if they are needed in subsequent shell invocations, they can be
 retrieved quickly from that file via @t{_retrieve_cache}, avoiding the
-needly for repeating the costly operation.
+need for repeating the costly operation.
 
 @noindent
 The @var{cache_identifier} specifies the file which the data should be
@@ -20769,7 +20869,7 @@ distribution in your home directory, you would use the commands:
 mkdir ~/zsh_help
 cd ~/zsh_help
 man zshall | colcrt - | \ 
-perl ~/zsh-4.0.1-dev-0/Util/helpfiles
+perl ~/zsh-4.0.3/Util/helpfiles
 @end example
 
 @noindent
@@ -20925,7 +21025,7 @@ Run @t{zkbd} either as an autoloaded function, or as a shell script:
 
 @noindent
 @example
-zsh -f ~/zsh-4.0.1-dev-0/Functions/Misc/zkbd
+zsh -f ~/zsh-4.0.3/Functions/Misc/zkbd
 @end example
 
 @noindent
@@ -20990,7 +21090,7 @@ command and redirect the output into a file:
 
 @noindent
 @example
-. ~/zsh-4.0.1-dev-0/Util/reporter > zsh.report
+. ~/zsh-4.0.3/Util/reporter > zsh.report
 @end example
 
 @noindent

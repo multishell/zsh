@@ -274,10 +274,13 @@ gettext2(Estate state)
 	    break;
 	case WC_SUBLIST:
 	    if (!s) {
+                if (!(WC_SUBLIST_FLAGS(code) & WC_SUBLIST_SIMPLE) &&
+                    wc_code(*state->pc) != WC_PIPE)
+                    stack = -1;
 		if (WC_SUBLIST_FLAGS(code) & WC_SUBLIST_NOT)
-		    taddstr("! ");
+		    taddstr(stack ? "!" : "! ");
 		if (WC_SUBLIST_FLAGS(code) & WC_SUBLIST_COPROC)
-		    taddstr("coproc ");
+		    taddstr(stack ? "coproc" : "coproc ");
 		s = tpush(code, (WC_SUBLIST_TYPE(code) == WC_SUBLIST_END));
 	    } else {
 		if (!(stack = (WC_SUBLIST_TYPE(code) == WC_SUBLIST_END))) {
@@ -291,7 +294,7 @@ gettext2(Estate state)
 			taddstr("coproc ");
 		}
 	    }
-	    if (!stack && (WC_SUBLIST_FLAGS(s->code) & WC_SUBLIST_SIMPLE))
+	    if (stack < 1 && (WC_SUBLIST_FLAGS(s->code) & WC_SUBLIST_SIMPLE))
 		state->pc++;
 	    break;
 	case WC_PIPE:
@@ -751,9 +754,15 @@ getredirs(LinkList redirs)
 	    taddstr(fstr[f->type]);
 	    taddchr(' ');
 	    if (f->type == REDIR_HERESTR) {
-		taddchr('\'');
-		taddstr(bslashquote(f->name, NULL, 1));
-		taddchr('\'');
+                if (has_token(f->name)) {
+                    taddchr('\"');
+                    taddstr(bslashquote(f->name, NULL, 2));
+                    taddchr('\"');
+                } else {
+                    taddchr('\'');
+                    taddstr(bslashquote(f->name, NULL, 1));
+                    taddchr('\'');
+                }
 	    } else
 		taddstr(f->name);
 	    taddchr(' ');

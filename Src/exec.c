@@ -886,11 +886,18 @@ execlist(Estate state, int dont_change_job, int exiting)
 	state->pc--;
 sublist_done:
 
-	cmdsp = csp;
 	noerrexit = oldnoerrexit;
 
-	if (sigtrapped[SIGDEBUG])
+	if (sigtrapped[SIGDEBUG]) {
+	    exiting = donetrap;
+	    ret = lastval;
 	    dotrap(SIGDEBUG);
+	    lastval = ret;
+	    donetrap = exiting;
+	    noerrexit = oldnoerrexit;
+	}
+
+	cmdsp = csp;
 
 	/* Check whether we are suppressing traps/errexit *
 	 * (typically in init scripts) and if we haven't  *
@@ -943,6 +950,8 @@ execpline(Estate state, wordcode slcode, int how, int last1)
 
     if (wc_code(code) != WC_PIPE)
 	return lastval = (slflags & WC_SUBLIST_NOT) != 0;
+    else if (slflags & WC_SUBLIST_NOT)
+	last1 = 0;
 
     pj = thisjob;
     ipipe[0] = ipipe[1] = opipe[0] = opipe[1] = 0;
@@ -1753,7 +1762,7 @@ execcmd(Estate state, int input, int output, int how, int last1)
 	    if (!(cflags & BINF_NOGLOB))
 		while (!checked && !errflag && args && nonempty(args) &&
 		       has_token((char *) peekfirst(args)))
-		    glob(args, firstnode(args), 0);
+		    zglob(args, firstnode(args), 0);
 	    else if (!unglobbed) {
 		for (node = firstnode(args); node; incnode(node))
 		    untokenize((char *) getdata(node));
@@ -2288,9 +2297,6 @@ execcmd(Estate state, int input, int output, int how, int last1)
 #ifdef PATH_DEV_FD
 		closem(2);
 #endif
-		if (isset(PRINTEXITVALUE) && isset(SHINSTDIN) && lastval && !subsh) {
-		    fprintf(stderr, "zsh: exit %ld\n", (long)lastval);
-		}
 		fflush(stdout);
 		if (save[1] == -2) {
 		    if (ferror(stdout)) {
@@ -2299,6 +2305,10 @@ execcmd(Estate state, int input, int output, int how, int last1)
 		    }
 		} else
 		    clearerr(stdout);
+	    }
+	    if (isset(PRINTEXITVALUE) && isset(SHINSTDIN) &&
+		lastval && !subsh) {
+		fprintf(stderr, "zsh: exit %ld\n", (long)lastval);
 	    }
 
 	    if (do_exec) {
@@ -3264,7 +3274,10 @@ loadautofn(Shfunc shf, int fksh, int autol)
 	    execode(prog, 1, 0);
 	    shf = (Shfunc) shfunctab->getnode(shfunctab, n);
 	    if (!shf || (shf->flags & PM_UNDEFINED)) {
+		/* We're not actually in the function; decrement locallevel */
+		locallevel--;
 		zwarn("%s: function not defined by file", n, 0);
+		locallevel++;
 		popheap();
 		return NULL;
 	    }
@@ -3350,9 +3363,7 @@ doshfunc(char *name, Eprog prog, LinkList doshargs, int flags, int noreturnval)
     if(++funcdepth > MAX_FUNCTION_DEPTH)
     {
         zerr("maximum nested function level reached", NULL, 0);
-	scriptname = oldscriptname;
-	popheap();
-	return;
+	goto undoshfunc;
     }
 #endif
     fstack.name = dupstring(name);
@@ -3373,15 +3384,15 @@ doshfunc(char *name, Eprog prog, LinkList doshargs, int flags, int noreturnval)
 		errflag = 1;
 	    else
 		lastval = 1;
-	    popheap();
-	    scriptname = oldscriptname;
-	    return;
+	    goto doneshfunc;
 	}
 	prog = shf->funcdef;
     }
     runshfunc(prog, wrappers, fstack.name);
+ doneshfunc:
     funcstack = fstack.prev;
 #ifdef MAX_FUNCTION_DEPTH
+ undoshfunc:
     --funcdepth;
 #endif
     if (retflag) {

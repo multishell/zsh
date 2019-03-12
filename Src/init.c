@@ -107,7 +107,8 @@ loop(int toplevel, int justonce)
     pushheap();
     for (;;) {
 	freeheap();
-	errflag = 0;
+	if (stophist == 3)	/* re-entry via preprompt() */
+	    hend(NULL);
 	hbegin(1);		/* init history mech        */
 	if (isset(SHINSTDIN)) {
 	    setblock_stdin();
@@ -115,7 +116,11 @@ loop(int toplevel, int justonce)
 	        int hstop = stophist;
 		stophist = 3;
 		preprompt();
-		stophist = hstop;
+		if (stophist != 3)
+		    hbegin(1);
+		else
+		    stophist = hstop;
+		errflag = 0;
 	    }
 	}
 	intr();			/* interrupts on            */
@@ -536,7 +541,7 @@ init_term(void)
 #endif
 
 	if (isset(INTERACTIVE))
-	    zerr("can't find termcap info for %s", term, 0);
+	    zerr("can't find terminal definition for %s", term, 0);
 	errflag = 0;
 	termflags |= TERM_BAD;
 	return 0;
@@ -1185,7 +1190,8 @@ zsh_main(int argc, char **argv)
 	  break;
     } while (zsh_name);
 
-    fdtable_size = zopenmax();
+    /* Not zopenmax() here: it may return a number too big for zcalloc(). */
+    fdtable_size = 256; /* This grows as necessary, see utils.c:movefd(). */
     fdtable = zcalloc(fdtable_size);
 
     createoptiontable();

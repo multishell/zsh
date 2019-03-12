@@ -1,5 +1,49 @@
 #compdef mount umount
 
+if [[ "$OSTYPE" == cygwin ]]; then
+  if [[ "$service" == mount ]] ; then
+    _arguments -s \
+      - mount \
+        '(-b -t --text)--binary[Unix line endings LF]' \
+        '(--binary -t --text)-b[Unix line endings LF]' \
+        '(-f)--force[be silent]' \
+        '(--force)-f[be silent]' \
+        '(-s -u --user)--system[system-wide mount point]' \
+        '(--system -u --user)-s[system-wide mount point]' \
+        '(-t -b --binary)--text[(default) DOS line endings CR-LF]' \
+        '(--text -b --binary)-t[(default) DOS line endings CR-LF]' \
+        '(-u -s --system)--user[(default)user private mount point]' \
+        '(--user -s --system)-u[(default)user private mount point]' \
+        '(-x -X --cygwin-executable)--executable[all files under mountpoint are executables]' \
+        '(--executable -X --cygwin-executable)-x[all files under mountpoint are executables]' \
+        '(-X -x --executable)--cygwin-executable[all files under mountpoint are cygwin executables]' \
+        '(--cygwin-executable -x --executable)-X[all files under mountpoint are cygwin executables]' \
+        ':Windows path:' \
+        ':Unix path:_path_files -P/ -W "(/)" -/' \
+      - control \
+        '(-i -p --show-cygdrive-prefix -c --change-cygdrive-prefix)--import-old-mounts[import old mounts]' \
+        '(--import-old-mounts -p --show-cygdrive-prefix -c --change-cygdrive-prefix)-i[import old mounts]' \
+        '(-p -i --import-old-mounts -c --change-cygdrive-prefix)--show-cygdrive-prefix[show cygdrive prefix]' \
+        '(--show-cygdrive-prefix -i --import-old-mounts -c --change-cygdrive-prefix)-p[show cygdrive prefix]' \
+        '(-c -i --import-old-mounts -p --show-cygdrive-prefix)--change-cygdrive-prefix[cygdrive prefix]:cygdrive prefix (POSIX path):_files -P/ -W "(/)" -/' \
+        '(--change-cygdrive-prefix -i --import-old-mounts -p --show-cygdrive-prefix)-c[cygdrive prefix]:cygdrive prefix (POSIX path):_files -P/ -W "(/)" -/' 
+  
+    return
+  else
+    local line
+    local -a wpaths upaths
+    mount | while read -r line; do
+      [[ $line == ?:\ * ]] && continue
+      wpaths=($wpaths ${line%% on*})
+      upaths=($upaths ${${line##*on }%% type*})
+    done
+    _alternative \
+      'windowspath:WIndows path:compadd -a wpaths' \
+      'unixpath:Unix path:compadd -a upaths'
+    return
+  fi
+fi
+
 # This is table-driven: the tables for the values for the different
 # file system types are directly below. The tables describing the
 # arguments for the `mount' command for different operating systems
@@ -321,12 +365,19 @@ if (( ! $+_fs_any )); then
       'fat[specify fat type]:fat type (bit):(12 16)'
       'quiet[quiet mode]'
     )
+    _fs_ext3=(
+      "$_fs_ext2[@]"
+      'journal[update fs journal]:update or inode number:(update)'
+      'noload[do not load journal]'
+      'data[specify mode for data]:journalling mode:(journal ordered writeback)'
+    )
     _fs_msdos=( "$_fs_fat[@]" )
     _fs_umsdos=( "$_fs_fat[@]" )
     _fs_vfat=( "$_fs_fat[@]"
-      'uni_xlate[translate unicode to escaped sequences]'
+      '(utf8)uni_xlate[translate unicode to escaped sequences]'
       'posix[allow file names only differing in case]'
       'nonumtail[try short name before number extension]'
+      '(uni_xlate)utf8[mount the filesystem in UTF8 mode]'
     )
     _fs_hpfs=(
       'uid[specify user ID of all files]:user ID:'
@@ -363,6 +414,37 @@ if (( ! $+_fs_any )); then
     _fs_ufs=(
       'ufstype[set ufs type]:ufs type:(old 44bsd sun sunx86 nextstep nextstep-cd openstep)'
       'onerror[set behaviour on error]:behaviour on error:(panic lock umount repair)'
+    )
+    _fs_xfs=(
+      'biosize[specify preferred buffered I/O size]:base 2 logarithm:((13:8K 14:16K 15:32K 16:64K))'
+      '(xdsm)dmapi[enable DMAPI event callouts]'
+      '(dmapi)xdsm[enable DMAPI event callouts]'
+      'logbufs[set number of in-memory log buffers]:(2 3 4 5 6 7 8)'
+      'logbsize[set size of each in-memory log buffer]:(16384 32768)'
+      'logdev[use external log device]:_files'
+      'rtdev[use external realtime device]:_files'
+      'noalign[do not align data allocations at stripe unit boundaries]'
+      'noatime[do not update atime on reads]'
+      'norecovery[do not run log recovery]'
+      'osyncisdsync[make O_SYNC behave as O_DSYNC]'
+      '(usrquota uqnoenforce)quota[enable user quotas]'
+      '(quota uqnoenforce)usrquota[enable user quotas]'
+      '(quota usrquota)uqnoenforce[enable user quotas without enforcement]'
+      '(gqnoenforce)grpquota[enable group quotas]'
+      '(grpquota)gqnoenforce[enable group quotas without enforcement]'
+      'sunit[specify stripe unit]:size:'
+      'swidth[specify stripe width]:size:'
+    )
+    _fs_reiserfs=(
+    'conv[mount 3.5 fs using 3.6 format for new objects]'
+    'hash[choose hash type]:hash function:(rupasov tea r5 detect)'
+    '(no_unhashed_relocation)hashed_relocation[tune the block allocator]'
+    'noborder[disable border allocator algorithm]'
+    'nolog[disable journalling]'
+    'notail[disable packing of files into the tree]'
+    '(hashed_relocation)no_unhashed_relocation[tune the block allocator]'
+    'replayonly[replay but do not mount]'
+    'resize[assume the device has this many blocks]:number of blocks:'
     )
     ;;
   freebsd*)
@@ -479,7 +561,7 @@ if [[ "$service" = mount ]]; then
     )
     fss=( minix ext ext2 xiafs hpfs msdos umsdos vfat proc nfs iso9660
           smbfs ncpfs affs ufs romfs sysv adfs autofs coda devpts efs
-          hfs ntfs qnx4 smbfs udf )
+          hfs ntfs qnx4 smbfs udf ext3 xfs reiserfs )
     [[ -r /proc/filesystems ]] &&
         fss=( ${$(</proc/filesystems)#nodev} )
     ;;

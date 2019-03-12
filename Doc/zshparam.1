@@ -1,4 +1,4 @@
-.TH "ZSHPARAM" "1" "June 25, 2001" "zsh 4\&.0\&.2"
+.TH "ZSHPARAM" "1" "October 26, 2001" "zsh 4\&.0\&.4"
 .SH "NAME"
 zshparam \- zsh parameters
 .\" Yodl file: Zsh/params.yo
@@ -921,7 +921,12 @@ accidentally exporting it\&. Also note that \fBSTTY\fP should not be used for
 window size specifications; these will not be local to the command\&.
 .TP
 \fBTERM\fP <S>
-The type of terminal in use\&.  This is used when looking up termcap sequences\&.
+The type of terminal in use\&.  This is used when looking up termcap
+sequences\&.  An assignment to \fBTERM\fP causes zsh to re\-initialize the
+terminal, even if the value does not change (e\&.g\&., `\fBTERM=$TERM\fP')\&.  It
+is necessary to make such an assignment upon any change to the terminal
+definition database or terminal type in order for the new settings to
+take effect\&.
 .TP
 \fBTIMEFMT\fP
 The format of process time reports with the \fBtime\fP keyword\&.

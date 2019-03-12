@@ -524,7 +524,7 @@ execcase(Estate state, int do_exec)
 	if (isset(XTRACE)) {
 	    char *pat2, *opat;
 
-	    opat = pat = ecgetstr(state, EC_DUP, NULL);
+	    pat = dupstring(opat = ecrawstr(state->prog, state->pc, NULL));
 	    singsub(&pat);
 	    save = (!(state->prog->flags & EF_HEAP) &&
 		    !strcmp(pat, opat) && *spprog != dummy_patprog2);
@@ -534,9 +534,8 @@ execcase(Estate state, int do_exec)
 	    printprompt4();
 	    fprintf(xtrerr, "case %s (%s)\n", word, pat2);
 	    fflush(xtrerr);
-	    state->pc++;
-	} else
-	    state->pc += 2;
+	}
+	state->pc += 2;
 
 	if (*spprog != dummy_patprog1 && *spprog != dummy_patprog2)
 	    pprog = *spprog;
@@ -546,7 +545,7 @@ execcase(Estate state, int do_exec)
 		char *opat;
 		int htok = 0;
 
-		opat = pat = dupstring(ecrawstr(state->prog,
+		pat = dupstring(opat = ecrawstr(state->prog,
 						state->pc - 2, &htok));
 		if (htok)
 		    singsub(&pat);

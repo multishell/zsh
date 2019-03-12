@@ -43,7 +43,7 @@ for ac_shellvar in $ac_shellvars; do
   esac
   (getconf $ac_lfsvar) >/dev/null 2>&1 || { ac_result=no; break; }
   ac_getconf=`getconf $ac_lfsvar`
-  if test -n "$ac_getconf"; then
+  if test -n "$ac_getconf" && test "$ac_getconf" != "undefined"; then
     eval test '"${'$ac_shellvar'+set}"' = set && ac_set=$ac_shellvar
     ac_getconfs=$ac_getconfs$ac_getconf
     eval ac_test_$ac_shellvar="\$ac_getconf"
@@ -368,7 +368,6 @@ main()
 [zsh_cv_sys_dynamic_rtld_global=no],
 [zsh_cv_sys_dynamic_rtld_global=no]
 )
-    LDFLAGS=$save_ldflags
 else
     zsh_cv_sys_dynamic_rtld_global=no
 fi

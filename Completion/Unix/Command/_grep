@@ -27,9 +27,9 @@ if [[ -z $efgrep ]]; then
 fi
 
 arguments=( \
-  '(-e --regexp -f --file)1:pattern:' \
-  {'(--regexp -f --file 1)-e+[regexp]','(-e -f --file 1)--regexp='}':regexp:' \
-  {'(--file -e --regexp 1)-f+[file]','(-f -e --regexp 1)--file='}':pattern file:_files' \
+  '(-e --regexp -f --file)1:pattern:_guard "^--*"' \
+  '(1)*'{'-e+[regexp]',--regexp=}':pattern' \
+  '(1)*'{'-f+[file]',--file=}':pattern file:_files' \
   \
   '*:files:_files' \
   \
@@ -51,7 +51,7 @@ arguments=( \
   '(--binary-files)-I[ignore binary]' \
   '(--ignore-case)-i[ignore case]' '(-i)--ignore-case' \
   '(--files-without-match)-L[files without match]' '(-L)--files-without-match' \
-  '(--file-with-matches)-l[files with matches]' '(-l)--files-with-matches' \
+  '(--files-with-matches -l)'{'-l[files with matches]',--files-with-matches} \
   '--mmap' \
   '(--line-number)-n[line number]' '(-n)--line-number' \
   '(--quiet --silent)-q[quiet]' '(-q --quiet)--silent' '(-q --silent)--quiet' \
@@ -66,7 +66,6 @@ arguments=( \
 
 # remove long options?
 [[ -z "$_is_gnu[$words[1]]" ]] &&
-    arguments=( ${${${${arguments:#*\)--*}:#--*}//--[^ )]#/}/\( #\)/} )
+    arguments=( ${arguments:#(|*\)(\*|))--*} )
 
 _arguments -s $arguments
-

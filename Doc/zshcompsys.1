@@ -1,4 +1,4 @@
-.TH "ZSHCOMPSYS" "1" "June 25, 2001" "zsh 4\&.0\&.2"
+.TH "ZSHCOMPSYS" "1" "October 26, 2001" "zsh 4\&.0\&.4"
 .SH "NAME"
 zshcompsys \- zsh completion system
 .\" Yodl file: Zsh/compsys.yo
@@ -1013,15 +1013,15 @@ the file \fB/etc/resolv\&.conf\fP\&.
 .TP
 \fBexpand\fP
 This style is used when completing strings consisting of multiple
-parts, such as path names\&.  If its
-value contains the string `\fBprefix\fP', the partially typed word from
+parts, such as path names\&.  If one of its values is
+the string `\fBprefix\fP', the partially typed word from
 the line will be expanded as far as possible even if trailing parts
-cannot be completed\&.  If it contains the string `\fBsuffix\fP'
-and normal (non\-menu\-) completion is used, matching names for
+cannot be completed\&.  If one of its values is the string `\fBsuffix\fP',
+matching names for
 components after the first ambiguous one will also be added\&.  This
 means that the resulting string is the longest unambiguous string
 possible, but if menu completion is started on the list of matches
-generated this way (e\&.g\&. due to the option \fBAUTO_MENU\fP being set),
+generated this way,
 this will also cycle through the names of the files in pathname
 components after the first ambiguous one\&.
 .TP
@@ -1822,6 +1822,15 @@ all\&.
 .PP
 The default style for this style is `true'\&.
 .RE
+.TP
+\fBpreserve\-prefix\fP
+This style is used when completing path names\&.  Its value should be a
+pattern matching an initial prefix of the word to complete that should
+be left unchanged under all circumstances\&.  For example, on some Unices
+an initial `\fB//\fP' (double slash) has a special meaning and hence
+should be kept\&.  For that one could set this style to the string
+`\fB//\fP'\&.  As another example, setting this style to `\fB?:/\fP' under
+Cygwin would allow completion after `\fBa:/\&.\&.\&.\fP' and the like\&.
 .TP
 \fBrange\fP
 This is used by the \fB_history\fP completer and the
@@ -4021,7 +4030,7 @@ calculate completions, you can store that data in variables, and use
 this function to dump the values of those variables to a file\&.  Then,
 if they are needed in subsequent shell invocations, they can be
 retrieved quickly from that file via \fB_retrieve_cache\fP, avoiding the
-needly for repeating the costly operation\&.
+need for repeating the costly operation\&.
 .RS
 .PP
 The \fIcache_identifier\fP specifies the file which the data should be

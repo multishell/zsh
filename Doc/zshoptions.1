@@ -1,4 +1,4 @@
-.TH "ZSHOPTIONS" "1" "June 25, 2001" "zsh 4\&.0\&.2"
+.TH "ZSHOPTIONS" "1" "October 26, 2001" "zsh 4\&.0\&.4"
 .SH "NAME"
 zshoptions \- zsh options
 .\" Yodl file: Zsh/options.yo
@@ -361,12 +361,15 @@ for expansion\&.
 Note the location of each command the first time it is executed\&.
 Subsequent invocations of the same command will use the
 saved location, avoiding a path search\&.
-If this option is unset, no path hashing will be done at all\&.
+If this option is unset, no path hashing is done at all\&.
+However, when \fBCORRECT\fP is set, commands whose names do not appear in
+the functions or aliases hash tables are hashed in order to avoid
+reporting them as spelling errors\&.
 .TP
 \fBHASH_DIRS\fP <D>
-Whenever a command is executed, hash the directory containing it,
+Whenever a command name is hashed, hash the directory containing it,
 as well as all directories that occur earlier in the path\&.
-Has no effect if \fBHASH_CMDS\fP is unset\&.
+Has no effect if neither \fBHASH_CMDS\fP nor \fBCORRECT\fP is set\&.
 .TP
 \fBHASH_LIST_ALL\fP <D>
 Whenever a command completion is attempted, make sure the entire

@@ -1,4 +1,4 @@
-.TH "ZSHZLE" "1" "June 25, 2001" "zsh 4\&.0\&.2"
+.TH "ZSHZLE" "1" "October 26, 2001" "zsh 4\&.0\&.4"
 .SH "NAME"
 zshzle \- zsh command line editor
 .\" Yodl file: Zsh/zle.yo
@@ -15,6 +15,12 @@ cursor up, or if the \fBSINGLE_LINE_ZLE\fP option is set\&.
 This mode
 is similar to \fBksh\fP, and uses no termcap sequences\&.  If \fBTERM\fP is
 "emacs", the \fBZLE\fP option will be unset by default\&.
+.PP
+The parameters \fBBAUD\fP, \fBCOLUMNS\fP, and \fBLINES\fP are also used by the
+line editor\&.
+See \fIParameters Used By The Shell\fP in \fIzshparam\fP(1)\&.
+.PP
+.PP
 .SH "KEYMAPS"
 A keymap in ZLE contains a set of bindings between key sequences
 and ZLE commands\&.  The empty key sequence cannot be bound\&.

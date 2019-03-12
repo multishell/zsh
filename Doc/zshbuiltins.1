@@ -1,4 +1,4 @@
-.TH "ZSHBUILTINS" "1" "June 25, 2001" "zsh 4\&.0\&.2"
+.TH "ZSHBUILTINS" "1" "October 26, 2001" "zsh 4\&.0\&.4"
 .SH "NAME"
 zshbuiltins \- zsh built\-in commands
 .\" Yodl file: Zsh/builtins.yo
@@ -100,7 +100,7 @@ Put each specified \fIjob\fP in the background,
 or the current job if none is specified\&.
 .TP
 \fBbindkey\fP
-See the section `The zsh/zle Module' in \fIzshmodules\fP(1)\&.
+See the section `Zle Builtins' in \fIzshzle\fP(1)\&.
 .TP
 \fBbreak\fP [ \fIn\fP ]
 Exit from an enclosing \fBfor\fP, \fBwhile\fP,
@@ -706,7 +706,7 @@ newline\&.  Only the \fB\-e\fP and \fB\-n\fP flags are recognized after
 \fB\-b\fP
 Recognize all the escape sequences defined for the \fBbindkey\fP command,
 see 
-\fIzshmodules\fP(1)\&.
+\fIzshzle\fP(1)\&.
 .TP
 \fB\-m\fP
 Take the first argument as a pattern (should be quoted), and remove
@@ -745,8 +745,7 @@ Print the arguments to file descriptor \fIn\fP\&.
 Print the arguments to the input of the coprocess\&.
 .TP
 \fB\-z\fP
-Push the arguments onto the editing buffer stack, separated by spaces;
-no escape sequences are recognized\&.
+Push the arguments onto the editing buffer stack, separated by spaces\&.
 .TP
 \fB\-D\fP
 Treat the arguments as directory names, replacing prefixes with \fB~\fP
@@ -1369,7 +1368,7 @@ If the \fB\-m\fP flag is given the arguments are taken as patterns
 patterns), and all options with names matching these patterns are unset\&.
 .TP
 \fBvared\fP
-See the section `The zsh/zle Module' in \fIzshmodules\fP(1)\&.
+See the section `Zle Builtins' in \fIzshzle\fP(1)\&.
 .TP
 \fBwait\fP [ \fIjob\fP \&.\&.\&. ]
 Wait for the specified jobs or processes\&.  If \fIjob\fP is not given
@@ -1558,7 +1557,7 @@ See the section `The zsh/zutil Module' in \fIzshmodules\fP(1)\&.
 See the section `The zsh/zftp Module' in \fIzshmodules\fP(1)\&.
 .TP
 \fBzle\fP
-See the section `The zsh/zle Module' in \fIzshmodules\fP(1)\&.
+See the section `Zle Builtins' in \fIzshzle\fP(1)\&.
 .TP
 .PD 0
 \fBzmodload\fP [ \fB\-dL\fP ] [ \&.\&.\&. ]

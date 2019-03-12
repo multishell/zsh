@@ -1,6 +1,7 @@
 DISTFILES_SRC='
 .distfiles
-.cvsignore           B01cd.ztst           D03procsubst.ztst    Y02compmatch.ztst
+.cvsignore           B01cd.ztst           B02typeset.ztst
+D03procsubst.ztst    Y02compmatch.ztst
 C01arith.ztst        D04parameter.ztst    Y03arguments.ztst
 A01grammar.ztst      C02cond.ztst         D05array.ztst        comptest
 A02alias.ztst        C03traps.ztst        E02xtrace.ztst

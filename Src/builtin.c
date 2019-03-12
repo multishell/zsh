@@ -1208,7 +1208,7 @@ printif(char *str, int c)
 int
 bin_fc(char *nam, char **argv, char *ops, int func)
 {
-    int first = -1, last = -1, retval, minflag = 0;
+    int first = -1, last = -1, retval;
     char *s;
     struct asgment *asgf = NULL, *asgl = NULL;
     Patprog pprog = NULL;
@@ -1250,6 +1250,10 @@ bin_fc(char *nam, char **argv, char *ops, int func)
     while (*argv && equalsplit(*argv, &s)) {
 	Asgment a = (Asgment) zhalloc(sizeof *a);
 
+	if (!**argv) {
+	    zwarnnam(nam, "invalid replacement pattern: =%s", s, 0);
+	    return 1;
+	}
 	if (!asgf)
 	    asgf = asgl = a;
 	else {
@@ -1263,7 +1267,6 @@ bin_fc(char *nam, char **argv, char *ops, int func)
     }
     /* interpret and check first history line specifier */
     if (*argv) {
-	minflag = **argv == '-';
 	first = fcgetcomm(*argv);
 	if (first == -1) {
 	    unqueue_signals();
@@ -1295,9 +1298,9 @@ bin_fc(char *nam, char **argv, char *ops, int func)
     if (last == -1)
 	last = ops['l']? addhistnum(curline.histnum,-1,0) : first;
     if (first < firsthist())
-	first = firsthist();
-    if (last == -1)
-	last = (minflag) ? curhist : first;
+	first = firsthist() - (last < firsthist());
+    if (last > curhist)
+	last = curhist;
     else if (last < first)
 	last = first;
     if (ops['l']) {
@@ -1361,13 +1364,11 @@ fcgetcomm(char *s)
 
     /* First try to match a history number.  Negative *
      * numbers indicate reversed numbering.           */
-    if ((cmd = atoi(s))) {
+    if ((cmd = atoi(s)) != 0 || *s == '0') {
 	if (cmd < 0)
 	    cmd = addhistnum(curline.histnum,cmd,HIST_FOREIGN);
-	if (cmd >= curline.histnum) {
-	    zwarnnam("fc", "bad history number: %d", 0, cmd);
-	    return -1;
-	}
+	if (cmd < 0)
+	    cmd = 0;
 	return cmd;
     }
     /* not a number, so search by string */
@@ -1582,6 +1583,7 @@ typeset_single(char *cname, char *pname, Param pm, int func,
 	       int on, int off, int roff, char *value, Param altpm)
 {
     int usepm, tc, keeplocal = 0, newspecial = 0;
+    char *subscript;
 
     /*
      * Do we use the existing pm?  Note that this isn't the end of the
@@ -1782,12 +1784,24 @@ typeset_single(char *cname, char *pname, Param pm, int func,
 	    pm->ct = auxlen;
 	else
 	    pm->ct = 0;
-    } else if (strchr(pname, '[')) {
+    } else if ((subscript = strchr(pname, '['))) {
 	if (on & PM_READONLY) {
 	    zerrnam(cname,
 		    "%s: can't create readonly array elements", pname, 0);
 	    return NULL;
-	} else if (PM_TYPE(on) == PM_SCALAR) {
+	} else if (on & PM_LOCAL) {
+	    *subscript = 0;
+	    pm = (Param) (paramtab == realparamtab ?
+			  gethashnode2(paramtab, pname) :
+			  paramtab->getnode(paramtab, pname));
+	    *subscript = '[';
+	    if (!pm || pm->level != locallevel) {
+		zerrnam(cname,
+			"%s: can't create local array elements", pname, 0);
+		return NULL;
+	    }
+	}
+	if (PM_TYPE(on) == PM_SCALAR) {
 	    /*
 	     * This will either complain about bad identifiers, or will set
 	     * a hash element or array slice.  This once worked by accident,
@@ -1797,6 +1811,8 @@ typeset_single(char *cname, char *pname, Param pm, int func,
 	    if (!(pm = setsparam(pname, ztrdup(value ? value : ""))))
 		return NULL;
 	    value = NULL;
+	    keeplocal = 0;
+	    on = pm->flags;
 	} else {
 	    zerrnam(cname,
 		    "%s: array elements must be scalar", pname, 0);

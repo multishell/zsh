@@ -13,8 +13,8 @@ case $OSTYPE in
 	'(-m)--mktable' \
 	'(--clearstrings)-s[clearstrings]' \
 	'(-s)--clearstrings' \
-	'(--verbose)-v[verbose]' \
-	'(-v)--verbose' \
+	'*-v[verbose]' \
+	'*--verbose' \
 	':keymap:_files -W /usr/share/keymaps'
   ;;
   solaris*)

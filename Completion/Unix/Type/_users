@@ -1,4 +1,4 @@
-#compdef last passwd groups
+#compdef passwd groups userdel
 
 local expl users
 

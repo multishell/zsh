@@ -1,4 +1,4 @@
-.TH "ZSHMISC" "1" "June 25, 2001" "zsh 4\&.0\&.2"
+.TH "ZSHMISC" "1" "October 26, 2001" "zsh 4\&.0\&.4"
 .SH "NAME"
 zshmisc \- everything and then some
 .\" Yodl file: Zsh/grammar.yo
@@ -231,11 +231,16 @@ for a description of \fIexp\fP\&.
 Many of zsh's complex commands have alternate forms\&.  These particular
 versions of complex commands should be considered deprecated and may be
 removed in the future\&.  The versions in the previous section should be
-preferred instead\&.  The short versions below only work if \fIsublist\fP
-is of the form `\fB{\fP \fIlist\fP \fB}\fP' or if the \fBSHORT_LOOPS\fP
-option is set\&.  In this case, the test part of the loop must also be
-suitably delimited, such as by `\fB[[ \&.\&.\&. ]]\fP' or `\fB(( \&.\&.\&. ))\fP', else
-the end of the test will not be recognized\&.
+preferred instead\&.
+.PP
+The short versions below only work if \fIsublist\fP is of the form `\fB{\fP
+\fIlist\fP \fB}\fP' or if the \fBSHORT_LOOPS\fP option is set\&.  For the \fBif\fP,
+\fBwhile\fP and \fBuntil\fP commands, in both these cases the test part of the
+loop must also be suitably delimited, such as by `\fB[[ \&.\&.\&. ]]\fP' or `\fB((
+\&.\&.\&. ))\fP', else the end of the test will not be recognized\&.  For the
+\fBfor\fP, \fBrepeat\fP, \fBcase\fP and \fBselect\fP commands no such special form
+for the arguments is necessary, but the other condition (the special form
+of \fIsublist\fP or use of the \fBSHORT_LOOPS\fP option) still applies\&.
 .PP
 .PD 0
 .TP
@@ -267,7 +272,8 @@ does \fInot\fP, since the test is not suitably delimited\&.
 .RE
 .TP
 \fBif\fP \fIlist\fP \fIsublist\fP
-A short form of the alternate `if'\&.
+A short form of the alternate `if'\&.  The same limitations on the form of
+\fIlist\fP apply as for the previous form\&.
 .TP
 \fBfor\fP \fIname\fP \fB(\fP \fIword\fP \&.\&.\&. \fB)\fP \fIsublist\fP
 A short form of \fBfor\fP\&.
@@ -283,10 +289,12 @@ A short form of the arithmetic \fBfor\fP command\&.
 Another form of \fBfor\fP\&.
 .TP
 \fBwhile\fP \fIlist\fP \fB{\fP \fIlist\fP \fB}\fP
-An alternative form of \fBwhile\fP\&.
+An alternative form of \fBwhile\fP\&.  Note the limitations on the form of
+\fIlist\fP mentioned above\&.
 .TP
 \fBuntil\fP \fIlist\fP \fB{\fP \fIlist\fP \fB}\fP
-An alternative form of \fBuntil\fP\&.
+An alternative form of \fBuntil\fP\&.  Note the limitations on the form of
+\fIlist\fP mentioned above\&.
 .TP
 \fBrepeat\fP \fIword\fP \fIsublist\fP
 This is a short form of \fBrepeat\fP\&.
@@ -1044,7 +1052,7 @@ is equivalent to
 .fi
 .RE
 .PP
-both assigning the value 3 to the shell variable \fBfoo\fP and returning a
+both assigning the value 3 to the shell variable \fBvar\fP and returning a
 zero status\&.
 .PP
 Integers can be in bases other than 10\&.

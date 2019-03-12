@@ -168,7 +168,9 @@ printulimit(int lim, int hard, int head)
 	if (limit != RLIM_INFINITY)
 	    limit /= 512;
 	break;
-# ifdef RLIMIT_RSS
+/* If RLIMIT_VMEM and RLIMIT_RSS are defined and equal, avoid *
+ * duplicate case statement.  Observed on QNX Neutrino 6.1.0. */
+# if defined(RLIMIT_RSS) && (!defined(RLIMIT_VMEM) || RLIMIT_VMEM != RLIMIT_RSS)
     case RLIMIT_RSS:
 	if (head)
 	    printf("resident set size (kbytes) ");
@@ -199,7 +201,11 @@ printulimit(int lim, int hard, int head)
 # ifdef RLIMIT_VMEM
     case RLIMIT_VMEM:
 	if (head)
+#  if defined(RLIMIT_RSS) && RLIMIT_VMEM == RLIMIT_RSS
+	    printf("memory size (kb)           ");
+#  else
 	    printf("virtual memory size (kb)   ");
+#  endif
 	if (limit != RLIM_INFINITY)
 	    limit /= 1024;
 	break;
@@ -332,7 +338,12 @@ bin_limit(char *nam, char **argv, char *ops, int func)
 	} else if (limtype[lim] == ZLIMTYPE_NUMBER || limtype[lim] == ZLIMTYPE_UNKNOWN) {
 	    /* pure numeric resource -- only a straight decimal number is
 	    permitted. */
-	    val = zstrtorlimt(s, &s, 10);
+	    char *t = s;
+	    val = zstrtorlimt(t, &s, 10);
+	    if (s == t) {
+		zwarnnam("limit", "limit must be a number", NULL, 0);
+		return 1;
+	    }
 	} else {
 	    /* memory-type resource -- `k' and `M' modifiers are permitted,
 	    meaning (respectively) 2^10 and 2^20. */

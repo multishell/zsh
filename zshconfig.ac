@@ -223,7 +223,7 @@ else
 fi], [fndir=${datadir}/${tzsh_name}/'${VERSION}'/functions])
 
 ifdef([sitefndir],[undefine([sitefndir])])dnl
-AC_ARG_ENABLE(sitefndir,
+AC_ARG_ENABLE(site-fndir,
 [  --enable-site-fndir=DIR    same for site functions (not version specific)],
 [if test $enableval = yes; then
   sitefndir=${datadir}/${tzsh_name}/site-functions
@@ -307,6 +307,7 @@ fi
 if test -n "$auto_ldflags"; then
   case "${enable_zsh_debug}$host_os" in
     yesaix*|yeshpux*|yesnetbsd*|yesopenbsd*) ;;  # "ld -g" is not valid on these systems
+    darwin*) LDFLAGS=-Wl,-x ;;
     yes*)    LDFLAGS=-g ;;
     *)       LDFLAGS=-s ;;
   esac
@@ -553,7 +554,7 @@ else
   termcap_curses_order="termcap curses ncurses"
 fi],
 [case "$host_os" in
-  aix*|hpux10.*|hpux11.*|solaris*)
+  hpux10.*|hpux11.*|solaris*)
       termcap_curses_order="curses ncurses termcap" ;;
   *)             termcap_curses_order="termcap curses ncurses" ;;
 esac])dnl
@@ -1304,7 +1305,7 @@ main()
     if(pid < 0)
 	exit(1);
     if(pid) {
-	fd = open("/tmp/fifo$$", O_RDWR);
+	fd = open("/tmp/fifo$$", O_RDONLY);
 	exit(fd < 0 || read(fd, &c, 1) != 1 || c != 'x');
     }
     fd = open("/tmp/fifo$$", O_WRONLY);
@@ -1534,6 +1535,11 @@ if test "x$aixdynamic" = xyes; then
   DL_EXT="${DL_EXT=so}"
   DLLD="${DLLD=$CC}"
   zsh_cv_func_dlsym_needs_underscore=no
+  if test -n "$GCC"; then
+    DLLDFLAGS=${DLLDFLAGS=-shared}
+  else
+    DLLDFLAGS=${DLLDFLAGS=-bM:SRE}
+  fi
   DLLDFLAGS=${DLLDFLAGS=}
   EXTRA_LDFLAGS=${EXTRA_LDFLAGS=}
   EXPOPT=${LDARG}-bE:
@@ -1565,7 +1571,7 @@ elif test "$host_os" = cygwin; then
   MOD_IMPORT_VARIABLE="__attribute__((__dllimport__))"
   MOD_IMPORT_FUNCTION=
 elif test "x$dynamic" = xyes; then
-  AC_CACHE_CHECK(if your system use ELF binaries,
+  AC_CACHE_CHECK(if your system uses ELF binaries,
    zsh_cv_sys_elf,
    [AC_TRY_RUN([/* Test for whether ELF binaries are produced */
 #include <fcntl.h>
@@ -1602,24 +1608,36 @@ char *argv[];
   else
     case "$host" in
       *openbsd*)
-	DLLD="${DLLD=$CC}"
+	case "$host_os" in
+	  openbsd[01].* | openbsd2.[0-7] | openbsd2.[0-7].*)
+	    DLLD="${DLLD=ld}"
+	  ;;
+	  *)
+	    DLLD="${DLLD=$CC}"
+	  ;;
+	esac
 	DLLDARG="${LDARG}"
+      ;;
+      *darwin*)
+        DLLD="${DLLD=$CC}"
+        DLLDARG=""
       ;;
       * )
 	DLLD="${DLLD=ld}"
 	DLLDARG=""
       ;;
     esac
-    DLLD="${DLLD=ld}"
-    DLLDARG=""
   fi
   if test -n "$GCC"; then
-    DLCFLAGS="${DLCFLAGS=-fPIC}"
+    case "$host_os" in
+      darwin*) DLCFLAGS="${DLCFLAGS=-fno-common}" ;;
+      *)       DLCFLAGS="${DLCFLAGS=-fPIC}" ;;
+    esac
   else
     case "$host_os" in
       hpux*)                 DLCFLAGS="${DLCFLAGS=+z}" ;;
       sunos*)                DLCFLAGS="${DLCFLAGS=-pic}" ;;
-      solaris*|sysv4*|esix*) DLCFLAGS="${DLCFLAGS=-Kpic}" ;;
+      solaris*|sysv4*|esix*) DLCFLAGS="${DLCFLAGS=-KPIC}" ;;
     esac
   fi
   case "$host_os" in
@@ -1630,11 +1648,30 @@ char *argv[];
     netbsd*)      DLLDFLAGS="${DLLDFLAGS=${DLLDARG}-x -shared --whole-archive}" ;;
     aix*)         DLLDFLAGS="${DLLDFLAGS=-G -bexpall -lc}" ;;
     solaris*|sysv4*|esix*) DLLDFLAGS="${DLLDFLAGS=-G}" ;;
-    openbsd*)     DLLDFLAGS="${DLLDFLAGS=-shared -fPIC}" ;;
+    darwin*)      DLLDFLAGS="${DLLDFLAGS=-bundle -flat_namespace -undefined suppress}" ;;
+    openbsd*)
+      if test $zsh_cv_sys_elf = yes; then
+	DLLDFLAGS="${DLLDFLAGS=-shared -fPIC}"
+      else
+	case "$host_os" in
+	  openbsd[01].* | openbsd2.[0-7] | openbsd2.[0-7].*)
+	   DLLDFLAGS="${DLLDFLAGS=-Bshareable}"
+	  ;;
+	  *)
+	    DLLDFLAGS="${DLLDFLAGS=-shared -fPIC}"
+	  ;;
+	esac
+      fi
+    ;;
   esac
   case "$host" in
     *-hpux*)  EXTRA_LDFLAGS="${EXTRA_LDFLAGS=-Wl,-E}" ;;
     *-freebsd[3-9]*|*-linux*) EXTRA_LDFLAGS="${EXTRA_LDFLAGS=-rdynamic}" ;;
+    *openbsd*)
+       if test $zsh_cv_sys_elf = yes; then
+	 EXTRA_LDFLAGS="${EXTRA_LDFLAGS=-Wl,-E}"
+       fi
+    ;;
     mips-sni-sysv4)
       #
       # unfortunately, we have different compilers
@@ -1905,13 +1942,11 @@ CLEAN_MK="${srcdir}/Config/clean.mk"
 CONFIG_MK="${srcdir}/Config/config.mk"
 dnl defs.mk is in the build tree, not the source tree
 DEFS_MK="Config/defs.mk"
-FUNCINST_MK="${srcdir}/Config/funcinst.mk"
 VERSION_MK="${srcdir}/Config/version.mk"
 
 AC_SUBST_FILE(CLEAN_MK)dnl
 AC_SUBST_FILE(CONFIG_MK)dnl
 AC_SUBST_FILE(DEFS_MK)dnl
-AC_SUBST_FILE(FUNCINST_MK)dnl
 AC_SUBST_FILE(VERSION_MK)dnl
 
 AC_OUTPUT(Config/defs.mk Makefile Doc/Makefile Etc/Makefile Src/Makefile \
