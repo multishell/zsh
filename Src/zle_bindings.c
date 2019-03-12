@@ -77,7 +77,7 @@ struct zlecmd zlecmds[] =
     {"expand-word", expandword, 0},
     {"forward-char", forwardchar, ZLE_MOVEMENT},
     {"forward-word", forwardword, ZLE_MOVEMENT},
-    {"get-line", getline, 0},
+    {"get-line", getline_zsh, 0},
     {"gosmacs-transpose-chars", gosmacstransposechars, 0},
     {"history-beginning-search-backward", historybeginningsearchbackward, ZLE_HISTSEARCH},
     {"history-beginning-search-forward", historybeginningsearchforward, ZLE_HISTSEARCH},
