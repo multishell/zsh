@@ -312,6 +312,7 @@ cindex(widgets, calling)
 cindex(calling widgets)
 cindex(widgets, defining)
 cindex(defining widgets)
+xitem(tt(zle))
 xitem(tt(zle) tt(-l) [ tt(-L) | tt(-a) ] [ var(string) ... ])
 xitem(tt(zle) tt(-D) var(widget) ...)
 xitem(tt(zle) tt(-A) var(old-widget) var(new-widget))
@@ -323,10 +324,18 @@ xitem(tt(zle) tt(-U) var(string))
 xitem(tt(zle) tt(-K) var(keymap))
 xitem(tt(zle) tt(-F) [ tt(-L) ] [ var(fd) [ var(handler) ] ])
 xitem(tt(zle) tt(-I))
-xitem(tt(zle) var(widget) tt([ -n) var(num) tt(]) tt([ -N ]) var(args) ...)
-item(tt(zle))(
+item(tt(zle) var(widget) tt([ -n) var(num) tt(]) tt([ -N ]) var(args) ...)(
 The tt(zle) builtin performs a number of different actions concerning
-ZLE.  Which operation it performs depends on its options:
+ZLE.
+
+With no options and no arguments, only the return status will be
+set.  It is zero if ZLE is currently active and widgets could be
+invoked using this builtin command and non-zero otherwise.
+Note that even if non-zero status is returned, zle may still be active as
+part of the completion system; this does not allow direct calls to ZLE
+widgets.
+
+Otherwise, which operation it performs depends on its options:
 
 startitem()
 item(tt(-l) [ tt(-L) | tt(-a) ])(
@@ -392,7 +401,9 @@ immediately after return from the widget.
 This command can safely be called outside user defined widgets; if zle is
 active, the display will be refreshed, while if zle is not active, the
 command has no effect.  In this case there will usually be no other
-arguments.  The status is zero if zle was active, else one.
+arguments.
+
+The status is zero if zle was active, else one.
 )
 item(tt(-M) var(string))(
 As with the tt(-R) option, the var(string) will be displayed below the 
@@ -505,9 +516,10 @@ to minimise disruption.
 Note that there are normally better ways of manipulating the display from
 within zle widgets; see, for example, `tt(zle -R)' above.
 
-The status is zero if zle is active and the current zle display has
-been invalidated (even if this was by a previous call to `tt(zle -I)'),
-else one.
+The returned status is zero if zle was invalidated, even though
+this may have been by a previous call to `tt(zle -I)' or by a system
+notification.  To test if a zle widget may be called at this point, execute
+tt(zle) with no arguments and examine the return status.
 )
 item(var(widget) tt([ -n) var(num) tt(]) tt([ -N ]) var(args) ...)(
 Invoke the specified widget.  This can only be done when ZLE is
@@ -537,10 +549,6 @@ tt(zle) command.  Thus if a user defined widget requires an immediate beep,
 it should call the tt(beep) widget directly.
 )
 enditem()
-
-With no options and no arguments, only the return status will be
-set. It is zero if ZLE is currently active and widgets could be
-invoked using this builtin command and non-zero if ZLE is not active.
 )
 enditem()
 
@@ -637,7 +645,10 @@ item(tt(HISTNO) (integer))(
 The current history number.  Setting this has the same effect as
 moving up or down in the history to the corresponding history line.
 An attempt to set it is ignored if the line is not stored in the
-history.
+history.  Note this is not the same as the parameter tt(HISTCMD),
+which always gives the number of the history line being added to the main
+shell's history.  tt(HISTNO) refers to the line being retrieved within
+zle.
 )
 vindex(KEYMAP)
 item(tt(KEYMAP) (scalar))(
@@ -723,6 +734,22 @@ cursor remains between the old tt($LBUFFER) and the new tt($RBUFFER).
 vindex(WIDGET)
 item(tt(WIDGET) (scalar))(
 The name of the widget currently being executed; read-only.
+)
+vindex(WIDGETFUNC)
+item(tt(WIDGETFUNC) (scalar))(
+The name of the shell function that implements a widget defined with
+either tt(zle -N) or tt(zle -C).  In the former case, this is the second
+argument to the tt(zle -N) command that defined the widget, or
+the first argument if there was no second argument.  In the latter case
+this is the the third argument to the tt(zle -C) command that defined the
+widget.  Read-only.
+)
+vindex(WIDGETSTYLE)
+item(tt(WIDGETSTYLE) (scalar))(
+Describes the implementation behind the completion widget currently being
+executed; the second argument that followed tt(zle -C) when the widget was
+defined.  This is the name of a builtin completion widget.  For widgets
+defined with tt(zle -N) this is set to the empty string.  Read-only.
 )
 enditem()
 
@@ -1467,7 +1494,7 @@ Inside a widget function, a call to this function treats the last key of
 the key sequence which called the widget as the digit.
 )
 tindex(neg-argument)
-item(tt(neg-argument) (ESC--) (unbound) (unbound))(
+item(tt(neg-argument) (ESC-DASH()) (unbound) (unbound))(
 Changes the sign of the following argument.
 )
 tindex(universal-argument)

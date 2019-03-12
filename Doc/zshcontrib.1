@@ -1,4 +1,4 @@
-.TH "ZSHCONTRIB" "1" "August 13, 2004" "zsh 4\&.2\&.1"
+.TH "ZSHCONTRIB" "1" "January 13, 2005" "zsh 4\&.2\&.3"
 .SH "NAME"
 zshcontrib \- user contributions to zsh
 .\" Yodl file: Zsh/contrib.yo
@@ -44,7 +44,7 @@ distribution in your home directory, you would use the commands:
 \fBmkdir ~/zsh_help
 cd ~/zsh_help
 man zshall | colcrt \- | \e 
-perl ~/zsh\-4\&.2\&.1/Util/helpfiles\fP
+perl ~/zsh\-4\&.2\&.3/Util/helpfiles\fP
 .fi
 .RE
 .PP
@@ -179,7 +179,7 @@ Run \fBzkbd\fP either as an autoloaded function, or as a shell script:
 .PP
 .RS
 .nf
-\fBzsh \-f ~/zsh\-4\&.2\&.1/Functions/Misc/zkbd\fP
+\fBzsh \-f ~/zsh\-4\&.2\&.3/Functions/Misc/zkbd\fP
 .fi
 .RE
 .PP
@@ -235,7 +235,7 @@ command and redirect the output into a file:
 .PP
 .RS
 .nf
-\fB\&. ~/zsh\-4\&.2\&.1/Util/reporter > zsh\&.report\fP
+\fB\&. ~/zsh\-4\&.2\&.3/Util/reporter > zsh\&.report\fP
 .fi
 .RE
 .PP
@@ -581,6 +581,26 @@ before the next word, including all characters specified by the
 non\-word characters following that word (7) the remainder of the line\&.  Any
 of the elements may be an empty string; the calling function should test
 for this to decide whether it can perform its function\&.
+.PP
+It is possible to pass options with arguments to \fBmatch\-words\-by\-style\fP
+to override the use of styles\&.  The options are:
+.PD 0
+.TP
+\fB\-w\fP
+\fIword\-style\fP
+.TP
+\fB\-s\fP
+\fIskip\-chars\fP
+.TP
+\fB\-c\fP
+\fIword\-class\fP
+.TP
+\fB\-C\fP
+\fIword\-chars\fP
+.PD
+.PP
+For example, \fBmatch\-words\-by\-style \-w shell \-c 0\fP may be used to
+extract the command argument around the cursor\&.
 .RE
 .TP
 \fBdelete\-whole\-word\-match\fP
@@ -1526,7 +1546,7 @@ whenever the \fIinput\fP list may be empty\&.  If there is guaranteed to be
 at least one \fIinput\fP and the first \fIinput\fP does not begin with a
 `\fB\-\fP', then the first `\fB\-\fP\fB\-\fP' may be omitted\&.
 .PP
-In the event that the string `\fB\-\fP\fB\-\fP' is or may be an \fIINPUT\fP, the
+In the event that the string `\fB\-\fP\fB\-\fP' is or may be an \fIinput\fP, the
 \fB\-e\fP option may be used to change the end\-of\-inputs marker\&.  Note that
 this does \fInot\fP change the end\-of\-options marker\&.  For example, to use
 `\fB\&.\&.\fP' as the marker:

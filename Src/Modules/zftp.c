@@ -513,9 +513,9 @@ zfsetparam(char *name, void *val, int flags)
 	return;
     }
     if (type == PM_INTEGER)
-	pm->sets.ifn(pm, *(off_t *)val);
+	pm->gsu.i->setfn(pm, *(off_t *)val);
     else
-	pm->sets.cfn(pm, (char *)val);
+	pm->gsu.s->setfn(pm, (char *)val);
 }
 
 /*
@@ -972,7 +972,7 @@ zfopendata(char *name, union tcp_sockaddr *zdsockp, int *is_passivep)
 #else
 	char portcmd[40];
 #endif
-	SOCKLEN_T len;
+	ZSOCKLEN_T len;
 	int ret;
 
 	if (!(zfprefs & ZFPF_SNDP)) {
@@ -1065,7 +1065,7 @@ zfclosedata(void)
 static int
 zfgetdata(char *name, char *rest, char *cmd, int getsize)
 {
-    SOCKLEN_T len;
+    ZSOCKLEN_T len;
     int newfd, is_passive;
     union tcp_sockaddr zdsock;
 
@@ -1702,7 +1702,7 @@ zftp_open(char *name, char **args, int flags)
     char **addrp, *fname, *tmpptr, *portnam = "ftp";
     char *hostnam, *hostsuffix;
     int err, tmout, port = -1;
-    SOCKLEN_T  len;
+    ZSOCKLEN_T  len;
     int herrno, af, hlen;
 
     if (!*args) {
@@ -1971,8 +1971,7 @@ zftp_open(char *name, char **args, int flags)
      * However, it is closed whenever there are no connections open.
      */
     if (zfstatfd == -1) {
-	fname = gettempname();
-	zfstatfd = open(fname, O_RDWR|O_CREAT|O_EXCL, 0600);
+	zfstatfd = gettempfile(NULL, 1, &fname);
 	DPUTS(zfstatfd == -1, "zfstatfd not created");
 #if defined(F_SETFD) && defined(FD_CLOEXEC)
 	/* If the shell execs a program, we don't want this fd left open. */

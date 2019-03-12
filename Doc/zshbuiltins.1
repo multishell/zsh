@@ -1,4 +1,4 @@
-.TH "ZSHBUILTINS" "1" "August 13, 2004" "zsh 4\&.2\&.1"
+.TH "ZSHBUILTINS" "1" "January 13, 2005" "zsh 4\&.2\&.3"
 .SH "NAME"
 zshbuiltins \- zsh built\-in commands
 .\" Yodl file: Zsh/builtins.yo
@@ -510,7 +510,7 @@ entries\&.
 Bring each specified \fIjob\fP in turn to the foreground\&.
 If no \fIjob\fP is specified, resume the current job\&.
 .TP
-\fBfloat\fP [ {\fB+\fP|\fB\-\fP}\fBEFHghlprtux\fP ] [ \fIname\fP[\fB=\fP\fIvalue\fP] \&.\&.\&. ]
+\fBfloat\fP [ {\fB+\fP|\fB\-\fP}\fBEFHghlprtux\fP ] [ \fB\-LRZ\fP [ \fIn\fP ]] [ \fIname\fP[\fB=\fP\fIvalue\fP] \&.\&.\&. ]
 Equivalent to \fBtypeset \-E\fP, except that options irrelevant to floating
 point numbers are not permitted\&.
 .TP
@@ -610,7 +610,7 @@ the form of a call to hash\&.
 \fBhistory\fP
 Same as \fBfc \-l\fP\&.
 .TP
-\fBinteger\fP [ {\fB+\fP|\fB\-\fP}\fBHghilprtux\fP ] [ \fIname\fP[\fB=\fP\fIvalue\fP] \&.\&.\&. ]
+\fBinteger\fP [ {\fB+\fP|\fB\-\fP}\fBHghilprtux\fP ] [ \fB\-LRZ\fP [ \fIn\fP ]] [ \fIname\fP[\fB=\fP\fIvalue\fP] \&.\&.\&. ]
 Equivalent to \fBtypeset \-i\fP, except that options irrelevant to
 integers are not permitted\&.
 .TP
@@ -654,6 +654,16 @@ specified the signal names are listed\&.  Otherwise, for each
 listed\&.  For each \fIsig\fP that is a signal number or a number
 representing the exit status of a process which was terminated or
 stopped by a signal the name of the signal is printed\&.
+.RS
+.PP
+On some systems, alternative signal names are allowed for a few signals\&.
+Typical examples are \fBSIGCHLD\fP and \fBSIGCLD\fP or \fBSIGPOLL\fP and
+\fBSIGIO\fP, assuming they correspond to the same signal number\&.  \fBkill
+\-l\fP will only list the preferred form, however \fBkill \-l\fP \fIalt\fP will
+show if the alternative form corresponds to a signal number\&.  For example,
+under Linux \fBkill \-l IO\fP and \fBkill \-l POLL\fP both output 29, hence
+\fBkill \-IO\fP and \fBkill \-POLL\fP have the same effect\&.
+.RE
 .TP
 \fBlet\fP \fIarg\fP \&.\&.\&.
 Evaluate each \fIarg\fP as an arithmetic expression\&.
@@ -763,7 +773,7 @@ minutes and seconds
 .PD
 .RE
 .TP
-\fBlocal\fP [ {\fB+\fP|\fB\-\fP}\fBAEFHLRUZahilprtux\fP [\fIn\fP]] [ \fIname\fP[\fB=\fP\fIvalue\fP] ] \&.\&.\&.
+\fBlocal\fP [ {\fB+\fP|\fB\-\fP}\fBAEFHUahlprtux\fP ] [ \fB\-LRZi\fP [ \fIn\fP ]] [ \fIname\fP[\fB=\fP\fIvalue\fP] ] \&.\&.\&.
 Same as \fBtypeset\fP, except that the options \fB\-g\fP, and
 \fB\-f\fP are not permitted\&.  In this case the \fB\-x\fP option does not force
 the use of \fB\-g\fP, i\&.e\&. exported variables will be local to functions\&.
@@ -1193,6 +1203,12 @@ Unless the \fB\-f\fP option is given, this will refuse to suspend a login shell\
 \fB[\fP [ \fIarg\fP \&.\&.\&. ] \fB]\fP
 Like the system version of \fBtest\fP\&.  Added for compatibility;
 use conditional expressions instead (see the section `Conditional Expressions')\&.
+The main differences between the conditional expression syntax and the
+\fBtest\fP and \fB[\fP builtins are:  these commands are not handled
+syntactically, so for example an empty variable expansion may cause an
+argument to be omitted; syntax errors cause status 2 to be returned instead
+of a shell error; and arithmetic operators expect integer arguments rather
+than arithemetic expressions\&.
 .TP
 \fBtimes\fP
 Print the accumulated user and system times for the shell
@@ -1245,6 +1261,11 @@ will print the line number of a command executed after it has run, while
 .RE
 .PP
 will always print the number zero\&.
+.PP
+Alternative signal names are allowed as described under \fBkill\fP above\&.
+Defining a trap under either name causes any trap under an alternative
+name to be removed\&.  However, it is recommended that for consistency
+users stick exclusively to one name or another\&.
 .RE
 .TP
 \fBtrue\fP [ \fIarg\fP \&.\&.\&. ]
@@ -1264,10 +1285,10 @@ terminal is frozen or not\&.
 Equivalent to \fBwhence \-v\fP\&.
 .TP
 .PD 0
-\fBtypeset\fP [ {\fB+\fP|\fB\-\fP}\fBAEFHLRUZafghiklprtuxmz\fP [\fIn\fP]] [ \fIname\fP[\fB=\fP\fIvalue\fP] \&.\&.\&. ]
+\fBtypeset\fP [ {\fB+\fP|\fB\-\fP}\fBAEFHUafghklprtuxmz\fP ] [ \fB\-LRZi\fP [ \fIn\fP ]] [ \fIname\fP[\fB=\fP\fIvalue\fP] \&.\&.\&. ]
 .TP
 .PD
-\fBtypeset\fP \-T [ {\fB+|\fB\-\fP\fP}\fBLRUZrux\fP ] \fISCALAR\fP[\fB=\fP\fIvalue\fP] \fIarray\fP \fB[\fP \fIsep\fP \fB]\fP
+\fBtypeset\fP \-T [ {\fB+|\fB\-\fP\fP}\fBUrux\fP ] [ \fB\-LRZ\fP [ \fIn\fP ]] \fISCALAR\fP[\fB=\fP\fIvalue\fP] \fIarray\fP \fB[\fP \fIsep\fP \fB]\fP
 Set or display attributes and values for shell parameters\&.
 .RS
 .PP
@@ -1358,20 +1379,21 @@ The names refer to associative array parameters; see
 .TP
 \fB\-L\fP
 Left justify and remove leading blanks from \fIvalue\fP\&.
-If \fIn\fP is nonzero, it defines the width of the field;
-otherwise it is determined by the width of the value of the first
-assignment\&.
+If \fIn\fP is nonzero, it defines the width of the field\&.
+If \fIn\fP is zero, the width is determined by the width of the value of
+the first assignment\&.  In the case of numeric parameters, the length of the
+complete value assigned to the parameter is used to determine the width,
+not the value that would be output\&.
 When the parameter is expanded, it is filled on the right with
 blanks or truncated if necessary to fit the field\&.
+Note truncation can lead to unexpected results with numeric parameters\&.
 Leading zeros are removed if the \fB\-Z\fP flag is also set\&.
 .TP
 \fB\-R\fP
-Right justify and fill with leading blanks\&.  If \fIn\fP is nonzero
-if defines the width of the field;
-otherwise it is determined by the width of the value of the first
-assignment\&.
-When the parameter is expanded, the field is left filled with
-blanks or truncated from the end\&.
+Similar to \fB\-L\fP, except that right justification is used;
+when the parameter is expanded, the field is left filled with
+blanks or truncated from the end\&.  May not be combined with the \fB\-Z\fP
+flag\&.
 .TP
 \fB\-U\fP
 For arrays (but not for associative arrays), keep only the first
@@ -1380,11 +1402,12 @@ colon\-separated special parameters like \fBPATH\fP or \fBFIGNORE\fP, etc\&.
 This flag has a different meaning when used with \fB\-f\fP; see below\&.
 .TP
 \fB\-Z\fP
-Right justify and fill with leading zeros if the first non\-blank
-character is a digit and the \fB\-L\fP flag has not been set\&.
-If \fIn\fP is nonzero it defines the width of the field;
-otherwise it is determined by the width of the value of the
-first assignment\&.
+Specially handled if set along with the \fB\-L\fP flag\&.
+Otherwise, similar to \fB\-R\fP, except that leading zeros are used for
+padding instead of blanks if the first non\-blank character is a digit\&.
+Numeric parameters are specially handled: they are always eligible
+for padding with zeroes, and the zeroes are inserted at an appropriate
+place in the output\&.
 .TP
 \fB\-a\fP
 The names refer to array parameters\&.  An array parameter may be

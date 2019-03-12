@@ -1,4 +1,4 @@
-.TH "ZSHOPTIONS" "1" "August 13, 2004" "zsh 4\&.2\&.1"
+.TH "ZSHOPTIONS" "1" "January 13, 2005" "zsh 4\&.2\&.3"
 .SH "NAME"
 zshoptions \- zsh options
 .\" Yodl file: Zsh/options.yo
@@ -172,6 +172,13 @@ a `\fB*\fP' was added to the end of the word, or inserted at the cursor when
 \fBCOMPLETE_IN_WORD\fP is set\&.  This actually uses pattern matching, not
 globbing, so it works not only for files but for any completion, such as
 options, user names, etc\&.
+.RS
+.PP
+Note that when the pattern matcher is used, matching control (for example,
+case\-insensitive or anchored matching) cannot be used\&.  This limitation
+only applies when the current word contains a pattern; simply turning
+on the \fBGLOB_COMPLETE\fP option does not have this effect\&.
+.RE
 .TP
 \fBHASH_LIST_ALL\fP <D>
 Whenever a command completion is attempted, make sure the entire
@@ -684,7 +691,8 @@ See the section `Prompt Expansion'\&.
 .TP
 \fBPROMPT_SUBST\fP <K>
 If set, \fIparameter expansion\fP, \fIcommand substitution\fP and
-\fIarithmetic expansion\fP are performed in prompts\&.
+\fIarithmetic expansion\fP are performed in prompts\&.  Substitutions
+within prompts do not affect the command status\&.
 .TP
 \fBTRANSIENT_RPROMPT\fP
 Remove any right prompt from display when accepting a command
@@ -707,7 +715,6 @@ irrespective of the setting of \fBC_BASES\fP\&.
 If a command has a non\-zero exit status, execute the \fBZERR\fP
 trap, if set, and exit\&.  This is disabled while running initialization
 scripts\&.
-cidnex(return from function, on error)
 .TP
 \fBERR_RETURN\fP
 If a command has a non\-zero exit status, return immediately from the
@@ -715,6 +722,17 @@ enclosing function\&.  The logic is identical to that for \fBERR_EXIT\fP,
 except that an implicit \fBreturn\fP statement is executed instead of an
 \fBexit\fP\&.  This will trigger an exit at the outermost level of a
 non\-interactive script\&.
+.TP
+\fBEVAL_LINENO\fP <Z>
+If set, line numbers of expressions evaluated using the builtin \fBeval\fP
+are tracked separately of the enclosing environment\&.  This applies both
+to the parameter \fBLINENO\fP and the line number output by the prompt
+escape \fB%i\fP\&.  If the option is set, the prompt escape \fB%N\fP will output
+the string `\fB(eval)\fP' instead of the script or function name as an
+indication\&.   (The two prompt escapes are typically used in the parameter
+\fBPS4\fP to be output when the option \fBXTRACE\fP is set\&.)  If
+\fBEVAL_LINENO\fP is unset, the line number of the surrounding script or
+function is retained during the evaluation\&.
 .TP
 \fBEXEC\fP (\fB+n\fP, ksh: \fB+n\fP) <D>
 Do execute commands\&.  Without this option, commands are

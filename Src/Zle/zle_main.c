@@ -680,21 +680,37 @@ zlecore(void)
     FD_ZERO(&foofd);
 #endif
 
-    while (!done && !errflag) {
+    /*
+     * A widget function may decide to exit the shell.
+     * We never exit directly from functions, to allow
+     * the shell to tidy up, so we have to test for
+     * that explicitly.
+     */
+    while (!done && !errflag && !exit_pending) {
 
 	statusline = NULL;
 	vilinerange = 0;
 	reselectkeymap();
 	selectlocalmap(NULL);
 	bindk = getkeycmd();
-	if (!ll && isfirstln && !(zlereadflags & ZLRF_IGNOREEOF) &&
-	    lastchar == eofchar) {
-	    eofsent = 1;
-	    break;
-	}
 	if (bindk) {
-	    if (execzlefunc(bindk, zlenoargs))
+	    if (!ll && isfirstln && !(zlereadflags & ZLRF_IGNOREEOF) &&
+		lastchar == eofchar) {
+		/*
+		 * Slight hack: this relies on getkeycmd returning
+		 * a value for the EOF character.  However,
+		 * undefined-key is fine.  That's necessary because
+		 * otherwise we can't distinguish this case from
+		 * a ^C.
+		 */
+		eofsent = 1;
+		break;
+	    }
+	    if (execzlefunc(bindk, zlenoargs)) {
 		handlefeep(zlenoargs);
+		if (eofsent)
+		    break;
+	    }
 	    handleprefixes();
 	    /* for vi mode, make sure the cursor isn't somewhere illegal */
 	    if (invicmdmode() && cs > findbol() &&
@@ -799,6 +815,7 @@ zleread(char **lp, char **rp, int flags, int context)
     histline = curhist;
     undoing = 1;
     line = (unsigned char *)zalloc((linesz = 256) + 2);
+    *line = '\0';
     virangeflag = lastcmd = done = cs = ll = mark = 0;
     vichgflag = 0;
     viinsbegin = 0;
@@ -887,10 +904,17 @@ execzlefunc(Thingy func, char **args)
     } else if((w = func->widget)->flags & (WIDGET_INT|WIDGET_NCOMP)) {
 	int wflags = w->flags;
 
-	if (keybuf[0] == eofchar && !keybuf[1] &&
+	/*
+	 * The rule is that "zle -N" widgets suppress EOF warnings.  When
+	 * a "zle -N" widget invokes "zle another-widget" we pass through
+	 * this code again, but with actual arguments rather than with the
+	 * zlenoargs placeholder.
+	 */
+	if (keybuf[0] == eofchar && !keybuf[1] && args == zlenoargs &&
 	    !ll && isfirstln && (zlereadflags & ZLRF_IGNOREEOF)) {
 	    showmsg((!islogin) ? "zsh: use 'exit' to exit." :
 		    "zsh: use 'logout' to logout.");
+	    eofsent = 1;
 	    ret = 1;
 	} else {
 	    if(!(wflags & ZLE_KEEPSUFFIX))

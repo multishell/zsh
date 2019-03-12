@@ -79,7 +79,7 @@ mod_export int excs, exlast;
  */
  
 /**/
-mod_export int curhist;
+mod_export zlong curhist;
 
 /**/
 struct histent curline;
@@ -87,7 +87,7 @@ struct histent curline;
 /* current line count of allocated history entries */
 
 /**/
-int histlinect;
+zlong histlinect;
 
 /* The history lines are kept in a hash, and also doubly-linked in a ring */
 
@@ -99,12 +99,12 @@ mod_export Histent hist_ring;
 /* capacity of history lists */
  
 /**/
-int histsiz;
+zlong histsiz;
  
 /* desired history-file size (in lines) */
  
 /**/
-int savehistsiz;
+zlong savehistsiz;
  
 /* if = 1, we have performed history substitution on the current line *
  * if = 2, we have used the 'p' modifier                              */
@@ -178,7 +178,7 @@ int hlinesz;
  
 /* default event (usually curhist-1, that is, "!!") */
  
-static int defev;
+static zlong defev;
 
 /* add a character to the current history word */
 
@@ -339,8 +339,10 @@ getargc(Histent ehist)
 static int
 histsubchar(int c)
 {
-    int ev, farg, evset = -1, larg, argc, cflag = 0, bflag = 0;
-    static int mev = -1, marg = -1;
+    int farg, evset = -1, larg, argc, cflag = 0, bflag = 0;
+    zlong ev;
+    static int marg = -1;
+    static zlong mev = -1;
     char buf[256], *ptr;
     char *sline;
     Histent ehist;
@@ -410,7 +412,7 @@ histsubchar(int c)
 		return -1;
 	    }
 	} else {
-	    int t0;
+	    zlong t0;
 
 	    for (;;) {
 		if (inblank(c) || c == ';' || c == ':' || c == '^' ||
@@ -448,7 +450,7 @@ histsubchar(int c)
 			ev = defev;
 		    evset = 0;
 		}
-	    } else if ((t0 = atoi(buf))) {
+	    } else if ((t0 = zstrtol(buf, NULL, 10))) {
 		ev = (t0 < 0) ? addhistnum(curhist,t0,HIST_FOREIGN) : t0;
 		evset = 1;
 	    } else if ((unsigned)*buf == bangchar) {
@@ -839,8 +841,8 @@ histremovedups(void)
 }
 
 /**/
-mod_export int
-addhistnum(int hl, int n, int xflags)
+mod_export zlong
+addhistnum(zlong hl, int n, int xflags)
 {
     int dir = n < 0? -1 : n > 0? 1 : 0;
     Histent he = gethistent(hl, dir);
@@ -892,7 +894,7 @@ down_histent(Histent he)
 
 /**/
 mod_export Histent
-gethistent(int ev, int nearmatch)
+gethistent(zlong ev, int nearmatch)
 {
     Histent he;
 
@@ -927,7 +929,7 @@ putoldhistentryontop(short keep_going)
     Histent he = keep_going? next : hist_ring->down;
     next = he->down;
     if (isset(HISTEXPIREDUPSFIRST) && !(he->flags & HIST_DUP)) {
-	static int max_unique_ct = 0;
+	static zlong max_unique_ct = 0;
 	if (!keep_going)
 	    max_unique_ct = savehistsiz;
 	do {
@@ -1346,7 +1348,7 @@ getargspec(int argc, int marg, int evset)
 /* do ?foo? search */
 
 /**/
-static int
+static zlong
 hconsearch(char *str, int *marg)
 {
     int t1 = 0;
@@ -1370,7 +1372,7 @@ hconsearch(char *str, int *marg)
 /* do !foo search */
 
 /**/
-int
+zlong
 hcomsearch(char *str)
 {
     Histent he;
@@ -1795,7 +1797,7 @@ static struct histfile_stats {
     char *text;
     time_t stim, mtim;
     off_t fpos, fsiz;
-    int next_write_ev;
+    zlong next_write_ev;
 } lasthist;
 
 static struct histsave {
@@ -1803,16 +1805,16 @@ static struct histsave {
     char *histfile;
     HashTable histtab;
     Histent hist_ring;
-    int curhist;
-    int histlinect;
-    int histsiz;
-    int savehistsiz;
+    zlong curhist;
+    zlong histlinect;
+    zlong histsiz;
+    zlong savehistsiz;
     int locallevel;
 } *histsave_stack;
 static int histsave_stack_size = 0;
 static int histsave_stack_pos = 0;
 
-static int histfile_linect;
+static zlong histfile_linect;
 
 static int
 readhistline(int start, char **bufp, int *bufsiz, FILE *in)
@@ -2006,7 +2008,7 @@ savehistfile(char *fn, int err, int writeflags)
     char *t, *start = NULL;
     FILE *out;
     Histent he;
-    int xcurhist = curhist - !!(histactive & HA_ACTIVE);
+    zlong xcurhist = curhist - !!(histactive & HA_ACTIVE);
     int extended_history = isset(EXTENDEDHISTORY);
 
     if (!interact || savehistsiz <= 0 || !hist_ring
@@ -2091,7 +2093,8 @@ savehistfile(char *fn, int err, int writeflags)
 	}
 	fclose(out);
 
-	if ((writeflags & (HFILE_SKIPOLD | HFILE_FAST)) == HFILE_SKIPOLD) {
+	if (writeflags & HFILE_SKIPOLD
+	 && !(writeflags & (HFILE_FAST | HFILE_NO_REWRITE))) {
 	    int remember_histactive = histactive;
 
 	    /* Zeroing histactive avoids unnecessary munging of curline. */
@@ -2126,23 +2129,21 @@ lockhistfile(char *fn, int keep_trying)
 	return 0;
     if (!lockhistct++) {
 	struct stat sb;
-	int fd, len;
+	int fd;
 	char *lockfile;
 #ifdef HAVE_LINK
 	char *tmpfile;
 #endif
 
-	fn = unmeta(fn);
-	len = strlen(fn);
-	lockfile = zalloc(len + 5 + 1);
-	sprintf(lockfile, "%s.LOCK", fn);
+	lockfile = bicat(unmeta(fn), ".LOCK");
 #ifdef HAVE_LINK
-	tmpfile = zalloc(len + 10 + 1);
-	sprintf(tmpfile, "%s.%ld", fn, (long)mypid);
-	unlink(tmpfile); /* NFS's O_EXCL is often broken... */
-	if ((fd = open(tmpfile, O_WRONLY|O_CREAT|O_EXCL, 0644)) >= 0) {
-	    write(fd, tmpfile+len+1, strlen(tmpfile+len+1));
-	    close(fd);
+	if ((fd = gettempfile(fn, 0, &tmpfile)) >= 0) {
+	    FILE *out = fdopen(fd, "w");
+	    if (out) {
+		fprintf(out, "%ld %s\n", (long)getpid(), getsparam("HOST"));
+		fclose(out);
+	    } else
+		close(fd);
 	    while (link(tmpfile, lockfile) < 0) {
 		if (errno != EEXIST || !keep_trying)
 		    ;
@@ -2161,8 +2162,8 @@ lockhistfile(char *fn, int keep_trying)
 		break;
 	    }
 	    unlink(tmpfile);
+	    free(tmpfile);
 	}
-	free(tmpfile);
 #else /* not HAVE_LINK */
 	while ((fd = open(lockfile, O_WRONLY|O_CREAT|O_EXCL, 0644)) < 0) {
 	    if (errno != EEXIST || !keep_trying)
@@ -2180,10 +2181,12 @@ lockhistfile(char *fn, int keep_trying)
 	if (fd < 0)
 	    lockhistct--;
 	else {
-	    char buf[16];
-	    sprintf(buf, "%ld", (long)mypid);
-	    write(fd, buf, strlen(buf));
-	    close(fd);
+	    FILE *out = fdopen(fd, "w");
+	    if (out) {
+		fprintf(out, "%ld %s\n", (long)mypid, getsparam("HOST"));
+		fclose(out);
+	    } else
+		close(fd);
 	}
 #endif /* not HAVE_LINK */
 	free(lockfile);
@@ -2345,7 +2348,7 @@ bufferwords(LinkList list, char *buf, int *index)
 
 /**/
 int
-pushhiststack(char *hf, int hs, int shs, int level)
+pushhiststack(char *hf, zlong hs, zlong shs, int level)
 {
     struct histsave *h;
     int curline_in_ring = (histactive & HA_ACTIVE) && hist_ring == &curline;
@@ -2443,7 +2446,7 @@ pophiststack(void)
 
 /**/
 int
-saveandpophiststack(int pop_through)
+saveandpophiststack(int pop_through, int writeflags)
 {
     if (pop_through <= 0) {
 	pop_through += histsave_stack_pos + 1;
@@ -2457,7 +2460,7 @@ saveandpophiststack(int pop_through)
 	return 0;
     do {
 	if (!nohistsave)
-	    savehistfile(NULL, 1, HFILE_USE_OPTIONS);
+	    savehistfile(NULL, 1, writeflags);
 	pophiststack();
     } while (histsave_stack_pos >= pop_through);
     return 1;

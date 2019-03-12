@@ -96,6 +96,10 @@ zwarn(const char *fmt, const char *str, int num)
 mod_export void
 zwarnnam(const char *cmd, const char *fmt, const char *str, int num)
 {
+    if (!cmd) {
+	zwarn(fmt, str, num);
+	return;
+    }
     if (errflag || noerrs)
 	return;
     trashzle();
@@ -103,10 +107,8 @@ zwarnnam(const char *cmd, const char *fmt, const char *str, int num)
 	nicezputs(scriptname ? scriptname : argzero, stderr);
 	fputc((unsigned char)':', stderr);
     }
-    if (cmd) {
-	nicezputs(cmd, stderr);
-	fputc((unsigned char)':', stderr);
-    }
+    nicezputs(cmd, stderr);
+    fputc((unsigned char)':', stderr);
     zerrmsg(fmt, str, num);
 }
 
@@ -1115,38 +1117,86 @@ zclose(int fd)
 	    coprocin = -1;
 	if (fd == coprocout)
 	    coprocout = -1;
+	return close(fd);
     }
-    return close(fd);
+    return -1;
 }
 
-/* Get a file name relative to $TMPPREFIX which *
- * is unique, for use as a temporary file.      */
- 
 #ifdef HAVE__MKTEMP
 extern char *_mktemp(char *);
 #endif
 
+/* Get a unique filename for use as a temporary file.  If "prefix" is
+ * NULL, the name is relative to $TMPPREFIX; If it is non-NULL, the
+ * unique suffix includes a prefixed '.' for improved readability.  If
+ * "use_heap" is true, we allocate the returned name on the heap. */
+ 
 /**/
 mod_export char *
-gettempname(void)
+gettempname(const char *prefix, int use_heap)
 {
-    char *s, *ret;
+    char *ret, *suffix = prefix ? ".XXXXXX" : "XXXXXX";
  
     queue_signals();
-    if (!(s = getsparam("TMPPREFIX")))
-	s = DEFAULT_TMPPREFIX;
+    if (!prefix && !(prefix = getsparam("TMPPREFIX")))
+	prefix = DEFAULT_TMPPREFIX;
+    if (use_heap)
+	ret = dyncat(unmeta(prefix), suffix);
+    else
+	ret = bicat(unmeta(prefix), suffix);
  
 #ifdef HAVE__MKTEMP
     /* Zsh uses mktemp() safely, so silence the warnings */
-    ret = ((char *) _mktemp(dyncat(unmeta(s), "XXXXXX")));
+    ret = (char *) _mktemp(ret);
 #else
-    ret = ((char *) mktemp(dyncat(unmeta(s), "XXXXXX")));
+    ret = (char *) mktemp(ret);
 #endif
     unqueue_signals();
 
     return ret;
 }
 
+/**/
+mod_export int
+gettempfile(const char *prefix, int use_heap, char **tempname)
+{
+    char *fn;
+    int fd;
+#if HAVE_MKSTEMP
+    char *suffix = prefix ? ".XXXXXX" : "XXXXXX";
+
+    if (!prefix && !(prefix = getsparam("TMPPREFIX")))
+	prefix = DEFAULT_TMPPREFIX;
+    if (use_heap)
+	fn = dyncat(unmeta(prefix), suffix);
+    else
+	fn = bicat(unmeta(prefix), suffix);
+
+    fd = mkstemp(fn);
+    if (fd < 0) {
+	if (!use_heap)
+	    free(fn);
+	fn = NULL;
+    }
+#else
+    int failures = 0;
+
+    do {
+	if (!(fn = gettempname(prefix, use_heap))) {
+	    fd = -1;
+	    break;
+	}
+	if ((fd = open(fn, O_RDWR | O_CREAT | O_EXCL, 0600)) >= 0)
+	    break;
+	if (!use_heap)
+	    free(fn);
+	fn = NULL;
+    } while (errno == EEXIST && ++failures < 16);
+#endif
+    *tempname = fn;
+    return fd;
+}
+ 
 /* Check if a string contains a token */
 
 /**/
@@ -1261,7 +1311,8 @@ skipparens(char inpar, char outpar, char **s)
 mod_export zlong
 zstrtol(const char *s, char **t, int base)
 {
-    zlong ret = 0;
+    const char *inp, *trunc = NULL;
+    zulong calc = 0, newcalc = 0;
     int neg;
 
     while (inblank(*s))
@@ -1280,16 +1331,54 @@ zstrtol(const char *s, char **t, int base)
 	else
 	    base = 8;
     }
+    inp = s;
     if (base <= 10)
-	for (; *s >= '0' && *s < ('0' + base); s++)
-	    ret = ret * base + *s - '0';
+	for (; *s >= '0' && *s < ('0' + base); s++) {
+	    if (trunc)
+		continue;
+	    newcalc = calc * base + *s - '0';
+	    if (newcalc < calc)
+	    {
+	      trunc = s;
+	      continue;
+	    }
+	    calc = newcalc;
+	}
     else
 	for (; idigit(*s) || (*s >= 'a' && *s < ('a' + base - 10))
-	     || (*s >= 'A' && *s < ('A' + base - 10)); s++)
-	    ret = ret * base + (idigit(*s) ? (*s - '0') : (*s & 0x1f) + 9);
+	     || (*s >= 'A' && *s < ('A' + base - 10)); s++) {
+	    if (trunc)
+		continue;
+	    newcalc = calc*base + (idigit(*s) ? (*s - '0') : (*s & 0x1f) + 9);
+	    if (newcalc < calc)
+	    {
+		trunc = s;
+		continue;
+	    }
+	    calc = newcalc;
+	}
+
+    /*
+     * Special case: check for a number that was just too long for
+     * signed notation.
+     * Extra special case: the lowest negative number would trigger
+     * the first test, but is actually representable correctly.
+     * This is a 1 in the top bit, all others zero, so test for
+     * that explicitly.
+     */
+    if (!trunc && (zlong)calc < 0 &&
+	(!neg || calc & ~((zulong)1 << (8*sizeof(zulong)-1))))
+    {
+	trunc = s - 1;
+	calc /= base;
+    }
+
+    if (trunc)
+	zwarn("number truncated after %d digits: %s", inp, trunc - inp);
+
     if (t)
 	*t = (char *)s;
-    return neg ? -ret : ret;
+    return neg ? -(zlong)calc : (zlong)calc;
 }
 
 /**/
@@ -1873,16 +1962,14 @@ zjoin(char **arr, int delim, int heap)
     ptr = ret = (heap ? (char *) hcalloc(len) : (char *) zshcalloc(len));
     for (s = arr; *s; s++) {
 	strucpy(&ptr, *s);
-	if (delim) {
 	    if (imeta(delim)) {
 		*ptr++ = Meta;
 		*ptr++ = delim ^ 32;
 	    }
 	    else
 		*ptr++ = delim;
-	}
     }
-    ptr[-1] = '\0';
+    ptr[-1 - (imeta(delim) ? 1 : 0)] = '\0';
     return ret;
 }
 
@@ -3882,27 +3969,6 @@ restoredir(struct dirsav *d)
     return err;
 }
 
-/* Get a signal number from a string */
-
-/**/
-mod_export int
-getsignum(char *s)
-{
-    int x, i;
-
-    /* check for a signal specified by number */
-    x = atoi(s);
-    if (idigit(*s) && x >= 0 && x < VSIGCOUNT)
-	return x;
-
-    /* search for signal by name */
-    for (i = 0; i < VSIGCOUNT; i++)
-	if (!strcmp(s, sigs[i]))
-	    return i;
-
-    /* no matching signal */
-    return -1;
-}
 
 /* Check whether the shell is running with privileges in effect.  *
  * This is the case if EITHER the euid is zero, OR (if the system *

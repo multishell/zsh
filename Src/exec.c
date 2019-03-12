@@ -212,9 +212,10 @@ setlimits(char *nam)
 
 /**/
 static pid_t
-zfork(void)
+zfork(struct timeval *tv)
 {
     pid_t pid;
+    struct timezone dummy_tz;
 
     /*
      * Is anybody willing to explain this test?
@@ -223,6 +224,8 @@ zfork(void)
 	zerr("job table full", NULL, 0);
 	return -1;
     }
+    if (tv)
+	gettimeofday(tv, &dummy_tz);
     pid = fork();
     if (pid == -1) {
 	zerr("fork failed: %e", NULL, errno);
@@ -313,6 +316,7 @@ zfork(void)
 int list_pipe = 0, simple_pline = 0;
 
 static pid_t list_pipe_pid;
+static struct timeval list_pipe_start;
 static int nowait, pline_level = 0;
 static int list_pipe_child = 0, list_pipe_job;
 static char list_pipe_text[JOBTEXTSIZE];
@@ -788,7 +792,7 @@ execsimple(Estate state)
 	return (lastval = 1);
 
     /* In evaluated traps, don't modify the line number. */
-    if ((!intrap || trapisfunc) && code)
+    if ((!intrap || trapisfunc) && !ineval && code)
 	lineno = code - 1;
 
     code = wc_code(*state->pc++);
@@ -1101,7 +1105,8 @@ execpline(Estate state, wordcode slcode, int how, int last1)
 
 		    curjob = newjob;
 		    DPUTS(!list_pipe_pid, "invalid list_pipe_pid");
-		    addproc(list_pipe_pid, list_pipe_text, 0);
+		    addproc(list_pipe_pid, list_pipe_text, 0,
+			    &list_pipe_start);
 
 		    /* If the super-job contains only the sub-shell, the
 		       sub-shell is the group leader. */
@@ -1157,14 +1162,14 @@ execpline(Estate state, wordcode slcode, int how, int last1)
 		      (jobtab[list_pipe_job].stat & STAT_STOPPED)))) {
 		    pid_t pid;
 		    int synch[2];
+		    struct timeval bgtime;
 
 		    pipe(synch);
 
-		    if ((pid = fork()) == -1) {
+		    if ((pid = zfork(&bgtime)) == -1) {
 			trashzle();
 			close(synch[0]);
 			close(synch[1]);
-			putc('\n', stderr);
 			fprintf(stderr, "zsh: job can't be suspended\n");
 			fflush(stderr);
 			makerunning(jn);
@@ -1177,6 +1182,7 @@ execpline(Estate state, wordcode slcode, int how, int last1)
 			lpforked = 
 			    (killpg(jobtab[list_pipe_job].gleader, 0) == -1 ? 2 : 1);
 			list_pipe_pid = pid;
+			list_pipe_start = bgtime;
 			nowait = errflag = 1;
 			breaks = loops;
 			close(synch[1]);
@@ -1227,7 +1233,8 @@ execpline(Estate state, wordcode slcode, int how, int last1)
 		(!(jn->stat & STAT_INUSE) || (jn->stat & STAT_DONE))) {
 		deletejob(jn);
 		jn = jobtab + pj;
-		killjb(jn, lastval & ~0200);
+		if (jn->gleader)
+		    killjb(jn, lastval & ~0200);
 	    }
 	    if (list_pipe_child ||
 		((jn->stat & STAT_DONE) &&
@@ -1260,7 +1267,7 @@ execpline2(Estate state, wordcode pcode,
 	return;
 
     /* In evaluated traps, don't modify the line number. */
-    if ((!intrap || trapisfunc) && WC_PIPE_LINENO(pcode))
+    if ((!intrap || trapisfunc) && !ineval && WC_PIPE_LINENO(pcode))
 	lineno = WC_PIPE_LINENO(pcode) - 1;
 
     if (pline_level == 1) {
@@ -1289,17 +1296,17 @@ execpline2(Estate state, wordcode pcode,
 	 * rest of the pipeline in the current shell.         */
 	if (wc_code(code) >= WC_CURSH && (how & Z_SYNC)) {
 	    int synch[2];
+	    struct timeval bgtime;
 
 	    pipe(synch);
-	    if ((pid = fork()) == -1) {
+	    if ((pid = zfork(&bgtime)) == -1) {
 		close(synch[0]);
 		close(synch[1]);
-		zerr("fork failed: %e", NULL, errno);
 	    } else if (pid) {
 		char dummy, *text;
 
 		text = getjobtext(state->prog, state->pc);
-		addproc(pid, text, 0);
+		addproc(pid, text, 0, &bgtime);
 		close(synch[1]);
 		read(synch[0], &dummy, 1);
 		close(synch[0]);
@@ -1437,8 +1444,9 @@ closemn(struct multio **mfds, int fd)
 	char buf[TCBUFSIZE];
 	int len, i;
 	pid_t pid;
+	struct timeval bgtime;
 
-	if ((pid = zfork())) {
+	if ((pid = zfork(&bgtime))) {
 	    for (i = 0; i < mn->ct; i++)
 		zclose(mn->fds[i]);
 	    zclose(mn->pipe);
@@ -1448,7 +1456,7 @@ closemn(struct multio **mfds, int fd)
 	    }
 	    mn->ct = 1;
 	    mn->fds[0] = fd;
-	    addproc(pid, NULL, 1);
+	    addproc(pid, NULL, 1, &bgtime);
 	    return;
 	}
 	/* pid == 0 */
@@ -1479,7 +1487,8 @@ closemn(struct multio **mfds, int fd)
 		}
 	}
 	_exit(0);
-    }
+    } else if (fd >= 0)
+	mfds[fd] = NULL;
 }
 
 /* close all the mnodes (failure) */
@@ -1825,7 +1834,7 @@ execcmd(Estate state, int input, int output, int how, int last1)
 		    load_module(((Builtin) hn)->optstr);
 		    hn = builtintab->getnode(builtintab, cmdarg);
 		}
-		assign = (hn->flags & BINF_MAGICEQUALS);
+		assign = (hn && (hn->flags & BINF_MAGICEQUALS));
 		break;
 	    }
 	    cflags &= ~BINF_BUILTIN & ~BINF_COMMAND;
@@ -1939,7 +1948,18 @@ execcmd(Estate state, int input, int output, int how, int last1)
 		return;
 	    }
 
-	    if (errflag || checked ||
+	    /*
+	     * Quit looking for a command if:
+	     * - there was an error; or
+	     * - we checked the simple cases needing MAGIC_EQUAL_SUBST; or
+	     * - we know we already found a builtin (because either:
+	     *   - we loaded a builtin from a module, or
+	     *   - we have determined there are options which would
+	     *     require us to use the "command" builtin); or
+	     * - we aren't using POSIX and so BINF_COMMAND indicates a zsh
+	     *   precommand modifier is being used in place of the builtin
+	     */
+	    if (errflag || checked || is_builtin ||
 		(unset(POSIXBUILTINS) && (cflags & BINF_COMMAND)))
 		break;
 
@@ -2097,11 +2117,12 @@ execcmd(Estate state, int input, int output, int how, int last1)
 	pid_t pid;
 	int synch[2];
 	char dummy;
+	struct timeval bgtime;
 
 	child_block();
 	pipe(synch);
 
-	if ((pid = zfork()) == -1) {
+	if ((pid = zfork(&bgtime)) == -1) {
 	    close(synch[0]);
 	    close(synch[1]);
             opts[AUTOCONTINUE] = oautocont;
@@ -2129,7 +2150,7 @@ execcmd(Estate state, int input, int output, int how, int last1)
 			  3 : WC_ASSIGN_NUM(ac) + 2);
 		}
 	    }
-	    addproc(pid, text, 0);
+	    addproc(pid, text, 0, &bgtime);
             opts[AUTOCONTINUE] = oautocont;
 	    return;
 	}
@@ -2186,7 +2207,7 @@ execcmd(Estate state, int input, int output, int how, int last1)
 
     /* Do process substitutions */
     if (redir)
-	spawnpipes(redir);
+	spawnpipes(redir, nullexec);
 
     /* Do io redirections */
     while (redir && nonempty(redir)) {
@@ -2573,20 +2594,20 @@ restore_params(LinkList restorelist, LinkList removelist)
 		tpm->flags = pm->flags;
 		switch (PM_TYPE(pm->flags)) {
 		case PM_SCALAR:
-		    tpm->sets.cfn(tpm, pm->u.str);
+		    tpm->gsu.s->setfn(tpm, pm->u.str);
 		    break;
 		case PM_INTEGER:
-		    tpm->sets.ifn(tpm, pm->u.val);
+		    tpm->gsu.i->setfn(tpm, pm->u.val);
 		    break;
 		case PM_EFLOAT:
 		case PM_FFLOAT:
-		    tpm->sets.ffn(tpm, pm->u.dval);
+		    tpm->gsu.f->setfn(tpm, pm->u.dval);
 		    break;
 		case PM_ARRAY:
-		    tpm->sets.afn(tpm, pm->u.arr);
+		    tpm->gsu.a->setfn(tpm, pm->u.arr);
 		    break;
 		case PM_HASHED:
-		    tpm->sets.hfn(tpm, pm->u.hash);
+		    tpm->gsu.h->setfn(tpm, pm->u.hash);
 		    break;
 		}
 		pm = tpm;
@@ -2686,7 +2707,7 @@ entersubsh(int how, int cl, int fake, int revertpgrp)
     zleactive = 0;
     if (cl)
 	clearjobtab(monitor);
-    times(&shtms);
+    get_usage();
     forklevel = locallevel;
 }
 
@@ -2782,8 +2803,7 @@ getherestr(struct redir *fn)
     untokenize(t);
     unmetafy(t, &len);
     t[len++] = '\n';
-    s = gettempname();
-    if (!s || (fd = open(s, O_CREAT|O_WRONLY|O_EXCL|O_NOCTTY, 0600)) == -1)
+    if ((fd = gettempfile(NULL, 1, &s)) < 0)
 	return -1;
     write(fd, t, len);
     close(fd);
@@ -2832,7 +2852,7 @@ getoutput(char *cmd, int qt)
     mpipe(pipes);
     child_block();
     cmdoutval = 0;
-    if ((cmdoutpid = pid = zfork()) == -1) {
+    if ((cmdoutpid = pid = zfork(NULL)) == -1) {
 	/* fork error */
 	zclose(pipes[0]);
 	zclose(pipes[1]);
@@ -2956,10 +2976,8 @@ getoutputfile(char *cmd)
 	return NULL;
     if (!(prog = parsecmd(cmd)))
 	return NULL;
-    if (!(nam = gettempname()))
+    if (!(nam = gettempname(NULL, 0)))
 	return NULL;
-
-    nam = ztrdup(nam);
 
     if (!jobtab[thisjob].filelist)
 	jobtab[thisjob].filelist = znewlinklist();
@@ -2968,7 +2986,7 @@ getoutputfile(char *cmd)
     child_block();
     fd = open(nam, O_WRONLY | O_CREAT | O_EXCL | O_NOCTTY, 0600);
 
-    if (fd < 0 || (cmdoutpid = pid = zfork()) == -1) {
+    if (fd < 0 || (cmdoutpid = pid = zfork(NULL)) == -1) {
 	/* fork or open error */
 	child_unblock();
 	return nam;
@@ -3003,7 +3021,7 @@ getoutputfile(char *cmd)
 static char *
 namedpipe(void)
 {
-    char *tnam = gettempname();
+    char *tnam = gettempname(NULL, 1);
 
 # ifdef HAVE_MKFIFO
     if (mkfifo(tnam, 0600) < 0)
@@ -3029,6 +3047,7 @@ getproc(char *cmd)
     int out = *cmd == Inang;
     char *pnam;
     pid_t pid;
+    struct timeval bgtime;
 
 #ifndef PATH_DEV_FD
     int fd;
@@ -3043,11 +3062,11 @@ getproc(char *cmd)
 	jobtab[thisjob].filelist = znewlinklist();
     zaddlinknode(jobtab[thisjob].filelist, ztrdup(pnam));
 
-    if ((pid = zfork())) {
+    if ((pid = zfork(&bgtime))) {
 	if (pid == -1)
 	    return NULL;
 	if (!out)
-	    addproc(pid, NULL, 1);
+	    addproc(pid, NULL, 1, &bgtime);
 	return pnam;
     }
     closem(0);
@@ -3067,7 +3086,7 @@ getproc(char *cmd)
     if (!(prog = parsecmd(cmd)))
 	return NULL;
     mpipe(pipes);
-    if ((pid = zfork())) {
+    if ((pid = zfork(&bgtime))) {
 	sprintf(pnam, "%s/%d", PATH_DEV_FD, pipes[!out]);
 	zclose(pipes[out]);
 	if (pid == -1)
@@ -3078,7 +3097,7 @@ getproc(char *cmd)
 	fdtable[pipes[!out]] = 2;
 	if (!out)
 	{
-	    addproc(pid, NULL, 1);
+	    addproc(pid, NULL, 1, &bgtime);
 	}
 	return pnam;
     }
@@ -3096,26 +3115,34 @@ getproc(char *cmd)
 #endif   /* HAVE_FIFOS and PATH_DEV_FD not defined */
 }
 
-/* > >(...) or < <(...) (does not use named pipes) */
+/*
+ * > >(...) or < <(...) (does not use named pipes)
+ *
+ * If the second argument is 1, this is part of
+ * an "exec < <(...)" or "exec > >(...)" and we shouldn't
+ * wait for the job to finish before continuing.
+ */
 
 /**/
 static int
-getpipe(char *cmd)
+getpipe(char *cmd, int nullexec)
 {
     Eprog prog;
     int pipes[2], out = *cmd == Inang;
     pid_t pid;
+    struct timeval bgtime;
 
     if (!(prog = parsecmd(cmd)))
 	return -1;
     mpipe(pipes);
-    if ((pid = zfork())) {
+    if ((pid = zfork(&bgtime))) {
 	zclose(pipes[out]);
 	if (pid == -1) {
 	    zclose(pipes[!out]);
 	    return -1;
 	}
-	addproc(pid, NULL, 1);
+	if (!nullexec)
+	    addproc(pid, NULL, 1, &bgtime);
 	return pipes[!out];
     }
     entersubsh(Z_ASYNC, 1, 0, 0);
@@ -3139,11 +3166,17 @@ mpipe(int *pp)
     pp[1] = movefd(pp[1]);
 }
 
-/* Do process substitution with redirection */
+/*
+ * Do process substitution with redirection
+ *
+ * If the second argument is 1, this is part of
+ * an "exec < <(...)" or "exec > >(...)" and we shouldn't
+ * wait for the job to finish before continuing.
+ */
 
 /**/
 static void
-spawnpipes(LinkList l)
+spawnpipes(LinkList l, int nullexec)
 {
     LinkNode n;
     Redir f;
@@ -3154,7 +3187,7 @@ spawnpipes(LinkList l)
 	f = (Redir) getdata(n);
 	if (f->type == REDIR_OUTPIPE || f->type == REDIR_INPIPE) {
 	    str = f->name;
-	    f->fd2 = getpipe(str);
+	    f->fd2 = getpipe(str, nullexec);
 	}
     }
 }
@@ -3176,7 +3209,13 @@ execcond(Estate state, UNUSED(int do_exec))
 	tracingcond++;
     }
     cmdpush(CS_COND);
-    stat = !evalcond(state);
+    stat = evalcond(state, NULL);
+    /*
+     * 2 indicates a syntax error.  For compatibility, turn this
+     * into a shell error.
+     */
+    if (stat == 2)
+	errflag = 1;
     cmdpop();
     if (isset(XTRACE)) {
 	fprintf(xtrerr, " ]]\n");
@@ -3308,6 +3347,12 @@ execfuncdef(Estate state, UNUSED(int do_exec))
 		return 1;
 	    }
 	    sigtrapped[signum] |= ZSIG_FUNC;
+
+	    /*
+	     * Remove the old node explicitly in case it has
+	     * an alternative name
+	     */
+	    removetrapnode(signum);
 	}
 	shfunctab->addnode(shfunctab, ztrdup(s), shf);
     }

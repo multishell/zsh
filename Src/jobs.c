@@ -80,7 +80,15 @@ static int oldmaxjob;
 /* shell timings */
  
 /**/
-struct tms shtms;
+#ifdef HAVE_GETRUSAGE
+/**/
+static struct rusage child_usage;
+/**/
+#else
+/**/
+static struct tms shtms;
+/**/
+#endif
  
 /* 1 if ttyctl -f has been executed */
  
@@ -92,8 +100,6 @@ int ttyfrozen;
 
 /**/
 int prev_errflag, prev_breaks, errbrk_saved;
-
-static struct timeval dtimeval, now;
 
 /**/
 int numpipestats, pipestats[MAX_PIPESTATS];
@@ -250,6 +256,22 @@ handle_sub(int job, int fg)
     return 0;
 }
 
+
+/* Get the latest usage information */
+
+/**/
+void 
+get_usage(void)
+{
+#ifdef HAVE_GETRUSAGE
+    getrusage(RUSAGE_CHILDREN, &child_usage);
+#else
+    times(&shtms);
+#endif
+}
+
+
+#ifndef HAVE_GETRUSAGE
 /* Update status of process that we have just WAIT'ed for */
 
 /**/
@@ -261,14 +283,15 @@ update_process(Process pn, int status)
 
     childs = shtms.tms_cstime;
     childu = shtms.tms_cutime;
-    times(&shtms);                          /* get time-accounting info          */
+    /* get time-accounting info          */
+    get_usage();
+    gettimeofday(&pn->endtime, &dummy_tz);  /* record time process exited        */
 
     pn->status = status;                    /* save the status returned by WAIT  */
     pn->ti.st  = shtms.tms_cstime - childs; /* compute process system space time */
     pn->ti.ut  = shtms.tms_cutime - childu; /* compute process user space time   */
-
-    gettimeofday(&pn->endtime, &dummy_tz);  /* record time process exited        */
 }
+#endif
 
 /* Update status of job, possibly printing it */
 
@@ -473,6 +496,8 @@ setprevjob(void)
     prevjob = -1;
 }
 
+/**/
+#ifndef HAVE_GETRUSAGE
 static long clktck = 0;
 
 /**/
@@ -501,6 +526,8 @@ set_clktck(void)
 # endif
 #endif
 }
+/**/
+#endif
 
 /**/
 static void
@@ -519,24 +546,35 @@ printhhmmss(double secs)
 	fprintf(stderr,           "%.3f",              secs);
 }
 
-/**/
 static void
-printtime(struct timeval *real, struct timeinfo *ti, char *desc)
+printtime(struct timeval *real, child_times_t *ti, char *desc)
 {
     char *s;
     double elapsed_time, user_time, system_time;
+#ifdef HAVE_GETRUSAGE
+    double total_time;
+#endif
     int percent;
 
     if (!desc)
 	desc = "";
 
-    set_clktck();
     /* go ahead and compute these, since almost every TIMEFMT will have them */
     elapsed_time = real->tv_sec + real->tv_usec / 1000000.0;
+
+#ifdef HAVE_GETRUSAGE
+    user_time = ti->ru_utime.tv_sec + ti->ru_utime.tv_usec / 1000000.0;
+    system_time = ti->ru_stime.tv_sec + ti->ru_stime.tv_usec / 1000000.0;
+    total_time = user_time + system_time;
+    percent = 100.0 * total_time
+	/ (real->tv_sec + real->tv_usec / 1000000.0);
+#else
+    set_clktck();
     user_time    = ti->ut / (double) clktck;
     system_time  = ti->st / (double) clktck;
     percent      =  100.0 * (ti->ut + ti->st)
 	/ (clktck * real->tv_sec + clktck * real->tv_usec / 1000000.0);
+#endif
 
     queue_signals();
     if (!(s = getsparam("TIMEFMT")))
@@ -574,6 +612,97 @@ printtime(struct timeval *real, struct timeinfo *ti, char *desc)
 	    case 'P':
 		fprintf(stderr, "%d%%", percent);
 		break;
+#ifdef HAVE_STRUCT_RUSAGE_RU_NSWAP
+	    case 'W':
+		fprintf(stderr, "%ld", ti->ru_nswap);
+		break;
+#endif
+#ifdef HAVE_STRUCT_RUSAGE_RU_IXRSS
+	    case 'X':
+		fprintf(stderr, "%ld", (long)(ti->ru_ixrss / total_time));
+		break;
+#endif
+#ifdef HAVE_STRUCT_RUSAGE_RU_IDRSS
+	    case 'D':
+		fprintf(stderr, "%ld",
+			(long) ((ti->ru_idrss
+#ifdef HAVE_STRUCT_RUSAGE_RU_ISRSS
+				 + ti->ru_isrss
+#endif
+				    ) / total_time));
+		break;
+#endif
+#if defined(HAVE_STRUCT_RUSAGE_RU_IDRSS) || \
+    defined(HAVE_STRUCT_RUSAGE_RU_ISRSS) || \
+    defined(HAVE_STRUCT_RUSAGE_RU_IXRSS)
+	    case 'K':
+		/* treat as D if X not available */
+		fprintf(stderr, "%ld",
+			(long) ((
+#ifdef HAVE_STRUCT_RUSAGE_RU_IXRSS
+				    ti->ru_ixrss
+#else
+				    0
+#endif
+#ifdef HAVE_STRUCT_RUSAGE_RU_IDRSS
+				    + ti->ru_idrss
+#endif
+#ifdef HAVE_STRUCT_RUSAGE_RU_ISRSS
+				    + ti->ru_isrss
+#endif
+				    ) / total_time));
+		break;
+#endif
+#ifdef HAVE_STRUCT_RUSAGE_RU_MAXRSS
+	    case 'M':
+		fprintf(stderr, "%ld", ti->ru_maxrss / 1024);
+		break;
+#endif
+#ifdef HAVE_STRUCT_RUSAGE_RU_MAJFLT
+	    case 'F':
+		fprintf(stderr, "%ld", ti->ru_majflt);
+		break;
+#endif
+#ifdef HAVE_STRUCT_RUSAGE_RU_MINFLT
+	    case 'R':
+		fprintf(stderr, "%ld", ti->ru_minflt);
+		break;
+#endif
+#ifdef HAVE_STRUCT_RUSAGE_RU_INBLOCK
+	    case 'I':
+		fprintf(stderr, "%ld", ti->ru_inblock);
+		break;
+#endif
+#ifdef HAVE_STRUCT_RUSAGE_RU_OUBLOCK
+	    case 'O':
+		fprintf(stderr, "%ld", ti->ru_oublock);
+		break;
+#endif
+#ifdef HAVE_STRUCT_RUSAGE_RU_MSGRCV
+	    case 'r':
+		fprintf(stderr, "%ld", ti->ru_msgrcv);
+		break;
+#endif
+#ifdef HAVE_STRUCT_RUSAGE_RU_MSGSND
+	    case 's':
+		fprintf(stderr, "%ld", ti->ru_msgsnd);
+		break;
+#endif
+#ifdef HAVE_STRUCT_RUSAGE_RU_NSIGNALS
+	    case 'k':
+		fprintf(stderr, "%ld", ti->ru_nsignals);
+		break;
+#endif
+#ifdef HAVE_STRUCT_RUSAGE_RU_NVCSW
+	    case 'w':
+		fprintf(stderr, "%ld", ti->ru_nvcsw);
+		break;
+#endif
+#ifdef HAVE_STRUCT_RUSAGE_RU_NIVCSW
+	    case 'c':
+		fprintf(stderr, "%ld", ti->ru_nivcsw);
+		break;
+#endif
 	    case 'J':
 		fprintf(stderr, "%s", desc);
 		break;
@@ -598,11 +727,13 @@ static void
 dumptime(Job jn)
 {
     Process pn;
+    struct timeval dtimeval;
 
     if (!jn->procs)
 	return;
     for (pn = jn->procs; pn; pn = pn->next)
-	printtime(dtime(&dtimeval, &pn->bgtime, &pn->endtime), &pn->ti, pn->text);
+	printtime(dtime(&dtimeval, &pn->bgtime, &pn->endtime), &pn->ti,
+		  pn->text);
 }
 
 /* Check whether shell should report the amount of time consumed   *
@@ -617,7 +748,7 @@ should_report_time(Job j)
     struct value vbuf;
     Value v;
     char *s = "REPORTTIME";
-    int reporttime;
+    zlong reporttime;
 
     /* if the time keyword was used */
     if (j->stat & STAT_TIMED)
@@ -634,8 +765,16 @@ should_report_time(Job j)
     if (!j->procs)
 	return 0;
 
+#ifdef HAVE_GETRUSAGE
+    reporttime -= j->procs->ti.ru_utime.tv_sec + j->procs->ti.ru_stime.tv_sec;
+    if (j->procs->ti.ru_utime.tv_usec +
+	j->procs->ti.ru_stime.tv_usec >= 1000000)
+	reporttime--;
+    return reporttime <= 0;
+#else
     set_clktck();
     return ((j->procs->ti.ut + j->procs->ti.st) / clktck >= reporttime);
+#endif
 }
 
 /* !(lng & 3) means jobs    *
@@ -899,10 +1038,9 @@ deletejob(Job jn)
 
 /**/
 void
-addproc(pid_t pid, char *text, int aux)
+addproc(pid_t pid, char *text, int aux, struct timeval *bgtime)
 {
     Process pn, *pnlist;
-    struct timezone dummy_tz;
 
     DPUTS(thisjob == -1, "No valid job in addproc.");
     pn = (Process) zshcalloc(sizeof *pn);
@@ -916,7 +1054,7 @@ addproc(pid_t pid, char *text, int aux)
 
     if (!aux)
     {
-	gettimeofday(&pn->bgtime, &dummy_tz);
+	pn->bgtime = *bgtime;
 	/* if this is the first process we are adding to *
 	 * the job, then it's the group leader.          */
 	if (!jobtab[thisjob].gleader)
@@ -1158,18 +1296,33 @@ spawnjob(void)
 void
 shelltime(void)
 {
-    struct timeinfo ti;
     struct timezone dummy_tz;
+    struct timeval dtimeval, now;
+    child_times_t ti;
+#ifndef HAVE_GETRUSAGE
     struct tms buf;
+#endif
 
+    gettimeofday(&now, &dummy_tz);
+
+#ifdef HAVE_GETRUSAGE
+    getrusage(RUSAGE_SELF, &ti);
+#else
     times(&buf);
+
     ti.ut = buf.tms_utime;
     ti.st = buf.tms_stime;
-    gettimeofday(&now, &dummy_tz);
+#endif
     printtime(dtime(&dtimeval, &shtimer, &now), &ti, "shell");
+
+#ifdef HAVE_GETRUSAGE
+    getrusage(RUSAGE_CHILDREN, &ti);
+#else
     ti.ut = buf.tms_cutime;
     ti.st = buf.tms_cstime;
-    printtime(dtime(&dtimeval, &shtimer, &now), &ti, "children");
+#endif
+    printtime(&dtimeval, &ti, "children");
+
 }
 
 /* see if jobs need printing */
@@ -1666,6 +1819,36 @@ bin_fg(char *name, char **argv, Options ops, int func)
     return retval;
 }
 
+#if defined(SIGCHLD) && defined(SIGCLD)
+#if SIGCHLD == SIGCLD
+#define ALT_SIGS 1
+#endif
+#endif
+#if defined(SIGPOLL) && defined(SIGIO)
+#if SIGPOLL == SIGIO
+#define ALT_SIGS 1
+#endif
+#endif
+
+#ifdef ALT_SIGS
+const struct {
+    const char *name;
+    int num;
+} alt_sigs[] = {
+#if defined(SIGCHLD) && defined(SIGCLD)
+#if SIGCHLD == SIGCLD
+    { "CLD", SIGCLD },
+#endif
+#endif
+#if defined(SIGPOLL) && defined(SIGIO)
+#if SIGPOLL == SIGIO
+    { "IO", SIGIO },
+#endif
+#endif
+    { NULL, 0 }
+};
+#endif
+
 /* kill: send a signal to a process.  The process(es) may be specified *
  * by job specifier (see above) or pid.  A signal, defaulting to       *
  * SIGTERM, may be specified by name or number, preceded by a dash.    */
@@ -1694,6 +1877,18 @@ bin_kill(char *nam, char **argv, UNUSED(Options ops), UNUSED(int func))
 			    for (sig = 1; sig <= SIGCOUNT; sig++)
 				if (!cstrpcmp(sigs + sig, &signame))
 				    break;
+#ifdef ALT_SIGS
+			    if (sig > SIGCOUNT) {
+				int i;
+
+				for (i = 0; alt_sigs[i].name; i++)
+				    if (!cstrpcmp(&alt_sigs[i].name, &signame))
+				    {
+					sig = alt_sigs[i].num;
+					break;
+				    }
+			    }
+#endif
 			    if (sig > SIGCOUNT) {
 				zwarnnam(nam, "unknown signal: SIG%s",
 					 signame, 0);
@@ -1755,6 +1950,18 @@ bin_kill(char *nam, char **argv, UNUSED(Options ops), UNUSED(int func))
 			break;
 		if (*signame == '0' && !signame[1])
 		    sig = 0;
+#ifdef ALT_SIGS
+		if (sig > SIGCOUNT) {
+		    int i;
+
+		    for (i = 0; alt_sigs[i].name; i++)
+			if (!strcmp(alt_sigs[i].name, signame))
+			{
+			    sig = alt_sigs[i].num;
+			    break;
+			}
+		}
+#endif
 		if (sig > SIGCOUNT) {
 		    zwarnnam(nam, "unknown signal: SIG%s", signame, 0);
 		    zwarnnam(nam, "type kill -l for a List of signals", NULL, 0);
@@ -1810,6 +2017,81 @@ bin_kill(char *nam, char **argv, UNUSED(Options ops), UNUSED(int func))
     unqueue_signals();
 
     return returnval < 126 ? returnval : 1;
+}
+/* Get a signal number from a string */
+
+/**/
+mod_export int
+getsignum(char *s)
+{
+    int x, i;
+
+    /* check for a signal specified by number */
+    x = atoi(s);
+    if (idigit(*s) && x >= 0 && x < VSIGCOUNT)
+	return x;
+
+    /* search for signal by name */
+    for (i = 0; i < VSIGCOUNT; i++)
+	if (!strcmp(s, sigs[i]))
+	    return i;
+
+#ifdef ALT_SIGS
+    for (i = 0; alt_sigs[i].name; i++)
+    {
+	if (!strcmp(s, alt_sigs[i].name))
+	    return alt_sigs[i].num;
+    }
+#endif
+
+    /* no matching signal */
+    return -1;
+}
+
+/* Get the function node for a trap, taking care about alternative names */
+/**/
+HashNode
+gettrapnode(int sig, int ignoredisable)
+{
+    char fname[20];
+    HashNode hn;
+    HashNode (*getptr)(HashTable ht, char *name);
+#ifdef ALT_SIGS
+    int i;
+#endif
+    if (ignoredisable)
+	getptr = shfunctab->getnode2;
+    else
+	getptr = shfunctab->getnode;
+
+    sprintf(fname, "TRAP%s", sigs[sig]);
+    if ((hn = getptr(shfunctab, fname)))
+	return hn;
+
+#ifdef ALT_SIGS
+    for (i = 0; alt_sigs[i].name; i++) {
+	if (alt_sigs[i].num == sig) {
+	    sprintf(fname, "TRAP%s", alt_sigs[i].name);
+	    if ((hn = getptr(shfunctab, fname)))
+		return hn;
+	}
+    }
+#endif
+
+    return NULL;
+}
+
+/* Remove a TRAP function under any name for the signal */
+
+/**/
+void
+removetrapnode(int sig)
+{
+    HashNode hn = gettrapnode(sig, 1);
+    if (hn) {
+	shfunctab->removenode(shfunctab, hn->nam);
+	shfunctab->freenode(hn);
+    }
 }
 
 /* Suspend this shell */

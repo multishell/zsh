@@ -1,4 +1,4 @@
-.TH "ZSHZLE" "1" "August 13, 2004" "zsh 4\&.2\&.1"
+.TH "ZSHZLE" "1" "January 13, 2005" "zsh 4\&.2\&.3"
 .SH "NAME"
 zshzle \- zsh command line editor
 .\" Yodl file: Zsh/zle.yo
@@ -344,6 +344,9 @@ previous keymaps will be restored\&.
 .RE
 .TP
 .PD 0
+\fBzle\fP
+.TP
+.PD 0
 \fBzle\fP \fB\-l\fP [ \fB\-L\fP | \fB\-a\fP ] [ \fIstring\fP \&.\&.\&. ]
 .TP
 .PD 0
@@ -376,14 +379,20 @@ previous keymaps will be restored\&.
 .PD 0
 \fBzle\fP \fB\-I\fP
 .TP
-.PD 0
-\fBzle\fP \fIwidget\fP \fB[ \-n\fP \fInum\fP \fB]\fP \fB[ \-N ]\fP \fIargs\fP \&.\&.\&.
-.TP
 .PD
-\fBzle\fP
+\fBzle\fP \fIwidget\fP \fB[ \-n\fP \fInum\fP \fB]\fP \fB[ \-N ]\fP \fIargs\fP \&.\&.\&.
 The \fBzle\fP builtin performs a number of different actions concerning
-ZLE\&.  Which operation it performs depends on its options:
+ZLE\&.
 .RS
+.PP
+With no options and no arguments, only the return status will be
+set\&.  It is zero if ZLE is currently active and widgets could be
+invoked using this builtin command and non\-zero otherwise\&.
+Note that even if non\-zero status is returned, zle may still be active as
+part of the completion system; this does not allow direct calls to ZLE
+widgets\&.
+.PP
+Otherwise, which operation it performs depends on its options:
 .PP
 .PD 0
 .TP
@@ -449,7 +458,9 @@ immediately after return from the widget\&.
 This command can safely be called outside user defined widgets; if zle is
 active, the display will be refreshed, while if zle is not active, the
 command has no effect\&.  In this case there will usually be no other
-arguments\&.  The status is zero if zle was active, else one\&.
+arguments\&.
+.PP
+The status is zero if zle was active, else one\&.
 .RE
 .TP
 \fB\-M\fP \fIstring\fP
@@ -577,9 +588,10 @@ to minimise disruption\&.
 Note that there are normally better ways of manipulating the display from
 within zle widgets; see, for example, `\fBzle \-R\fP' above\&.
 .PP
-The status is zero if zle is active and the current zle display has
-been invalidated (even if this was by a previous call to `\fBzle \-I\fP'),
-else one\&.
+The returned status is zero if zle was invalidated, even though
+this may have been by a previous call to `\fBzle \-I\fP' or by a system
+notification\&.  To test if a zle widget may be called at this point, execute
+\fBzle\fP with no arguments and examine the return status\&.
 .RE
 .TP
 \fIwidget\fP \fB[ \-n\fP \fInum\fP \fB]\fP \fB[ \-N ]\fP \fIargs\fP \&.\&.\&.
@@ -611,10 +623,6 @@ unless the \fBBEEP\fP options was unset or the widget was called via the
 it should call the \fBbeep\fP widget directly\&.
 .RE
 .RE
-.PP
-With no options and no arguments, only the return status will be
-set\&. It is zero if ZLE is currently active and widgets could be
-invoked using this builtin command and non\-zero if ZLE is not active\&.
 .RE
 .RE
 .PP
@@ -701,7 +709,10 @@ string which the next yank would insert in the line\&.
 The current history number\&.  Setting this has the same effect as
 moving up or down in the history to the corresponding history line\&.
 An attempt to set it is ignored if the line is not stored in the
-history\&.
+history\&.  Note this is not the same as the parameter \fBHISTCMD\fP,
+which always gives the number of the history line being added to the main
+shell's history\&.  \fBHISTNO\fP refers to the line being retrieved within
+zle\&.
 .TP
 \fBKEYMAP\fP (scalar)
 The name of the currently selected keymap; read\-only\&.
@@ -775,6 +786,20 @@ cursor remains between the old \fB$LBUFFER\fP and the new \fB$RBUFFER\fP\&.
 .TP
 \fBWIDGET\fP (scalar)
 The name of the widget currently being executed; read\-only\&.
+.TP
+\fBWIDGETFUNC\fP (scalar)
+The name of the shell function that implements a widget defined with
+either \fBzle \-N\fP or \fBzle \-C\fP\&.  In the former case, this is the second
+argument to the \fBzle \-N\fP command that defined the widget, or
+the first argument if there was no second argument\&.  In the latter case
+this is the the third argument to the \fBzle \-C\fP command that defined the
+widget\&.  Read\-only\&.
+.TP
+\fBWIDGETSTYLE\fP (scalar)
+Describes the implementation behind the completion widget currently being
+executed; the second argument that followed \fBzle \-C\fP when the widget was
+defined\&.  This is the name of a builtin completion widget\&.  For widgets
+defined with \fBzle \-N\fP this is set to the empty string\&.  Read\-only\&.
 .PP
 .SS "Special Widget"
 .PP

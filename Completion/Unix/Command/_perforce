@@ -1,6 +1,7 @@
 #compdef p4 -value-,P4CLIENT,-default- -value-,P4PORT,-default- -value-,P4MERGE,-default- -value-,P4USER,-default-
 
 # Increasingly loosely based on _cvs version 1.17.
+# Completions currently based on Perforce release 2004.2.
 
 # Styles, tags and contexts
 # =========================
@@ -377,7 +378,9 @@ _perforce() {
 #
 
 # Front end to _call_program to add in the global arguments
-# passed to p4.
+# passed to p4.  The first argument is the tag, the remaining
+# arguments are passed to p4.  Typically the tag is the same
+# as the first p4 argument.
 (( $+functions[_perforce_call_p4] )) ||
 _perforce_call_p4() {
   local cp_tag=$1
@@ -554,6 +557,19 @@ _perforce_changes() {
       (-tp)
       cstatus=(-s pending)
       ctype="pending "
+      ;;
+
+      # Changes still pending and on the current client.
+      # Many uses of pending changes must be on the current client
+      # to be meaningful, in particular submitting a change or
+      # associating a file or operation with a particular change.
+      (-tc)
+      # Don't like this way of extracting the client to use,
+      # but I don't see a simpler one.  We do at least make sure
+      # we call p4 with the same arguments as we will use with p4 changes.
+      cstatus=(-s pending -c "$(_perforce_call_p4 client client -o |
+awk '/^Client:/ { print $2 }')")
+      ctype="local pending "
       ;;
 
       # Range allowed: append comma and supply rules for
@@ -986,8 +1002,12 @@ _perforce_files() {
     : ${PREFIX:#(#b)(*/)(*)}
     pfx="$match[1]"
     pfx=${(e)~pfx}
+    # Exclude both files already known to perforce, plus
+    # those opened.  There will be some overlap but we need
+    # to exclude files that are already opened for add.
     omitpats=(
       ${${${${(f)"$(_perforce_call_p4 files files \"\$pfx\*\$\{\(Q\)SUFFIX\}\" 2>/dev/null)"}%\#*}##*/}//(#m)[][*?()<|^~#\\]/\\$MATCH}
+      ${${${${(f)"$(_perforce_call_p4 opened opened \"\$pfx\*\$\{\(Q\)SUFFIX\}\" 2>/dev/null)"}%\#*}##*/}//(#m)[][*?()<|^~#\\]/\\$MATCH}
 	)
 
     [[ $#omitpats -eq 1 && $omitpats[1] = '' ]] && omitpats=()
@@ -1324,7 +1344,7 @@ _perforce_variables() {
 (( $+functions[_perforce_cmd_add] )) ||
 _perforce_cmd_add() {
   _arguments -s : \
-    '-c+[select by change]:change:_perforce_changes -tp' \
+    '-c+[select by change]:change:_perforce_changes -tc' \
     '-t+[set file type]:file type:_perforce_filetypes' \
     '*:file:_perforce_files -tu'
 }
@@ -1351,9 +1371,11 @@ _perforce_cmd_admin() {
 
 (( $+functions[_perforce_cmd_annotate] )) ||
 _perforce_cmd_annotate() {
-  # If you don't have this, it's new in release 2002.2.
+  # New in release 2002.2.
+  # -c was new in about 2003.2.
   _arguments -s : \
     '-a[all, show both added and deleted lines]' \
+    '-c[output change numbers instead of revisions]' \
     '-q[quiet, suppress one-line file header]' \
     '*::file:_perforce_files -tR'
 }
@@ -1396,6 +1418,7 @@ _perforce_cmd_change() {
 _perforce_cmd_changes() {
   _arguments -s : \
     '-i[include integrated changes]' \
+    '-t[output time as well as date]' \
     '-l[long output]' \
     '-c+[select by client]:client:_perforce_clients' \
     '-m+[most recent N changes]:max changes: ' \
@@ -1408,7 +1431,7 @@ _perforce_cmd_changes() {
 (( $+functions[_perforce_cmd_client] )) ||
 _perforce_cmd_client() {
   _arguments -s : \
-    '-f[force modification by superuser]' \
+    '(-o)-f[force modification by superuser]' \
     '-t[use template]:template client:_perforce_clients' \
     '(-o -i -t)-d[delete client]' \
     '(-d -i -f)-o[print to standard output]' \
@@ -1444,7 +1467,7 @@ _perforce_cmd_counters() {
 (( $+functions[_perforce_cmd_delete] )) ||
 _perforce_cmd_delete() {
   _arguments -s : \
-    '-c[select change for deletion]:change:_perforce_changes -tp' \
+    '-c[select change for deletion]:change:_perforce_changes -tc' \
     '*::file:_perforce_files'
 }
 
@@ -1480,7 +1503,7 @@ _perforce_cmd_diff() {
   local limit
   [[ ${words[(I)-(f|sd|se)]} -eq 0 ]] && limit=" -to"
   _arguments -s : \
-    '-d-[select diff option]:diff option:((b\:ignore\ blanks c\:context n\:RCS s\:summary u\:unified w\:ignore\ all\ whitespace))' \
+    '-d-[select diff option]:diff option:((b\:ignore\ blanks c\:context l\:ignore\ line\ endings n\:RCS s\:summary u\:unified w\:ignore\ all\ whitespace))' \
     '-f[diff every file]' \
     '(-sd -se -sr)-sa[opened files, different or missing]' \
     '(-sa -se -sr)-sd[unopened files, missing]' \
@@ -1517,7 +1540,7 @@ _perforce_cmd_dirs() {
 (( $+functions[_perforce_cmd_edit] )) ||
 _perforce_cmd_edit() {
   _arguments -s : \
-    '-c[set change for edit]:change:_perforce_changes -tp' \
+    '-c[set change for edit]:change:_perforce_changes -tc' \
     '-t[set filetype]:filetype:_perforce_filetypes' \
     '*::file:_perforce_files'
 }
@@ -1575,13 +1598,16 @@ _perforce_cmd_flush() {
 (( $+functions[_perforce_cmd_fstat] )) ||
 _perforce_cmd_fstat() {
   _arguments -s : \
-    '-c+[select by change]:change:_perforce_changes -ts' \
-    '-C[select mapped files]' \
-    '-H[select synced files]' \
-    '-W[select opened files]' \
-    '-l[include fileSize, possibly slow]' \
-    '-P[output clientFile in full Perforce syntax]' \
-    '-s[shorten, no client-related data]' \
+    '-c+[affected since change]:change:_perforce_changes -ts' \
+    '-e+[affected by change]:change:_perforce_changes -ts' \
+    '-C[select mapped files (-Rc)]' \
+    '-H[select synced files (-Rh)]' \
+    '-W[select opened files (-Ro)]' \
+    '-l[include fileSize, possibly slow (-Ol)]' \
+    '-O-[select output type]:output type:((l\:fileSize p\:client\ path\ format r\:pending\ integrations s\:exclude\ local\ path))' \
+    '-P[output clientFile in full Perforce syntax (-Op)]' \
+    '-R-[restrict selected files]:restriction:((c\:mapped\ in\ client h\:synced\ to\ client n\:not\ synced\ to\ head o\:opened r\:resolved u\:unresolved))' \
+    '-s[shorten, no client-related data (-Os)]' \
     '*::file:_perforce_files'
 }
 
@@ -1641,14 +1667,21 @@ _perforce_cmd_integrate() {
   [[ ${words[(I)-s]} -eq 0 ]] && range=" -tR"
   _arguments -s : \
     '-b[select branch]:branch:_perforce_branches' \
-    '-c[select change for integration]:change:_perforce_changes -tp' \
+    '-c[select change for integration]:change:_perforce_changes -tc' \
     '-f[force reintegration]' \
-    '-d[reintegrated deleted files]' \
+    '-d[reintegrate deleted files]' \
+    '-D-[specify allowed deletions]:deletion type:((
+t\:rebranch\ on\ deleted\ file
+s\:delete\ modified\ target\ file
+i\:ignore\ readded\ source\ file
+))' \
     '-h[integrate to revision had on client]' \
     '-i[integrate if no common file base]' \
+    '-I[same as -i from 2004.2]' \
     '-n[no action, dummy run]' \
+    '-o[display base file name for subsequent resolve]' \
     '-r[reverse direction of integration with branch]' \
-    '-s[select source]:source file:_perforce_files -tR' \
+    '-s[select source with -b]:source file:_perforce_files -tR' \
     '-t[propagate type changes]' \
     '-v[leave newly branched files uncopied till sync]' \
     "1:file:_perforce_files$range" \
@@ -1658,7 +1691,10 @@ _perforce_cmd_integrate() {
 
 (( $+functions[_perforce_cmd_integrated] )) ||
 _perforce_cmd_integrated() {
-  _perforce_files -ti
+  _arguments -s : \
+    '-r[reverse mapping in branch view with -b]' \
+    '-b[select files integrated via branch]:branch:_perforce_branches' \
+    '*::file:_perforce_files -ti'
 }
 
 
@@ -1680,8 +1716,8 @@ _perforce_cmd_jobs() {
     '-i[included integrated changes]' \
     '-l[long output, full job descriptions]' \
     '-r[reverse order of job names]' \
-    '-m[limit to most recent N jobs]:most recent jobs: ' \
-    '(-e -i -l -m)-R[]' \
+    '-m[limit to most recent N jobs]:number of most recent jobs: ' \
+    '(-e -i -l -m)-R[rebuild jobs table on upgrade]' \
     '*::file:_perforce_files -tR'
 }
 
@@ -1727,7 +1763,7 @@ _perforce_cmd_labelsync() {
 (( $+functions[_perforce_cmd_lock] )) ||
 _perforce_cmd_lock() {
   _arguments -s : \
-    '-c[select by change]:change:_perforce_changes -tp' \
+    '-c[select by change]:change:_perforce_changes -tc' \
     '*::file:_perforce_files -to'
 }
 
@@ -1740,6 +1776,52 @@ _perforce_cmd_logger() {
 }
 
 
+
+(( $+functions[_perforce_cmd_login] )) ||
+_perforce_cmd_login() {
+  _arguments -s : \
+    '-a[ticket valid on all machines]' \
+    '-p[display ticket, do not store]' \
+    '-s[show status of ticket]' \
+    '(-s)1::user:_perforce_users'
+}
+
+
+(( $+functions[_perforce_cmd_logout] )) ||
+_perforce_cmd_logout() {
+  _arguments -s : \
+    '-a[invalidate ticket on server]'
+}
+
+
+(( $+functions[_perforce_cmd_monitor] )) ||
+_perforce_cmd_monitor() {
+  if (( CURRENT > 2 )); then
+    case $words[2] in
+      (show)
+      shift words
+      (( CURRENT-- ))
+      _arguments -s : \
+        '-a[show command arguments]' \
+        '-e[show command environment]' \
+        '-l[long output format]'
+      ;;
+
+      (terminate|clear)
+      _message "process ID"
+      ;;
+
+      (*)
+      _message "no such monitor command: $words[1]"
+      ;;
+    esac
+  else
+    local expl
+    _wanted monitor-command expl 'monitor command' compadd show terminate clear
+  fi
+}
+
+
 (( $+functions[_perforce_cmd_obliterate] )) ||
 _perforce_cmd_obliterate() {
   _message "obliterate is dangerous: you're on your own here."
@@ -1748,9 +1830,13 @@ _perforce_cmd_obliterate() {
 
 (( $+functions[_perforce_cmd_opened] )) ||
 _perforce_cmd_opened() {
+  # You might think you could check for files opened on another
+  # client, and hence the -c completion should have the argument
+  # -tp, but currently Perforce doesn't allow that, so -tc is correct.
+  # This is true even if -a is also given.
   _arguments -s : \
     '-a[list for all clients]' \
-    '-c+[select by change]:change:_perforce_changes -tp' \
+    '-c+[select by change]:change:_perforce_changes -tc' \
     '*::file:_perforce_files -to'
 }
 
@@ -1785,7 +1871,7 @@ _perforce_cmd_protect() {
 (( $+functions[_perforce_cmd_reopen] )) ||
 _perforce_cmd_reopen() {
   _arguments -s : \
-    '-c+[select change to reopen on]:change:_perforce_changes -tp' \
+    '-c+[select change to reopen on]:change:_perforce_changes -tc' \
     '-t+[set file type]:file type:_perforce_filetypes' \
     '*::file:_perforce_files -to'
 }
@@ -1798,6 +1884,7 @@ _perforce_cmd_resolve() {
     '-d-[select diff option]:diff option:((b\:ignore\ blanks w\:ignore\ all\ whitespace))' \
     '-f[force re-resolution]' \
     '-n[no action, just list]' \
+    '-o[display base file name and revision for merge]' \
     '-t[force textual merge on binary files]' \
     '-v[verbose, mark all changes]' \
     '*::file:_perforce_files -to'
@@ -1806,7 +1893,9 @@ _perforce_cmd_resolve() {
 
 (( $+functions[_perforce_cmd_resolved] )) ||
 _perforce_cmd_resolved() {
-  _perforce_files -tr
+  _arguments -s : \
+    '-o[report revision used as base for resolve]' \
+    '*::file:_perforce_files -tr'
 }
 
 
@@ -1814,7 +1903,7 @@ _perforce_cmd_resolved() {
 _perforce_cmd_revert() {
   _arguments -s : \
     '-a[revert unaltered files]' \
-    '-c[limit reversions to change]:change:_perforce_changes -tp' \
+    '-c[limit reversions to change]:change:_perforce_changes -tc' \
     '-n[no action, show effect only]' \
     '*::file:_perforce_files -to'
 }
@@ -1851,7 +1940,7 @@ _perforce_cmd_submit() {
   _arguments -s : \
     '-r[files open for add or edit remain open]' \
     '-s[include fix status in list]' \
-    '(-s -i)-c[submit specific change]:change:_perforce_changes -tp' \
+    '(-s -i)-c[submit specific change]:change:_perforce_changes -tc' \
     '(-c)-i[read change spec from stdin]' \
     '*::file:_perforce_files -to -tr'
 }
@@ -1866,11 +1955,28 @@ _perforce_cmd_sync() {
 }
 
 
+(( $+functions[_perforce_cmd_tag] )) ||
+_perforce_cmd_tag() {
+  _arguments -s : \
+    '-d[delete association between label and files]' \
+    '-n[show what files would be tagged]' \
+    '-l[specify label]:label:_perforce_labels' \
+    '*::file:_perforce_files -tR'
+}
+
+
 (( $+functions[_perforce_cmd_triggers] )) ||
 _perforce_cmd_triggers() {
   _arguments -s : \
     '-o[output form to stdout]' \
     '-i[read from from stdin]'
+}
+
+
+(( $+functions[_perforce_cmd_tickets] )) ||
+_perforce_cmd_tickets() {
+  # No arguments.
+  _arguments -s :
 }
 
 
@@ -1885,7 +1991,7 @@ _perforce_cmd_typemap() {
 (( $+functions[_perforce_cmd_unlock] )) ||
 _perforce_cmd_unlock() {
   _arguments -s : \
-    '-c[non-default change to unlock]:change:_perforce_changes -tp' \
+    '-c[non-default change to unlock]:change:_perforce_changes -tc' \
     '-f[allow superuser to unlock any file]' \
     '*::file:_perforce_files'
 }

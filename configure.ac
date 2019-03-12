@@ -1043,7 +1043,7 @@ AC_CHECK_FUNCS(strftime difftime gettimeofday \
 	       initgroups nis_list \
 	       setuid seteuid setreuid setresuid setsid \
 	       memcpy memmove strstr strerror \
-	       getrlimit \
+	       getrlimit getrusage \
 	       setlocale \
 	       uname \
 	       signgam \
@@ -1444,6 +1444,32 @@ return ret;
 
 if test $zsh_cv_rlimit_vmem_is_as = yes; then
   AC_DEFINE(RLIMIT_VMEM_IS_AS)
+fi
+
+
+dnl --------------------------------------------
+dnl Check for members of struct rusage
+dnl --------------------------------------------
+if test $ac_cv_func_getrusage = yes; then
+  AC_CHECK_MEMBERS([struct rusage.ru_maxrss,
+		    struct rusage.ru_ixrss,
+		    struct rusage.ru_idrss,
+		    struct rusage.ru_isrss,
+		    struct rusage.ru_minflt,
+		    struct rusage.ru_majflt,
+		    struct rusage.ru_nswap,
+		    struct rusage.ru_inblock,
+		    struct rusage.ru_oublock,
+		    struct rusage.ru_msgsnd,
+		    struct rusage.ru_msgrcv,
+		    struct rusage.ru_nsignals,
+		    struct rusage.ru_nvcsw,
+		    struct rusage.ru_nivcsw],,,
+[#include <sys/types.h>
+#ifdef HAVE_SYS_TIME_H
+#include <sys/time.h>
+#endif
+#include <sys/resource.h>])
 fi
 
 

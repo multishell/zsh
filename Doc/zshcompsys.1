@@ -1,4 +1,4 @@
-.TH "ZSHCOMPSYS" "1" "August 13, 2004" "zsh 4\&.2\&.1"
+.TH "ZSHCOMPSYS" "1" "January 13, 2005" "zsh 4\&.2\&.3"
 .SH "NAME"
 zshcompsys \- zsh completion system
 .\" Yodl file: Zsh/compsys.yo
@@ -2128,6 +2128,12 @@ This style is also used similarly with the \fBwords\fP style when
 completing words for the dict command\&. It allows words from different
 dictionary databases to be added separately\&.
 The default for this style is `false'\&.
+.TP
+\fBshow\-completer\fP
+Tested whenever a new completer is tried\&.  If it is true, the completion
+system outputs a progress message in the listing area showing what
+completer is being tried\&.  The message will be overwritten by any output
+when completions are found and is removed after completion is finished\&.
 .TP
 \fBsingle\-ignored\fP
 This is used by the \fB_ignored\fP completer when there is only one match\&.
@@ -4340,7 +4346,7 @@ to handle the same options\&.
 \fB_retrieve_cache\fP \fIcache_identifier\fP
 This function retrieves completion information from the file given by
 \fIcache_identifier\fP, stored in a directory specified by the
-\fBcache\-path\fP style which defaults to \fB~/\&.zsh/cache\fP\&.  The return value
+\fBcache\-path\fP style which defaults to \fB~/\&.zcompcache\fP\&.  The return value
 is zero if retrieval was successful\&.  It will only attempt retrieval
 if the \fBuse\-cache\fP style is set, so you can call this function
 without worrying about whether the user wanted to use the caching
@@ -4394,7 +4400,7 @@ even in different instances of the shell\&.
 .PP
 The \fIcache_identifier\fP specifies the file which the data should be
 dumped to\&.  The file is stored in a directory specified by the
-\fBcache\-path\fP style which defaults to \fB~/\&.zsh/cache\fP\&.  The remaining
+\fBcache\-path\fP style which defaults to \fB~/\&.zcompcache\fP\&.  The remaining
 \fIparams\fP arguments are the parameters to dump to the file\&.
 .PP
 The return value is zero if storage was successful\&.  The function will

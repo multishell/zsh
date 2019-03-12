@@ -78,10 +78,13 @@ _arguments -s \
   '(-a --archive)'{-a,--archive}'[archive mode]' \
   '(-r --recursive)'{-r,--recursive}'[recurse into directories]' \
   '(-E --relative)'{-R,--relative}'[use relative path names]' \
+  '--no-relative[turn off --relative]' \
+  '--no-implied-dirs[do not send implied dirs with --relative]' \
   '(-b --backup)'{-b,--backup}'[make backups]' \
   '--backup-dir[make backups into specified directory]:backup directory:_directories' \
   '--suffix=[override backup suffix]:suffix' \
   '(-u --update)'{-u,--update}'[update only]' \
+  '(-K --keep-dirlinks)'{-K,--keep-dirlinks}'[symlinked dir on receiver matches sender dir]' \
   '(-l --links)'{-l,--links}'[copy symlinks as symlinks]' \
   '(-L --copy-links)'{-L,--copy-links}'[treat soft links like regular files]' \
   '--copy-unsafe-links[copy links outside the source tree]' \
@@ -103,12 +106,14 @@ _arguments -s \
   '(-C --cvs-exclude)'{-C,--cvs-exclude}'[autoignore files in the same way as CVS]' \
   '--existing[only update files that already exist]' \
   '--ignore-existing[ignore files that already exist on the receiving side]' \
+  '--inplace[update destination files inplace (SEE MAN PAGE)]' \
   '--delete[delete files that do not exist on the sending side]' \
   '--delete-excluded[also delete excluded files on the receiving side]' \
   '--delete-after[perform delete after transferring]' \
   '--ignore-errors[delete even if there are IO errors]' \
   '--max-delete=[do not delete more than NUM files]:number:' \
   '(-P)--partial[keep partially transferred files]' \
+  '--partial-dir=[put a partially transferred file in specified directory]:directory:_files -/' \
   '--force[force deletion of directories even if not empty]' \
   '--numeric-ids[do not map uid/gid values by user/group name]' \
   '--timeout=[set IO timeout in seconds]:seconds:' \
@@ -117,6 +122,7 @@ _arguments -s \
   '--modify-window=[timestamp window for file match]:seconds:' \
   '(-T --temp-dir)'{-T,--temp-dir=}'[create temporary files in specified directory]:directory:_files -/' \
   '--compare-dest=[also compare destination files relative to specified directory]:directory:_files -/' \
+  '--link-dest=[create hardlinks relative to specified directory for unchanged files]:directory:_files -/' \
   '(--partial --progress)-P[equivalent to --partial --progress]' \
   '(-z --compress)'{-z,--compress}'[compress file data]' \
   '--exclude=[exclude files matching pattern]:pattern:' \
@@ -138,9 +144,12 @@ _arguments -s \
   '--bwlimit=[limit bandwidth]:kbytes per second:' \
   '--read-batch=[read batch file]:ext:' \
   '--write-batch[write batch file]' \
+  '--files-from=[read list of source-file names from file]:file:_files' \
+  '--checksum-seed=[set block/file checksum seed (advanced users only)]:number:' \
   '(-)'{-h,--help}'[display help information]' \
-  '-4[prefer IPv4]' \
-  '-6[prefer IPv6]' \
+  '(-0 --from0)'{-0,--from0}'[all *-from file lists are delimited by nulls]' \
+  '(-4 --ipv4)'{-4,--ipv4}'[prefer IPv4]' \
+  '(-6 --ipv6)'{-6,--ipv6}'[prefer IPv6]' \
      -- '*=COMMAND*:command:_command' \
 	'*=FILE*:file:_files' \
 	'*=DIR*:directory:_files -/'

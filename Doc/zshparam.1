@@ -1,4 +1,4 @@
-.TH "ZSHPARAM" "1" "August 13, 2004" "zsh 4\&.2\&.1"
+.TH "ZSHPARAM" "1" "January 13, 2005" "zsh 4\&.2\&.3"
 .SH "NAME"
 zshparam \- zsh parameters
 .\" Yodl file: Zsh/params.yo
@@ -551,6 +551,11 @@ parameter\&.  Also (assuming sufficient privileges), you may start a single
 command under a different
 group ID by `\fB(GID=\fP\fIgid\fP\fB; command)\fP'
 .TP
+\fBHISTCMD\fP
+The current history line number in an interactive shell, in other
+words the line number for the command that caused \fB$HISTCMD\fP
+to be read\&.
+.TP
 \fBHOST\fP
 The current hostname\&.
 .TP
@@ -989,7 +994,9 @@ take effect\&.
 \fBTIMEFMT\fP
 The format of process time reports with the \fBtime\fP keyword\&.
 The default is `\fB%E real  %U user  %S system  %P %J\fP'\&.
-Recognizes the following escape sequences:
+Recognizes the following escape sequences, although not all
+may be available on all systems, and some that are available
+may not be useful:
 .RS
 .PP
 .PD 0
@@ -1007,7 +1014,53 @@ CPU seconds spent in kernel mode\&.
 Elapsed time in seconds\&.
 .TP
 \fB%P\fP
-The CPU percentage, computed as (\fB%U\fP+\fB%S\fP)/\fB%E\fP\&.
+The CPU percentage, computed as
+(100*\fB%U\fP+\fB%S\fP)/\fB%E\fP\&.
+.TP
+\fB%W\fP
+Number of times the process was swapped\&.
+.TP
+\fB%X\fP
+The average amount in (shared) text space used in Kbytes\&.
+.TP
+\fB%D\fP
+The average amount in (unshared) data/stack space used in
+Kbytes\&.
+.TP
+\fB%K\fP
+The total space used (%X+%D) in Kbytes\&.
+.TP
+\fB%M\fP
+The  maximum memory the process had in use at any time in
+Kbytes\&.
+.TP
+\fB%F\fP
+The number of major page faults (page needed to be brought
+from disk)\&.
+.TP
+\fB%R\fP
+The number of minor page faults\&.
+.TP
+\fB%I\fP
+The number of input operations\&.
+.TP
+\fB%O\fP
+The number of output operations\&.
+.TP
+\fB%r\fP
+The number of socket messages received\&.
+.TP
+\fB%s\fP
+The number of socket messages sent\&.
+.TP
+\fB%k\fP
+The number of signals received\&.
+.TP
+\fB%w\fP
+Number of voluntary context switches (waits)\&.
+.TP
+\fB%c\fP
+Number of involuntary context switches\&.
 .TP
 \fB%J\fP
 The name of this job\&.

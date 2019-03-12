@@ -5,7 +5,7 @@ THE Z SHELL (ZSH)
 Version
 -------
 
-This is zsh version 4.2.1.  This is a stable release.
+This is zsh version 4.2.3.  This is a stable version.
 
 Installing Zsh
 --------------
@@ -26,6 +26,27 @@ Possible incompatibilities
 
 Currently the only known incompatibilities between 4.2.0 and later
 versions are minor:
+
+
+Since 4.2.1:
+
+The "test" and "[" builtins now behave more like relevant Unix standards
+suggest they should.  Previously they were a simple front-end to the same
+tests used by zsh's "[[" syntax.  (The documentation was previously cagey
+about what "test" and "[" actually did.)  "[[" has always been the
+recommended way of implementing tests within zsh.
+
+In recent versions of zsh, typing the end-of-file (EOF) character
+(typically ^D, although this can be altered with the "stty" command)
+repeatedly in the line editor printed a warning message, but never exited the
+shell.  This was a departure from the traditional behaviour of zsh and
+other shells where the shell would exit after 10 EOFs.  The traditional
+behaviour has been restored.  Also, binding a user-defined editor command
+to the EOF character now suppresses the EOF behaviour inside the line
+editor; it is possible to emulate it if desired.
+
+
+From 4.2.0 to 4.2.1:
 
 IPv6 addresses must be specified in square brackets in the zftp module and
 the function system built on top of the zftp module.

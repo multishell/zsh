@@ -163,13 +163,15 @@ promptexpand(char *s, int ns, char *rs, char *Rs)
 
     if (isset(PROMPTSUBST)) {
 	int olderr = errflag;
+	int oldval = lastval;
 
 	s = dupstring(s);
 	if (!parsestr(s))
 	    singsub(&s);
 
-	/* Ignore errors in prompt substitution */
+	/* Ignore errors and status change in prompt substitution */
 	errflag = olderr;
+	lastval = oldval;
     }
 
     rstring = rs;
@@ -382,7 +384,7 @@ putpromptchar(int doprint, int endchar)
 	    case 'h':
 	    case '!':
 		addbufspc(DIGBUFSIZE);
-		sprintf(bp, "%d", curhist);
+		convbase(bp, curhist, 10);
 		bp += strlen(bp);
 		break;
 	    case 'j':
@@ -674,7 +676,7 @@ putpromptchar(int doprint, int endchar)
 		    pputc('!');
 		} else {
 		    addbufspc(DIGBUFSIZE);
-		    sprintf(bp, "%d", curhist);
+		    convbase(bp, curhist, 10);
 		    bp += strlen(bp);
 		}
 	    }

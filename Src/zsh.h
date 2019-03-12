@@ -739,12 +739,18 @@ struct timeinfo {
 
 /* node in job process lists */
 
+#ifdef HAVE_GETRUSAGE
+typedef struct rusage child_times_t;
+#else
+typedef struct timeinfo child_times_t;
+#endif
+
 struct process {
     struct process *next;
     pid_t pid;                  /* process id                       */
     char text[JOBTEXTSIZE];	/* text to print when 'jobs' is run */
     int status;			/* return code from waitpid/wait3() */
-    struct timeinfo ti;
+    child_times_t ti;
     struct timeval bgtime;	/* time job was spawned             */
     struct timeval endtime;	/* time job exited                  */
 };
@@ -1082,10 +1088,10 @@ struct patprog {
     long		startoff;  /* length before start of programme */
     long		size;	   /* total size from start of struct */
     long		mustoff;   /* offset to string that must be present */
+    long		patmlen;   /* length of pure string or longest match */
     int			globflags; /* globbing flags to set at start */
     int			globend;   /* globbing flags set after finish */
     int			flags;	   /* PAT_* flags */
-    int			patmlen;   /* length of pure string or longest match */
     int			patnpar;   /* number of active parentheses */
     char		patstartch;
 };
@@ -1103,6 +1109,7 @@ struct patprog {
 #define PAT_ZDUP        0x0100  /* Copy pattern in real memory */
 #define PAT_NOTSTART	0x0200	/* Start of string is not real start */
 #define PAT_NOTEND	0x0400	/* End of string is not real end */
+#define PAT_HAS_EXCLUDP	0x0800	/* (internal): top-level path1~path2. */
 
 /* Globbing flags: lower 8 bits gives approx count */
 #define GF_LCMATCHUC	0x0100
@@ -1115,6 +1122,49 @@ struct patprog {
 
 #define dummy_patprog1 ((Patprog) 1)
 #define dummy_patprog2 ((Patprog) 2)
+
+/* standard node types for get/set/unset union in parameter */
+
+/*
+ * note non-standard const in pointer declaration: structures are
+ * assumed to be read-only.
+ */
+typedef const struct gsu_scalar *GsuScalar;
+typedef const struct gsu_integer *GsuInteger;
+typedef const struct gsu_float *GsuFloat;
+typedef const struct gsu_array *GsuArray;
+typedef const struct gsu_hash *GsuHash;
+
+struct gsu_scalar {
+    char *(*getfn) _((Param));
+    void (*setfn) _((Param, char  *));
+    void (*unsetfn) _((Param, int));
+};
+
+struct gsu_integer {
+    zlong (*getfn) _((Param));
+    void (*setfn) _((Param, zlong));
+    void (*unsetfn) _((Param, int));
+};
+
+struct gsu_float {
+    double (*getfn) _((Param));
+    void (*setfn) _((Param, double));
+    void (*unsetfn) _((Param, int));
+};
+
+struct gsu_array {
+    char **(*getfn) _((Param));
+    void (*setfn) _((Param, char **));
+    void (*unsetfn) _((Param, int));
+};
+
+struct gsu_hash {
+    HashTable (*getfn) _((Param));
+    void (*setfn) _((Param, HashTable));
+    void (*unsetfn) _((Param, int));
+};
+
 
 /* node used in parameter hash table (paramtab) */
 
@@ -1129,33 +1179,30 @@ struct param {
 	char **arr;		/* value if declared array   (PM_ARRAY)   */
 	char *str;		/* value if declared string  (PM_SCALAR)  */
 	zlong val;		/* value if declared integer (PM_INTEGER) */
+	zlong *valptr;		/* value if special pointer to integer */
 	double dval;		/* value if declared float
 				                    (PM_EFLOAT|PM_FFLOAT) */
         HashTable hash;		/* value if declared assoc   (PM_HASHED)  */
     } u;
 
-    /* pointer to function to set value of this parameter */
+    /*
+     * get/set/unset methods.
+     *
+     * Unlike the data union, this points to a single instance
+     * for every type (although there are special types, e.g.
+     * tied arrays have a different gsu_scalar struct from the
+     * normal one).  It's really a poor man's vtable.
+     */
     union {
-	void (*cfn) _((Param, char *));
-	void (*ifn) _((Param, zlong));
-	void (*ffn) _((Param, double));
-	void (*afn) _((Param, char **));
-        void (*hfn) _((Param, HashTable));
-    } sets;
+	GsuScalar s;
+	GsuInteger i;
+	GsuFloat f;
+	GsuArray a;
+	GsuHash h;
+    } gsu;
 
-    /* pointer to function to get value of this parameter */
-    union {
-	char *(*cfn) _((Param));
-	zlong (*ifn) _((Param));
-	double (*ffn) _((Param));
-	char **(*afn) _((Param));
-        HashTable (*hfn) _((Param));
-    } gets;
-
-    /* pointer to function to unset this parameter */
-    void (*unsetfn) _((Param, int));
-
-    int ct;			/* output base or field width            */
+    int base;			/* output base or floating point prec    */
+    int width;			/* field width                           */
     char *env;			/* location in environment, if exported  */
     char *ename;		/* name of corresponding environment var */
     Param old;			/* old struct for use with local         */
@@ -1264,22 +1311,22 @@ struct paramdef {
     char *name;
     int flags;
     void *var;
-    void *set;
-    void *get;
-    void *unset;
+    void *gsu;			/* get/set/unset structure */
 };
 
-#define PARAMDEF(name, flags, var, set, get, unset) \
-    { name, flags, (void *) var, (void *) set, (void *) get, (void *) unset }
+#define PARAMDEF(name, flags, var, gsu) \
+    { name, flags, (void *) var, (void *) gsu, }
+/*
+ * Note that the following definitions are appropriate for defining
+ * parameters that reference a variable (var).  Hence the get/set/unset
+ * methods used will assume var needs dereferencing to get the value.
+ */
 #define INTPARAMDEF(name, var) \
-    { name, PM_INTEGER, (void *) var, (void *) intvarsetfn, \
-      (void *) intvargetfn, (void *) stdunsetfn }
+    { name, PM_INTEGER, (void *) var, NULL }
 #define STRPARAMDEF(name, var) \
-    { name, PM_SCALAR, (void *) var, (void *) strvarsetfn, \
-      (void *) strvargetfn, (void *) stdunsetfn }
+    { name, PM_SCALAR, (void *) var, NULL }
 #define ARRPARAMDEF(name, var) \
-    { name, PM_ARRAY, (void *) var, (void *) arrvarsetfn, \
-      (void *) arrvargetfn, (void *) stdunsetfn }
+    { name, PM_ARRAY, (void *) var, NULL }
 
 #define setsparam(S,V) assignsparam(S,V,0)
 #define setaparam(S,V) assignaparam(S,V,0)
@@ -1334,7 +1381,7 @@ struct histent {
     short *words;		/* Position of words in history     */
 				/*   line:  as pairs of start, end  */
     int nwords;			/* Number of words in history line  */
-    int histnum;		/* A sequential history number      */
+    zlong histnum;		/* A sequential history number      */
 };
 
 #define HIST_MAKEUNIQUE	0x00000001	/* Kill this new entry if not unique */
@@ -1364,6 +1411,7 @@ struct histent {
 #define HFILE_SKIPDUPS		0x0004
 #define HFILE_SKIPFOREIGN	0x0008
 #define HFILE_FAST		0x0010
+#define HFILE_NO_REWRITE	0x0020
 #define HFILE_USE_OPTIONS	0x8000
 
 /******************************************/
@@ -1445,6 +1493,7 @@ enum {
     EXECOPT,
     EXTENDEDGLOB,
     EXTENDEDHISTORY,
+    EVALLINENO,
     FLOWCONTROL,
     FUNCTIONARGZERO,
     GLOBOPT,

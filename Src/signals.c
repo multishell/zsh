@@ -400,18 +400,6 @@ signal_suspend(int sig, int sig2)
     return ret;
 }
 
-/* What flavor of waitpid/wait3/wait shall we use? */
- 
-#ifdef HAVE_WAITPID
-# define  WAIT(pid, statusp, options) waitpid(pid, statusp, options)
-#else
-# ifdef HAVE_WAIT3
-#  define WAIT(pid, statusp, options) wait3((void *) statusp, options, NULL)
-# else
-#  define WAIT(pid, statusp, options) wait(statusp)
-# endif
-#endif
-
 /* the signal handler */
  
 /**/
@@ -471,7 +459,25 @@ zhandler(int sig)
 	    int *procsubval = &cmdoutval;
 	    struct execstack *es = exstack;
 
-            pid = WAIT(-1, &status, WNOHANG|WUNTRACED);  /* reap the child process */
+	    /*
+	     * Reap the child process.
+	     * If we want usage information, we need to use wait3.
+	     */
+#ifdef HAVE_WAIT3
+# ifdef HAVE_GETRUSAGE
+	    struct rusage ru;
+
+	    pid = wait3((void *)&status, WNOHANG|WUNTRACED, &ru);
+# else
+	    pid = wait3((void *)&status, WNOHANG|WUNTRACED, NULL);
+# endif
+#else
+# ifdef HAVE_WAITPID
+	    pid = waitpid(-1, &status, WNOHANG|WUNTRACED);
+# else
+	    pid = wait(&status);
+# endif
+#endif
 
             if (!pid)  /* no more children to reap */
                 break;
@@ -484,7 +490,7 @@ zhandler(int sig)
 			*procsubval = (0200 | WTERMSIG(status));
 		    else
 			*procsubval = WEXITSTATUS(status);
-		    times(&shtms);
+		    get_usage();
 		    goto cont;
 		}
 		if (!es)
@@ -504,7 +510,14 @@ zhandler(int sig)
 
 	    /* Find the process and job containing this pid and update it. */
 	    if (findproc(pid, &jn, &pn, 0)) {
+#if defined(HAVE_WAIT3) && defined(HAVE_GETRUSAGE)
+		struct timezone dummy_tz;
+		gettimeofday(&pn->endtime, &dummy_tz);
+		pn->status = status;
+		pn->ti = ru;
+#else
 		update_process(pn, status);
+#endif
 		update_job(jn);
 	    } else if (findproc(pid, &jn, &pn, 1)) {
 		pn->status = status;
@@ -514,7 +527,7 @@ zhandler(int sig)
 		 * children in sub processes anyway:  otherwise, this
 		 * will get added on to the next found process that terminates.
 		 */
-		times(&shtms);
+		get_usage();
 	    }
         }
         break;
@@ -684,10 +697,8 @@ dosavetrap(int sig, int level)
 	 * Get the old function: this assumes we haven't added
 	 * the new one yet.
 	 */
-	char func[20];
 	Shfunc shf, newshf = NULL;
-	sprintf(func, "TRAP%s", sigs[sig]);
-	if ((shf = (Shfunc)shfunctab->getnode2(shfunctab, func))) {
+	if ((shf = (Shfunc)gettrapnode(sig, 1))) {
 	    /* Copy the node for saving */
 	    newshf = (Shfunc) zalloc(sizeof(*newshf));
 	    newshf->nam = ztrdup(shf->nam);
@@ -824,16 +835,15 @@ removetrap(int sig)
      * That causes a little inefficiency, but a good deal more reliability.
      */
     if (trapped & ZSIG_FUNC) {
-	char func[20];
-	HashNode node;
+	HashNode node = gettrapnode(sig, 1);
 
-	sprintf(func, "TRAP%s", sigs[sig]);
 	/*
 	 * As in dosavetrap(), don't call removeshfuncnode() because
 	 * that calls back into unsettrap();
 	 */
 	sigfuncs[sig] = NULL;
-	node = removehashnode(shfunctab, func);
+	if (node)
+	    removehashnode(shfunctab, node->nam);
 	unqueue_signals();
 
 	return node;
@@ -997,10 +1007,22 @@ dotrapargs(int sig, int *sigtr, void *sigfn)
     runhookdef(BEFORETRAPHOOK, NULL);
     if (*sigtr & ZSIG_FUNC) {
 	int osc = sfcontext;
+	HashNode hn = gettrapnode(sig, 0);
 
 	args = znewlinklist();
-	name = (char *) zalloc(5 + strlen(sigs[sig]));
-	sprintf(name, "TRAP%s", sigs[sig]);
+	/*
+	 * In case of multiple names, try to get
+	 * a hint of the name in use from the function table.
+	 * In special cases, e.g. EXIT traps, the function
+	 * has already been removed.  Then it's OK to
+	 * use the standard name.
+	 */
+	if (hn) {
+	    name = ztrdup(hn->nam);
+	} else {
+	    name = (char *) zalloc(5 + strlen(sigs[sig]));
+	    sprintf(name, "TRAP%s", sigs[sig]);
+	}
 	zaddlinknode(args, name);
 	sprintf(num, "%d", sig);
 	zaddlinknode(args, num);

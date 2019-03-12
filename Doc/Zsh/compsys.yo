@@ -2147,6 +2147,13 @@ completing words for the dict command. It allows words from different
 dictionary databases to be added separately.
 The default for this style is `false'.
 )
+kindex(show-completer, completion style)
+item(tt(show-completer))(
+Tested whenever a new completer is tried.  If it is true, the completion
+system outputs a progress message in the listing area showing what
+completer is being tried.  The message will be overwritten by any output
+when completions are found and is removed after completion is finished.
+)
 kindex(single-ignored, completion style)
 item(tt(single-ignored))(
 This is used by the tt(_ignored) completer when there is only one match.
@@ -4161,7 +4168,7 @@ findex(_retrieve_cache)
 item(tt(_retrieve_cache) var(cache_identifier))(
 This function retrieves completion information from the file given by
 var(cache_identifier), stored in a directory specified by the
-tt(cache-path) style which defaults to tt(~/.zsh/cache).  The return value
+tt(cache-path) style which defaults to tt(~/.zcompcache).  The return value
 is zero if retrieval was successful.  It will only attempt retrieval
 if the tt(use-cache) style is set, so you can call this function
 without worrying about whether the user wanted to use the caching
@@ -4211,7 +4218,7 @@ even in different instances of the shell.
 
 The var(cache_identifier) specifies the file which the data should be
 dumped to.  The file is stored in a directory specified by the
-tt(cache-path) style which defaults to tt(~/.zsh/cache).  The remaining
+tt(cache-path) style which defaults to tt(~/.zcompcache).  The remaining
 var(params) arguments are the parameters to dump to the file.
 
 The return value is zero if storage was successful.  The function will
